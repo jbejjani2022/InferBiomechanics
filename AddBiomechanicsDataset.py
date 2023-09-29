@@ -20,7 +20,7 @@ class OutputDataKeys:
 
 
 class AddBiomechanicsDataset(Dataset):
-    folder_path: str
+    data_path: str
     window_size: int
     stride: int
     device: torch.device
@@ -29,8 +29,8 @@ class AddBiomechanicsDataset(Dataset):
     input_dof_indices: List[int]
     windows: List[Tuple[nimble.biomechanics.SubjectOnDisk, int, int, str]]
 
-    def __init__(self, folder_path: str, window_size: int, stride: int, input_dofs: List[str], device: torch.device = torch.device('cpu')):
-        self.folder_path = folder_path
+    def __init__(self, data_path: str, window_size: int, stride: int, input_dofs: List[str], device: torch.device = torch.device('cpu')):
+        self.data_path = data_path
         self.window_size = window_size
         self.stride = stride
         self.input_dofs = input_dofs
@@ -40,33 +40,40 @@ class AddBiomechanicsDataset(Dataset):
 
         # Walk the folder path, and check for any with the ".bin" extension (indicating that they are AddBiomechanics binary data files)
         num_skipped = 0
-        for root, dirs, files in os.walk(folder_path):
-            for file in files:
-                if file.endswith(".bin"):
-                    # Create a subject object for each file. This will load just the header from this file, and keep that around in memory
-                    subject_path = os.path.join(root, file)
-                    subject = nimble.biomechanics.SubjectOnDisk(
-                        subject_path)
-                    # Add the subject to the list of subjects
-                    self.subjects.append(subject)
-                    # Also, count how many random windows we could select from this subject
-                    for trial in range(subject.getNumTrials()):
-                        probably_missing: List[bool] = subject.getProbablyMissingGRF(trial)
+        subject_paths = []
+        if os.path.isdir(data_path):
+            for root, dirs, files in os.walk(data_path):
+                for file in files:
+                    if file.endswith(".bin"):
+                        subject_paths.append(os.path.join(root, file))
+        else:
+            assert data_path.endswith(".bin")
+            subject_paths.append(data_path)
 
-                        trial_length = subject.getTrialLength(trial)
-                        for window_start in range(max(trial_length - (window_size * stride) + 1, 0)):
-                            # Check if any of the frames in this window are probably missing GRF data
-                            # If so, skip this window
-                            skip = False
-                            for i in range(window_start, window_start + window_size):
-                                if probably_missing[i]:
-                                    skip = True
-                                    break
-                            if not skip:
-                                self.windows.append(
-                                    (subject, trial, window_start, subject_path))
-                            else:
-                                num_skipped += 1
+        for subject_path in subject_paths:
+            # Create a subject object for each file. This will load just the header from this file, and keep that around in memory
+            subject = nimble.biomechanics.SubjectOnDisk(
+                subject_path)
+            # Add the subject to the list of subjects
+            self.subjects.append(subject)
+            # Also, count how many random windows we could select from this subject
+            for trial in range(subject.getNumTrials()):
+                probably_missing: List[bool] = subject.getProbablyMissingGRF(trial)
+
+                trial_length = subject.getTrialLength(trial)
+                for window_start in range(max(trial_length - (window_size * stride) + 1, 0)):
+                    # Check if any of the frames in this window are probably missing GRF data
+                    # If so, skip this window
+                    skip = False
+                    for i in range(window_start, window_start + window_size):
+                        if probably_missing[i]:
+                            skip = True
+                            break
+                    if not skip:
+                        self.windows.append(
+                            (subject, trial, window_start, subject_path))
+                    else:
+                        num_skipped += 1
 
         print('Num windows: ' + str(len(self.windows)))
         print('Num skipped due to missing GRF: ' + str(num_skipped))

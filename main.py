@@ -14,81 +14,94 @@ window_size = 50
 stride = 20
 # The batch size is the number of windows we want to load at once, for parallel training and inference on a GPU
 batch_size = 32
-# The number of epochs is the number of times we want to iterate over the entire dataset during training
-epochs = 40
-# Learning rate
-learning_rate = 1e-3
-# learning_rate = 1e-1
+
 device = 'cpu'
 
 # Input dofs to train on
 input_dofs = ['knee_angle_l', 'knee_angle_r', 'hip_flexion_l', 'hip_flexion_r', 'hip_adduction_l', 'hip_adduction_r']
 
-# Create an instance of the dataset
-train_dataset = AddBiomechanicsDataset(
-    './data/train', window_size, stride, input_dofs=input_dofs, device=torch.device(device))
-dev_dataset = AddBiomechanicsDataset(
-    './data/dev', window_size, stride, input_dofs=input_dofs, device=torch.device(device))
+def get_model():
+    # Define the model
+    # hidden_size = 2 * ((len(input_dofs) * window_size * 3) + (window_size * 3))
+    hidden_size = 256
+    model = FeedForwardBaseline(len(input_dofs), window_size, hidden_size, dropout_prob=0.1, device=device)
 
-# Create a DataLoader to load the data in batches
-train_dataloader = DataLoader(
-    train_dataset, batch_size=batch_size, shuffle=True)
-dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True)
+    return model
 
-# Define the model
-# hidden_size = 2 * ((len(input_dofs) * window_size * 3) + (window_size * 3))
-hidden_size = 256
-model = FeedForwardBaseline(len(input_dofs), window_size, hidden_size, dropout_prob=0.1, device=device)
+if __name__ == "__main__":
+    model = get_model()
 
+    # Create an instance of the dataset
+    train_dataset = AddBiomechanicsDataset(
+        './data/train', window_size, stride, input_dofs=input_dofs, device=torch.device(device))
+    dev_dataset = AddBiomechanicsDataset(
+        './data/dev', window_size, stride, input_dofs=input_dofs, device=torch.device(device))
 
-# Define the optimizer
-optimizer = torch.optim.Adagrad(model.parameters(), lr=learning_rate)
+    # Create a DataLoader to load the data in batches
+    train_dataloader = DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True)
+    dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True)
 
-for epoch in range(epochs):
-    # Iterate over the entire training dataset
-    loss_evaluator = LossEvaluator(
-        contact_weight=1.0, com_acc_weight=1e-3, contact_forces_weight=1e-3)
-    for i, batch in enumerate(train_dataloader):
-        inputs: Dict[str, torch.Tensor]
-        labels: Dict[str, torch.Tensor]
-        inputs, labels = batch
+    # The number of epochs is the number of times we want to iterate over the entire dataset during training
+    epochs = 40
+    # Learning rate
+    learning_rate = 1e-3
+    # learning_rate = 1e-1
 
-        # Clear the gradients
-        optimizer.zero_grad()
+    # Define the optimizer
+    optimizer = torch.optim.Adagrad(model.parameters(), lr=learning_rate)
 
-        # Forward pass
-        outputs = model(inputs)
-
-        # Compute the loss
-        loss = loss_evaluator(outputs, labels)
-
-        if i % 100 == 0:
-            print('  - Batch '+str(i)+'/'+str(len(train_dataloader)))
-        if i % 1000 == 0:
-            loss_evaluator.print_report()
-
-        # Backward pass
-        loss.backward()
-
-        # Update the model's parameters
-        optimizer.step()
-    # Report training loss on this epoch
-    print('Epoch '+str(epoch)+': ')
-    print('Training Set Evaluation: ')
-    loss_evaluator.print_report()
-
-    # At the end of each epoch, evaluate the model on the dev set
-    dev_loss_evaluator = LossEvaluator(
-        contact_weight=1.0, com_acc_weight=1e-3, contact_forces_weight=1e-3)
-    with torch.no_grad():
-        for i, batch in enumerate(dev_dataloader):
-            if i % 100 == 0:
-                print('  - Dev Batch ' + str(i) + '/' + str(len(dev_dataloader)))
+    for epoch in range(epochs):
+        # Iterate over the entire training dataset
+        loss_evaluator = LossEvaluator(
+            contact_weight=1.0, com_acc_weight=1e-3, contact_forces_weight=1e-3)
+        for i, batch in enumerate(train_dataloader):
             inputs: Dict[str, torch.Tensor]
             labels: Dict[str, torch.Tensor]
             inputs, labels = batch
+
+            # Clear the gradients
+            optimizer.zero_grad()
+
+            # Forward pass
             outputs = model(inputs)
-            loss = dev_loss_evaluator(outputs, labels)
-    # Report dev loss on this epoch
-    print('Dev Set Evaluation: ')
-    dev_loss_evaluator.print_report()
+
+            # Compute the loss
+            loss = loss_evaluator(outputs, labels)
+
+            if i % 100 == 0:
+                print('  - Batch '+str(i)+'/'+str(len(train_dataloader)))
+            if i % 1000 == 0:
+                loss_evaluator.print_report()
+                model_path = f"./outputs/models/epoch_{epoch}_batch_{i}.pt"
+                torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                }, model_path)
+
+            # Backward pass
+            loss.backward()
+
+            # Update the model's parameters
+            optimizer.step()
+        # Report training loss on this epoch
+        print('Epoch '+str(epoch)+': ')
+        print('Training Set Evaluation: ')
+        loss_evaluator.print_report()
+
+        # At the end of each epoch, evaluate the model on the dev set
+        dev_loss_evaluator = LossEvaluator(
+            contact_weight=1.0, com_acc_weight=1e-3, contact_forces_weight=1e-3)
+        with torch.no_grad():
+            for i, batch in enumerate(dev_dataloader):
+                if i % 100 == 0:
+                    print('  - Dev Batch ' + str(i) + '/' + str(len(dev_dataloader)))
+                inputs: Dict[str, torch.Tensor]
+                labels: Dict[str, torch.Tensor]
+                inputs, labels = batch
+                outputs = model(inputs)
+                loss = dev_loss_evaluator(outputs, labels)
+        # Report dev loss on this epoch
+        print('Dev Set Evaluation: ')
+        dev_loss_evaluator.print_report()
