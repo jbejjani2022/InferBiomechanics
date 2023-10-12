@@ -61,6 +61,8 @@ class AddBiomechanicsDataset(Dataset):
                 probably_missing: List[bool] = subject.getProbablyMissingGRF(trial)
 
                 trial_length = subject.getTrialLength(trial)
+                # print(trial_length, window_size, stride)
+                # print(max(trial_length - (window_size * stride) + 1, 0))
                 for window_start in range(max(trial_length - (window_size * stride) + 1, 0)):
                     # Check if any of the frames in this window are probably missing GRF data
                     # If so, skip this window
@@ -74,9 +76,6 @@ class AddBiomechanicsDataset(Dataset):
                             (subject, trial, window_start, subject_path))
                     else:
                         num_skipped += 1
-
-        print('Num windows: ' + str(len(self.windows)))
-        print('Num skipped due to missing GRF: ' + str(num_skipped))
 
         # Read the dofs from the first subject (assuming they are all the same)
         self.input_dof_indices = []
@@ -120,26 +119,29 @@ class AddBiomechanicsDataset(Dataset):
         numpy_input_dict[InputDataKeys.ACC] = np.column_stack([frame.acc[self.input_dof_indices] for frame in frames])
         numpy_input_dict[InputDataKeys.COM_ACC] = np.column_stack([frame.comAcc for frame in frames])
 
-        # numpy_output_dict[OutputDataKeys.CONTACT] = np.column_stack([np.array(frame.contact, dtype=np.float64) for frame in frames])
-
+        numpy_output_dict[OutputDataKeys.CONTACT] = np.column_stack([np.array(frame.contact, dtype=np.float64) for frame in frames])
+        correct = subject.getContactBodies()[0][-1] == 'l'
+        left = 0 if correct else 1
+        right = 1 - left
         contact_class = 0
-        if frames[-1].contact[0] == 0 and frames[-1].contact[1] == 0:
+        if frames[-1].contact[left] == 0 and frames[-1].contact[right] == 0:
             # Flight phase
             contact_class = 0
-        elif frames[-1].contact[0] == 1 and frames[-1].contact[1] == 0:
+        elif frames[-1].contact[left] == 1 and frames[-1].contact[right] == 0:
             # Left foot stance
             contact_class = 1
-        elif frames[-1].contact[0] == 0 and frames[-1].contact[1] == 1:
+        elif frames[-1].contact[left] == 0 and frames[-1].contact[right] == 1:
             # Right foot stance
             contact_class = 2
-        elif frames[-1].contact[0] == 1 and frames[-1].contact[1] == 1:
+        elif frames[-1].contact[left] == 1 and frames[-1].contact[right] == 1:
             # Double stance
             contact_class = 3
         one_hot_contact = np.zeros(4, dtype=np.float32)
         one_hot_contact[contact_class] = 1
 
         numpy_output_dict[OutputDataKeys.CONTACT] = one_hot_contact
-
+        numpy_output_dict[OutputDataKeys.CONTACT_FORCES] = frames[-1].groundContactForce if correct else frames[-1].groundContactForce[[3,4,5,0,1,2]]
+        # print(f"{numpy_output_dict[OutputDataKeys.CONTACT_FORCES]=}")
         # ###################################################
         # # Plotting
         # import matplotlib.pyplot as plt
@@ -185,3 +187,14 @@ class AddBiomechanicsDataset(Dataset):
         # Return the input and output dictionaries at this timestep
 
         return input_dict, label_dict
+
+if __name__ == "__main__":
+    window_size = 50
+    stride = 20
+    batch_size = 32
+    device = 'cpu'
+
+    # Input dofs to train on
+    input_dofs = ['knee_angle_l', 'knee_angle_r', 'hip_flexion_l', 'hip_flexion_r', 'hip_adduction_l', 'hip_adduction_r']
+    data_path = "/Users/rishi/Documents/Academics/stanford/human-body-dynamics/InferBiomechanics/data/processed/standardized/rajagopal_no_arms/data/protected/us-west-2:be72ee5a-acdb-4e07-b288-a55886ca1e3b/data/c1ab/5dd9f9149f8e8064442a852d79e77050a17c772bdc1199cfe088177b9387a657/5dd9f9149f8e8064442a852d79e77050a17c772bdc1199cfe088177b9387a657.bin"
+    AddBiomechanicsDataset(data_path, window_size, stride, input_dofs=input_dofs, device=torch.device(device))
