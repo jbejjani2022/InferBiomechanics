@@ -27,6 +27,8 @@ class InputDataKeys:
 
 
 class OutputDataKeys:
+    TAU = 'tau'
+
     # These are enough to compute ID
     GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME = 'groundContactWrenchesInRootFrame'
     RESIDUAL_WRENCH_IN_ROOT_FRAME = 'residualWrenchInRootFrame'
@@ -49,6 +51,9 @@ class AddBiomechanicsDataset(Dataset):
     num_dofs: int
     num_joints: int
     contact_bodies: List[str]
+    # For each subject, we store the skeleton and the contact bodies in memory, so they're ready to use with Nimble
+    skeletons: List[nimble.dynamics.Skeleton]
+    skeletons_contact_bodies: List[List[nimble.dynamics.BodyNode]]
 
     def __init__(self, data_path: str, window_size: int, geometry_folder: str, device: torch.device = torch.device('cpu')):
         self.data_path = data_path
@@ -58,6 +63,8 @@ class AddBiomechanicsDataset(Dataset):
         self.subjects = []
         self.windows = []
         self.contact_bodies = []
+        self.skeletons = []
+        self.skeletons_contact_bodies = []
 
         # Walk the folder path, and check for any with the ".bin" extension (indicating that they are AddBiomechanics binary data files)
         num_skipped = 0
@@ -71,7 +78,9 @@ class AddBiomechanicsDataset(Dataset):
             assert data_path.endswith(".b3d")
             subject_paths.append(data_path)
 
-        for subject_path in subject_paths:
+        subject_paths = subject_paths[:2]
+
+        for i, subject_path in enumerate(subject_paths):
             # Create a subject object for each file. This will load just the header from this file, and keep that around in memory
             subject = nimble.biomechanics.SubjectOnDisk(
                 subject_path)
@@ -109,6 +118,13 @@ class AddBiomechanicsDataset(Dataset):
                             (subject_index, subject, trial, window_start, subject_path))
                     else:
                         num_skipped += 1
+
+        for i, subject in enumerate(self.subjects):
+            # Add the skeleton to the list of skeletons
+            skeleton = subject.readSkel(subject.getNumProcessingPasses()-1, geometry_folder)
+            print('Loading skeleton ' + str(i+1) + '/' + str(len(subject_paths)))
+            self.skeletons.append(skeleton)
+            self.skeletons_contact_bodies.append([skeleton.getBodyNode(body) for body in self.contact_bodies])
 
         print('Contact bodies: '+str(self.contact_bodies))
 
@@ -167,6 +183,7 @@ class AddBiomechanicsDataset(Dataset):
             contact_cops.append(contact_cop)
             contact_moments.append(contact_moment / mass)
             contact_forces.append(contact_force / mass)
+        numpy_output_dict[OutputDataKeys.TAU] = np.row_stack([frame.processingPasses[input_pass_index].tau for frame in frames])
         numpy_output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = np.row_stack(contact_wrenches)
         numpy_output_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = np.row_stack(contact_cops)
         numpy_output_dict[OutputDataKeys.GROUND_CONTACT_MOMENTS_IN_ROOT_FRAME] = np.row_stack(contact_moments)
@@ -205,4 +222,4 @@ class AddBiomechanicsDataset(Dataset):
 
         # Return the input and output dictionaries at this timestep, as well as the skeleton pointer
 
-        return input_dict, label_dict
+        return input_dict, label_dict, subject_index
