@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict
-from AddBiomechanicsDataset import InputDataKeys, OutputDataKeys
+from data.AddBiomechanicsDataset import InputDataKeys, OutputDataKeys
 
 
 class TransformerLayer(nn.Module):
