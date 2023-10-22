@@ -1,6 +1,6 @@
 # Welcome to InferBiomechanics
 
-This is a simple repository with example scripts, code and baselines to train and evaluate models that can infer 
+This is a small repository with example scripts, code and baselines to train and evaluate models that can infer 
 physics information from pure motion, trained and evaluated on AddBiomechanics data.
 
 ## Getting The Data
@@ -13,7 +13,7 @@ Please download the data, and place it into the `data` folder in this repository
 
 First, run `pip3 install -r requirements.txt`
 
-There are several tasks you might want to run, all of which can be accessed from the command line entrypoint, `src/cli/main.py`
+There are several tasks you might want to run, all of which can be accessed from the command line entrypoint, `src/cli/main.py`. To run `main.py`, you'll need to be in the `src` directory.
 
 ### Training a Model
 
@@ -31,6 +31,8 @@ This command will automatically load the selected model type from the latest che
 
 `python3 main.py visualize ...`
 
+ANALYTICAL BASELINE: To visualize the results of running an analytical baseline, run with the `--model analytical` flag.
+
 ### Evaluating a Model
 
 To get performance numbers for a given model on the whole dataset, even if it hasn't finished training, run:
@@ -38,3 +40,5 @@ To get performance numbers for a given model on the whole dataset, even if it ha
 `python3 main.py analyze ...`
 
 This will automatically pick up the latest model checkpoint file, and run it on the whole dataset, and print out the results.
+
+ANALYTICAL BASELINE: To evaluate the results of running an analytical baseline on the whole dataset, run with the `--model analytical` flag.

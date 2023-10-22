@@ -84,6 +84,8 @@ class VisualizeCommand(AbstractCommand):
                 frame -= 1
                 if frame < 0:
                     frame = num_frames - 5
+            elif key == 'r':
+                loss_evaluator.print_report()
 
         gui.nativeAPI().registerKeydownListener(onKeyPress)
 
@@ -109,6 +111,11 @@ class VisualizeCommand(AbstractCommand):
                 outputs = model(inputs, skel_and_contact_bodies)
                 skel = skel_and_contact_bodies[0][0]
                 contact_bodies = skel_and_contact_bodies[0][1]
+
+                loss_evaluator(inputs, outputs, labels, batch_subject_indices, compute_report=True)
+                if frame % 100 == 0:
+                    print('Results on Frame ' + str(frame) + '/' + str(num_frames))
+                    loss_evaluator.print_report()
 
                 ground_forces: np.ndarray = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].numpy()
                 left_foot_force = ground_forces[0, 0, 0:3]
