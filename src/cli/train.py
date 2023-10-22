@@ -9,6 +9,7 @@ from typing import Dict, Tuple, List
 from cli.abstract_command import AbstractCommand
 import os
 import time
+import wandb
 
 
 class TrainCommand(AbstractCommand):
@@ -23,6 +24,9 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--history-len', type=int, default=5, help='The number of timesteps of context to show when constructing the inputs.')
         subparser.add_argument('--hidden-size', type=int, default=512, help='The hidden size to use when constructing the model.')
         subparser.add_argument('--device', type=str, default='cpu', help='Where to run the code, either cpu or gpu.')
+        subparser.add_argument('--learning-rate', type=float, default=1e-2, help='The learning rate for weight updates.')
+        subparser.add_argument('--epochs', type=int, default=10, help='The number of epochs to run training for.')
+        subparser.add_argument('--opt-type', type=str, default='adagrad', help='The optimizer to use when adapting the weights of the model during training.')
         subparser.add_argument('--batch-size', type=int, default=32, help='The batch size to use when training the model.')
         subparser.add_argument('--short', type=bool, default=False, help='Use very short datasets to test without loading a bunch of data.')
 
@@ -30,14 +34,33 @@ class TrainCommand(AbstractCommand):
         if 'command' in args and args.command != 'train':
             return False
         model_type: str = args.model_type
+        opt_type: str = args.opt_type
         checkpoint_dir: str = os.path.abspath(args.checkpoint_dir)
         history_len: int = args.history_len
         hidden_size: int = args.hidden_size
+        learning_rate: float = args.learning_rate
+        epochs: int = args.epochs
         batch_size: int = args.batch_size
         device: str = args.device
         short: bool = args.short
 
         geometry = self.ensure_geometry(args.geometry_folder)
+
+        print('Initializing wandb...')
+        wandb.init(
+            # set the wandb project where this run will be logged
+            project="shpd1",
+
+            # track hyperparameters and run metadata
+            config={
+                "learning_rate": learning_rate,
+                "hidden_size": hidden_size,
+                "batch_size": batch_size,
+                "model_type": model_type,
+                "optimizer_type": opt_type,
+                "epochs": epochs,
+            }
+        )
 
         # Create an instance of the dataset
         print('## Loading TRAIN set:')
@@ -55,14 +78,22 @@ class TrainCommand(AbstractCommand):
             train_dataset, batch_size=batch_size, shuffle=True)
         dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True)
 
-        # The number of epochs is the number of times we want to iterate over the entire dataset during training
-        epochs = 100000
-        # Learning rate
-        # learning_rate = 1e-3
-        learning_rate = 1e-2
-
         # Define the optimizer
-        optimizer = torch.optim.Adagrad(model.parameters(), lr=learning_rate)
+        if opt_type == 'adagrad':
+            optimizer = torch.optim.Adagrad(model.parameters(), lr=learning_rate)
+        elif opt_type == 'adam':
+            optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        elif opt_type == 'sgd':
+            optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+        elif opt_type == 'rmsprop':
+            optimizer = torch.optim.RMSprop(model.parameters(), lr=learning_rate)
+        elif opt_type == 'adadelta':
+            optimizer = torch.optim.Adadelta(model.parameters(), lr=learning_rate)
+        elif opt_type == 'adamax':
+            optimizer = torch.optim.Adamax(model.parameters(), lr=learning_rate)
+        else:
+            print('Invalid optimizer type: ' + opt_type)
+            assert(False)
 
         for epoch in range(epochs):
             # Iterate over the entire training dataset
@@ -81,7 +112,12 @@ class TrainCommand(AbstractCommand):
 
                 # Compute the loss
                 compute_report = i % 100 == 0
-                loss = loss_evaluator(inputs, outputs, labels, batch_subject_indices, compute_report)
+                loss = loss_evaluator(inputs,
+                                      outputs,
+                                      labels,
+                                      batch_subject_indices,
+                                      compute_report,
+                                      log_reports_to_wandb=True)
 
                 if i % 100 == 0:
                     print('  - Batch ' + str(i) + '/' + str(len(train_dataloader)))

@@ -1,3 +1,4 @@
 nimblephysics
 torch
 numpy
+wandb

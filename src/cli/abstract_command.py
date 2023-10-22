@@ -64,6 +64,10 @@ class AbstractCommand:
         return model
 
     def load_latest_checkpoint(self, model, optimizer=None, checkpoint_dir="../checkpoints"):
+        if not os.path.exists(checkpoint_dir):
+            print("Checkpoint directory does not exist!")
+            return
+
         # Get all the checkpoint files
         checkpoints = [f for f in os.listdir(checkpoint_dir) if f.endswith(".pt")]
 

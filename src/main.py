@@ -7,6 +7,7 @@ from cli.visualize import VisualizeCommand
 from cli.visualize_file import VisualizeFileCommand
 from cli.create_splits import CreateSplitsCommand
 from cli.analyze import AnalyzeCommand
+from cli.sanity_check import SanityCheckCommand
 import nimblephysics as nimble
 
 def main():
@@ -14,7 +15,8 @@ def main():
                 VisualizeCommand(),
                 VisualizeFileCommand(),
                 CreateSplitsCommand(),
-                AnalyzeCommand()]
+                AnalyzeCommand(),
+                SanityCheckCommand()]
 
     # Create an ArgumentParser object
     parser = argparse.ArgumentParser(

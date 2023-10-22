@@ -1,0 +1,45 @@
+wandb_version: 1
+
+learning_rate:
+  desc: null
+  value: 0.01
+hidden_size:
+  desc: null
+  value: 512
+batch_size:
+  desc: null
+  value: 32
+model_type:
+  desc: null
+  value: feedforward
+optimizer_type:
+  desc: null
+  value: adagrad
+epochs:
+  desc: null
+  value: 10
+_wandb:
+  desc: null
+  value:
+    python_version: 3.9.6
+    cli_version: 0.15.12
+    framework: torch
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    start_time: 1698005200.245149
+    t:
+      1:
+      - 1
+      - 55
+      2:
+      - 1
+      - 55
+      3:
+      - 16
+      - 23
+      4: 3.9.6
+      5: 0.15.12
+      8:
+      - 4
+      - 5
+      13: darwin-arm64

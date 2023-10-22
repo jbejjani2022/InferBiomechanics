@@ -2,6 +2,7 @@ import torch
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset, OutputDataKeys, InputDataKeys
 from typing import Dict, List
 import numpy as np
+import wandb
 
 
 class RegressionLossEvaluator:
@@ -30,9 +31,10 @@ class RegressionLossEvaluator:
         self.sum_direct_tau_error = 0.0
 
     @staticmethod
-    def compute_norms(diff: torch.Tensor) -> torch.Tensor:
+    def compute_norms(diff: torch.Tensor, max: float = 1e3) -> torch.Tensor:
         diff = diff.view((-1, diff.shape[-2], int(diff.shape[-1] / 3), 3))
         diff = torch.linalg.norm(diff, dim=-1)
+        diff = torch.clamp(diff, min=0, max=max)
         return diff
 
     def __call__(self,
@@ -40,22 +42,34 @@ class RegressionLossEvaluator:
                  outputs: Dict[str, torch.Tensor],
                  labels: Dict[str, torch.Tensor],
                  batch_subject_indices: List[int],
-                 compute_report: bool = False) -> torch.Tensor:
+                 compute_report: bool = False,
+                 log_reports_to_wandb: bool = False) -> torch.Tensor:
         # Compute the loss
-        force_diff = RegressionLossEvaluator.compute_norms(outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] - labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME])
+        force_diff = RegressionLossEvaluator.compute_norms(
+            outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] - labels[
+                OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME])
         force_loss = torch.sum(force_diff ** 2)
 
-        cop_diff = RegressionLossEvaluator.compute_norms(outputs[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] - labels[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME])
+        # CoP loss is tricky, because when there is no force the CoP is meaningless, and so we want to ensure that
+        # we only report CoP loss on the frames where there is a non-zero force.
+        mask_tensor = (labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] != 0).float()
+        cop_diff = RegressionLossEvaluator.compute_norms(
+            (outputs[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] - labels[
+                OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME]) * mask_tensor, max=10.0)
         cop_loss = torch.sum(cop_diff ** 2)
 
-        moment_diff = RegressionLossEvaluator.compute_norms(outputs[OutputDataKeys.GROUND_CONTACT_MOMENTS_IN_ROOT_FRAME] - labels[OutputDataKeys.GROUND_CONTACT_MOMENTS_IN_ROOT_FRAME])
+        moment_diff = RegressionLossEvaluator.compute_norms(
+            (outputs[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] - labels[
+                OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME]) * mask_tensor)
         moment_loss = torch.sum(moment_diff ** 2)
 
-        wrench_diff = RegressionLossEvaluator.compute_norms(outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] - labels[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME])
+        wrench_diff = RegressionLossEvaluator.compute_norms(
+            outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] - labels[
+                OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME])
         wrench_loss = torch.sum(wrench_diff ** 2)
 
-        assert(force_diff.shape == moment_diff.shape)
-        assert(force_diff.shape == cop_diff.shape)
+        assert (force_diff.shape == moment_diff.shape)
+        assert (force_diff.shape == cop_diff.shape)
 
         # Keep track of various performance metrics to report
         if compute_report:
@@ -74,9 +88,12 @@ class RegressionLossEvaluator:
                         skel.setVelocities(inputs[InputDataKeys.VEL][batch, timestep, :].cpu().numpy())
                         acc = inputs[InputDataKeys.ACC][batch, timestep, :].cpu().numpy()
                         contact_bodies = self.dataset.skeletons_contact_bodies[batch_subject_indices[batch]]
-                        contact_wrench_guesses = outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][batch, timestep, :].cpu().numpy() * skel.getMass()
-                        contact_wrench_guesses_list = [contact_wrench_guesses[i*6:i*6+6] for i in range(len(contact_bodies))]
-                        tau = skel.getInverseDynamicsFromPredictions(acc, contact_bodies, contact_wrench_guesses_list, np.zeros(6))
+                        contact_wrench_guesses = outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][batch,
+                                                 timestep, :].cpu().numpy() * skel.getMass()
+                        contact_wrench_guesses_list = [contact_wrench_guesses[i * 6:i * 6 + 6] for i in
+                                                       range(len(contact_bodies))]
+                        tau = skel.getInverseDynamicsFromPredictions(acc, contact_bodies, contact_wrench_guesses_list,
+                                                                     np.zeros(6))
                         tau_error = tau - labels[OutputDataKeys.TAU][batch, timestep, :].cpu().numpy()
                         # Exclude root residual from error
                         tau_err_mean += np.linalg.norm(tau_error[6:])
@@ -91,13 +108,36 @@ class RegressionLossEvaluator:
                 self.sum_grf_forces_percent_error += force_percentage_diff.mean().item()
                 self.sum_grf_cop_error += cop_diff.mean().item()
                 self.sum_grf_moment_error += moment_diff.mean().item()
-                self.sum_grf_wrench_moment_error += (wrench_diff[:, :, 0].mean().item() + wrench_diff[:, :, 2].mean().item()) / 2
-                self.sum_grf_wrench_force_error += (wrench_diff[:, :, 1].mean().item() + wrench_diff[:, :, 3].mean().item()) / 2
+                self.sum_grf_wrench_moment_error += (wrench_diff[:, :, 0].mean().item() + wrench_diff[:, :,
+                                                                                          2].mean().item()) / 2
+                self.sum_grf_wrench_force_error += (wrench_diff[:, :, 1].mean().item() + wrench_diff[:, :,
+                                                                                         3].mean().item()) / 2
 
         loss = force_loss + cop_loss + moment_loss + wrench_loss
+
+        if log_reports_to_wandb:
+            report: Dict[str, float] = {
+                'force_loss': force_loss.item(),
+                'cop_loss': cop_loss.item(),
+                'moment_loss': moment_loss.item(),
+                'wrench_loss': wrench_loss.item(),
+                'loss': loss.item()
+            }
+            if compute_report:
+                report['Force Avg Err (N/kg)'] = force_diff.mean().item()
+                report['Force Avg Err (%)'] = force_percentage_diff.mean().item()
+                report['CoP Avg Err (m)'] = cop_diff.mean().item()
+                report['Moment Avg Err (Nm/kg)'] = moment_diff.mean().item()
+                report['Wrench Force Avg Err (N/kg)'] = (wrench_diff[:, :, 1].mean().item() + wrench_diff[:, :,
+                                                                                       3].mean().item()) / 2
+                report['Wrench Moment Avg Err (Nm/kg)'] = (wrench_diff[:, :, 0].mean().item() + wrench_diff[:, :,
+                                                                                        2].mean().item()) / 2
+                report['Non-root Joint Torques (Inverse Dynamics) Avg Err (Nm/kg)'] = tau_err_mean
+            wandb.log(report)
+
         return loss
 
-    def print_report(self, reset: bool=True):
+    def print_report(self, reset: bool = True, log_to_wandb: bool = False):
         if self.num_evaluations == 0:
             return
 

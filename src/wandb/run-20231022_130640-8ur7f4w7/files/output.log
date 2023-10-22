@@ -1,0 +1,87 @@
+
+## Loading TRAIN set:
+Loading skeleton 1/44
+Loading skeleton 2/44
+Loading skeleton 3/44
+Loading skeleton 4/44
+Loading skeleton 5/44
+Loading skeleton 6/44
+Loading skeleton 7/44
+Loading skeleton 8/44
+Loading skeleton 9/44
+Loading skeleton 10/44
+Loading skeleton 11/44
+Loading skeleton 12/44
+Loading skeleton 13/44
+Loading skeleton 14/44
+Loading skeleton 15/44
+Loading skeleton 16/44
+Loading skeleton 17/44
+Loading skeleton 18/44
+Loading skeleton 19/44
+Loading skeleton 20/44
+Loading skeleton 21/44
+Loading skeleton 22/44
+Loading skeleton 23/44
+Loading skeleton 24/44
+Loading skeleton 25/44
+Loading skeleton 26/44
+Loading skeleton 27/44
+Loading skeleton 28/44
+Loading skeleton 29/44
+Loading skeleton 30/44
+Loading skeleton 31/44
+Loading skeleton 32/44
+Loading skeleton 33/44
+Loading skeleton 34/44
+Loading skeleton 35/44
+Loading skeleton 36/44
+Loading skeleton 37/44
+Loading skeleton 38/44
+Loading skeleton 39/44
+Loading skeleton 40/44
+Loading skeleton 41/44
+Loading skeleton 42/44
+Loading skeleton 43/44
+Loading skeleton 44/44
+Contact bodies: ['calcn_r', 'calcn_l']
+## Loading DEV set:
+Loading skeleton 1/25
+Loading skeleton 2/25
+Loading skeleton 3/25
+Loading skeleton 4/25
+Loading skeleton 5/25
+Loading skeleton 6/25
+Loading skeleton 7/25
+Loading skeleton 8/25
+Loading skeleton 9/25
+Loading skeleton 10/25
+Loading skeleton 11/25
+Loading skeleton 12/25
+Loading skeleton 13/25
+Loading skeleton 14/25
+Loading skeleton 15/25
+Loading skeleton 16/25
+Loading skeleton 17/25
+Loading skeleton 18/25
+Loading skeleton 19/25
+Loading skeleton 20/25
+Loading skeleton 21/25
+Loading skeleton 22/25
+Loading skeleton 23/25
+Loading skeleton 24/25
+Loading skeleton 25/25
+Contact bodies: ['calcn_r', 'calcn_l']
+num dofs: 23, num joints: 12, history len: 5
+Traceback (most recent call last):
+  File "/Users/keenonwerling/Desktop/dev/InferBiomechanics/src/main.py", line 39, in <module>
+    main()
+  File "/Users/keenonwerling/Desktop/dev/InferBiomechanics/src/main.py", line 34, in main
+    if command.run(args):
+  File "/Users/keenonwerling/Desktop/dev/InferBiomechanics/src/cli/train.py", line 74, in run
+    model = self.get_model(train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, hidden_size, device, checkpoint_dir=checkpoint_dir)
+  File "/Users/keenonwerling/Desktop/dev/InferBiomechanics/src/cli/abstract_command.py", line 59, in get_model
+    self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir)
+  File "/Users/keenonwerling/Desktop/dev/InferBiomechanics/src/cli/abstract_command.py", line 68, in load_latest_checkpoint
+    checkpoints = [f for f in os.listdir(checkpoint_dir) if f.endswith(".pt")]
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/keenonwerling/Desktop/dev/InferBiomechanics/checkpoints'

@@ -5,7 +5,9 @@ physics information from pure motion, trained and evaluated on AddBiomechanics d
 
 ## Getting The Data
 
-The latest dataset is available in a Google Drive folder, [here](https://drive.google.com/drive/u/1/folders/1x_ys7vN0wPn23IjIQkbLGYpvLf9HFXkv).
+If you are running on the [Sherlock cluster](https://www.sherlock.stanford.edu/docs/), the latest data is already loaded at `/home/groups/delp/data`.
+
+For local training runs, the latest dataset is available in a Google Drive folder, [here](https://drive.google.com/drive/u/1/folders/1x_ys7vN0wPn23IjIQkbLGYpvLf9HFXkv).
 
 Please download the data, and place it into the `data` folder in this repository. When completed, there should be a `data/train` folder, and a `data/dev` folder, each with many `*.b3d` files in them.
 
@@ -21,7 +23,12 @@ To generate model snapshots, run this command:
 
 `python3 main.py train ...`
 
-It can train several different kinds of models.
+We use [Weights and Biases](wandb.ai) to track model training, so you'll need to create an account there, and either:
+1) set the `WANDB_API_KEY` environment variable to your API key.
+2) run `wandb login` from the command line, and follow the instructions.
+
+Once that's set up, your runs will automatically log to your account, and you can see them in the web interface. By 
+default, the runs log to a shared academic project, [shpd1](https://wandb.ai/shpd1/shpd1).
 
 ### Visualizing a Model
 

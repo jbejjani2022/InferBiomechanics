@@ -37,8 +37,8 @@ class OutputDataKeys:
     CONTACT = 'contact'
     COM_ACC_IN_ROOT_FRAME = 'comAccInRootFrame'
     GROUND_CONTACT_COPS_IN_ROOT_FRAME = 'groundContactCenterOfPressureInRootFrame'
-    GROUND_CONTACT_MOMENTS_IN_ROOT_FRAME = 'groundContactTorqueInRootFrame'
-    GROUND_CONTACT_FORCES_IN_ROOT_FRAME = 'groundContactMomentInRootFrame'
+    GROUND_CONTACT_TORQUES_IN_ROOT_FRAME = 'groundContactTorqueInRootFrame'
+    GROUND_CONTACT_FORCES_IN_ROOT_FRAME = 'groundContactForceInRootFrame'
 
 
 class AddBiomechanicsDataset(Dataset):
@@ -60,7 +60,8 @@ class AddBiomechanicsDataset(Dataset):
                  window_size: int,
                  geometry_folder: str,
                  device: torch.device = torch.device('cpu'),
-                 testing_with_short_dataset: bool = False):
+                 testing_with_short_dataset: bool = False,
+                 skip_loading_skeletons: bool = False):
         self.data_path = data_path
         self.window_size = window_size
         self.geometry_folder = geometry_folder
@@ -125,12 +126,13 @@ class AddBiomechanicsDataset(Dataset):
                     else:
                         num_skipped += 1
 
-        for i, subject in enumerate(self.subjects):
-            # Add the skeleton to the list of skeletons
-            skeleton = subject.readSkel(subject.getNumProcessingPasses()-1, geometry_folder)
-            print('Loading skeleton ' + str(i+1) + '/' + str(len(subject_paths)))
-            self.skeletons.append(skeleton)
-            self.skeletons_contact_bodies.append([skeleton.getBodyNode(body) for body in self.contact_bodies])
+        if not skip_loading_skeletons:
+            for i, subject in enumerate(self.subjects):
+                # Add the skeleton to the list of skeletons
+                skeleton = subject.readSkel(subject.getNumProcessingPasses()-1, geometry_folder)
+                print('Loading skeleton ' + str(i+1) + '/' + str(len(subject_paths)))
+                self.skeletons.append(skeleton)
+                self.skeletons_contact_bodies.append([skeleton.getBodyNode(body) for body in self.contact_bodies])
 
         print('Contact bodies: '+str(self.contact_bodies))
 
@@ -140,7 +142,7 @@ class AddBiomechanicsDataset(Dataset):
     def __len__(self):
         return len(self.windows)
 
-    def __getitem__(self, index: int):
+    def __getitem__(self, index: int) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], int]:
         subject_index, subject, trial, start_frame, subject_path = self.windows[index]
         frames: List[nimble.biomechanics.Frame] = subject.readFrames(
             trial, start_frame, numFramesToRead=self.window_size, contactThreshold=0.1)
@@ -195,7 +197,7 @@ class AddBiomechanicsDataset(Dataset):
         numpy_output_dict[OutputDataKeys.TAU] = np.row_stack([frame.processingPasses[input_pass_index].tau for frame in frames])
         numpy_output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = np.row_stack(contact_wrenches)
         numpy_output_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = np.row_stack(contact_cops)
-        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_MOMENTS_IN_ROOT_FRAME] = np.row_stack(contact_moments)
+        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = np.row_stack(contact_moments)
         numpy_output_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] = np.row_stack(contact_forces)
         numpy_output_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = np.row_stack([np.array(frame.processingPasses[-1].residualWrenchInRootFrame / mass, dtype=np.float64) for frame in frames])
         numpy_output_dict[OutputDataKeys.COM_ACC_IN_ROOT_FRAME] = np.row_stack([np.array(frame.processingPasses[-1].comAccInRootFrame, dtype=np.float64) for frame in frames])

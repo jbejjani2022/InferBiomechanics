@@ -81,6 +81,6 @@ class FeedForwardBaseline(nn.Module):
         return {
             OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME: x[:, :, 0:6],
             OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME: x[:, :, 6:12],
-            OutputDataKeys.GROUND_CONTACT_MOMENTS_IN_ROOT_FRAME: x[:, :, 12:18],
+            OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME: x[:, :, 12:18],
             OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME: x[:, :, 18:30]
         }
