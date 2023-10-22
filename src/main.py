@@ -5,12 +5,14 @@ import nimblephysics_libs.biomechanics
 from cli.train import TrainCommand
 from cli.visualize import VisualizeCommand
 from cli.create_splits import CreateSplitsCommand
+from cli.analyze import AnalyzeCommand
 import nimblephysics as nimble
 
 def main():
     commands = [TrainCommand(),
                 VisualizeCommand(),
-                CreateSplitsCommand()]
+                CreateSplitsCommand(),
+                AnalyzeCommand()]
 
     # Create an ArgumentParser object
     parser = argparse.ArgumentParser(

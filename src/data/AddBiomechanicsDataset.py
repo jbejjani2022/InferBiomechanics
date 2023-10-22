@@ -55,7 +55,12 @@ class AddBiomechanicsDataset(Dataset):
     skeletons: List[nimble.dynamics.Skeleton]
     skeletons_contact_bodies: List[List[nimble.dynamics.BodyNode]]
 
-    def __init__(self, data_path: str, window_size: int, geometry_folder: str, device: torch.device = torch.device('cpu')):
+    def __init__(self,
+                 data_path: str,
+                 window_size: int,
+                 geometry_folder: str,
+                 device: torch.device = torch.device('cpu'),
+                 testing_with_short_dataset: bool = False):
         self.data_path = data_path
         self.window_size = window_size
         self.geometry_folder = geometry_folder
@@ -78,7 +83,8 @@ class AddBiomechanicsDataset(Dataset):
             assert data_path.endswith(".b3d")
             subject_paths.append(data_path)
 
-        subject_paths = subject_paths[:2]
+        if testing_with_short_dataset:
+            subject_paths = subject_paths[:2]
 
         for i, subject_path in enumerate(subject_paths):
             # Create a subject object for each file. This will load just the header from this file, and keep that around in memory
@@ -127,6 +133,9 @@ class AddBiomechanicsDataset(Dataset):
             self.skeletons_contact_bodies.append([skeleton.getBodyNode(body) for body in self.contact_bodies])
 
         print('Contact bodies: '+str(self.contact_bodies))
+
+        if testing_with_short_dataset:
+            self.windows = self.windows[:100]
 
     def __len__(self):
         return len(self.windows)

@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
-from typing import Dict
+from typing import Dict, List, Tuple
 from data.AddBiomechanicsDataset import InputDataKeys, OutputDataKeys
+import nimblephysics as nimble
 
 
 class FeedForwardBaseline(nn.Module):
@@ -37,13 +38,15 @@ class FeedForwardBaseline(nn.Module):
         self.dropout1 = nn.Dropout(dropout_prob)
         self.fc1 = nn.Linear(input_size, hidden_size, dtype=torch.float32, device=device)
         self.dropout2 = nn.Dropout(dropout_prob)
+        self.sigmoid = nn.Sigmoid()
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(hidden_size, hidden_size, dtype=torch.float32, device=device)
         self.dropout3 = nn.Dropout(dropout_prob)
+        self.sigmoid2 = nn.Sigmoid()
         self.relu2 = nn.ReLU()
         self.fc3 = nn.Linear(hidden_size, output_size, dtype=torch.float32, device=device)
         
-    def forward(self, input: Dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def forward(self, input: Dict[str, torch.Tensor], skels_and_contact: List[Tuple[nimble.dynamics.Skeleton, List[nimble.dynamics.BodyNode]]]) -> dict[str, torch.Tensor]:
         # Get the position, velocity, and acceleration tensors
 
         # assert(input[InputDataKeys.POS].shape[-1] == self.num_dofs)
@@ -69,17 +72,15 @@ class FeedForwardBaseline(nn.Module):
         x = self.dropout1(inputs)
         x = self.fc1(x)
         x = self.dropout2(x)
-        x = self.fc2(x)
         x = self.relu(x)
+        x = self.fc2(x)
+        x = self.sigmoid2(x)
         x = self.dropout3(x)
         x = self.fc3(x)
 
         return {
-            OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME: 3 * torch.tanh(x[:, :, 0:6]),
-            OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME: 200 * torch.tanh(x[:, :, 6:12]),
-            OutputDataKeys.GROUND_CONTACT_MOMENTS_IN_ROOT_FRAME: 20 * torch.tanh(x[:, :, 12:18]),
-            OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME: 200 * torch.tanh(x[:, :, 18:30])
+            OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME: x[:, :, 0:6],
+            OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME: x[:, :, 6:12],
+            OutputDataKeys.GROUND_CONTACT_MOMENTS_IN_ROOT_FRAME: x[:, :, 12:18],
+            OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME: x[:, :, 18:30]
         }
-
-if __name__ == "__main__":
-    print(FeedForwardBaseline(19, 5))

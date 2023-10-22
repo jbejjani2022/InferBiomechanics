@@ -2,6 +2,7 @@ import argparse
 import os
 import torch
 from models.FeedForwardRegressionBaseline import FeedForwardBaseline
+from models.AnalyticalBaseline import AnalyticalBaseline
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset
 
 
@@ -39,25 +40,32 @@ class AbstractCommand:
         return geometry
 
     def get_model(self,
-                  dataset: AddBiomechanicsDataset,
+                  num_dofs: int,
+                  num_joints: int,
                   model_type: str = 'feedforward',
                   history_len: int = 5,
                   hidden_size: int = 512,
-                  device: str = 'cpu'):
-        # Define the model
-        model = FeedForwardBaseline(
-            dataset.num_dofs,
-            dataset.num_joints,
-            history_len,
-            hidden_size,
-            dropout_prob=0.0,
-            device=device)
+                  device: str = 'cpu',
+                  checkpoint_dir="../checkpoints"):
+        if model_type == 'feedforward':
+            # Define the model
+            model = FeedForwardBaseline(
+                num_dofs,
+                num_joints,
+                history_len,
+                hidden_size,
+                dropout_prob=0.0,
+                device=device)
+            self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir)
+        else:
+            assert(model_type == 'analytical')
+            model = AnalyticalBaseline()
 
         return model
 
-    def load_latest_checkpoint(self, model, optimizer=None, output_dir="./outputs/models"):
+    def load_latest_checkpoint(self, model, optimizer=None, checkpoint_dir="../checkpoints"):
         # Get all the checkpoint files
-        checkpoints = [f for f in os.listdir(output_dir) if f.endswith(".pt")]
+        checkpoints = [f for f in os.listdir(checkpoint_dir) if f.endswith(".pt")]
 
         # If there are no checkpoints, return
         if not checkpoints:
@@ -68,7 +76,7 @@ class AbstractCommand:
         checkpoints.sort(key=lambda x: (int(x.split('_')[1]), int(x.split('_')[3].split('.')[0])))
 
         # Get the path of the latest checkpoint
-        latest_checkpoint = os.path.join(output_dir, checkpoints[-1])
+        latest_checkpoint = os.path.join(checkpoint_dir, checkpoints[-1])
 
         # Load the checkpoint
         checkpoint = torch.load(latest_checkpoint)

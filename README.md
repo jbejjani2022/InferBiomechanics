@@ -1,20 +1,28 @@
-# Hello!
+# Welcome to InferBiomechanics
 
-This is a simple repository with example scripts, code and baselines to train and evaluate models on AddBiomechanics data.
+This is a simple repository with example scripts, code and baselines to train and evaluate models that can infer 
+physics information from pure motion, trained and evaluated on AddBiomechanics data.
 
 ## Getting The Data
 
-1. First you need to install the AddBiomechanics Command Line Interface (CLI) `addb`. There are instructions [here](https://github.com/keenon/AddBiomechanics/tree/main/cli).
-2. Then, you need to download the data. You can do this by running `./update_dataset.sh` from the root directory of this repository. It will ask for your username and password to log in to AddBiomechanics, if you haven't used the `addb` tool before, and then some confirmations.
+The data is available in a Google Drive folder, [here](https://drive.google.com/drive/u/1/folders/1x_ys7vN0wPn23IjIQkbLGYpvLf9HFXkv).
 
-Once you've completed these steps, there will be a dataset in `data/processed/`, using a standard armless Rajagopal skeleton format. The data is contained in `*.bin` files, which can be read with the `nimblephysics.biomechanics.SubjectOnDisk` class.
+Please download the data, and place it into the `data` folder in this repository. When completed, there should be a `data/train` folder, and a `data/dev` folder, each with many `*.b3d` files in them.
 
-## Running the Baseline
+## Running the Code
 
 First, run `pip3 install -r requirements.txt`
 
-Then to run a few epochs of training:
+There are several tasks you might want to run, all of which can be accessed from the command line entrypoint, `src/cli/main.py`
 
-`python3 main.py`
+### Training a Model
 
-That will print out results as it trains.
+`python3 main.py train ...`
+
+### Visualizing a Model
+
+`python3 main.py visualize ...`
+
+### Evaluating a Model
+
+`python3 main.py evaluate ...`
