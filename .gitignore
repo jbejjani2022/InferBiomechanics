@@ -4,3 +4,4 @@ data/
 Geometry/
 outputs/
 checkpoints/
+.DS_Store
