@@ -124,15 +124,15 @@ class RegressionLossEvaluator:
                 'loss': loss.item()
             }
             if compute_report:
-                report['Force Avg Err (N/kg)'] = force_diff.mean().item()
+                report['Force Avg Err (N per kg)'] = force_diff.mean().item()
                 report['Force Avg Err (%)'] = force_percentage_diff.mean().item()
                 report['CoP Avg Err (m)'] = cop_diff.mean().item()
-                report['Moment Avg Err (Nm/kg)'] = moment_diff.mean().item()
-                report['Wrench Force Avg Err (N/kg)'] = (wrench_diff[:, :, 1].mean().item() + wrench_diff[:, :,
+                report['Moment Avg Err (Nm per kg)'] = moment_diff.mean().item()
+                report['Wrench Force Avg Err (N per kg)'] = (wrench_diff[:, :, 1].mean().item() + wrench_diff[:, :,
                                                                                        3].mean().item()) / 2
-                report['Wrench Moment Avg Err (Nm/kg)'] = (wrench_diff[:, :, 0].mean().item() + wrench_diff[:, :,
+                report['Wrench Moment Avg Err (Nm per kg)'] = (wrench_diff[:, :, 0].mean().item() + wrench_diff[:, :,
                                                                                         2].mean().item()) / 2
-                report['Non-root Joint Torques (Inverse Dynamics) Avg Err (Nm/kg)'] = tau_err_mean
+                report['Non-root Joint Torques (Inverse Dynamics) Avg Err (Nm per kg)'] = tau_err_mean
             wandb.log(report)
 
         return loss

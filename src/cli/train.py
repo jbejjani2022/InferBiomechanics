@@ -18,6 +18,7 @@ class TrainCommand(AbstractCommand):
 
     def register_subcommand(self, subparsers: argparse._SubParsersAction):
         subparser = subparsers.add_parser('train', help='Train a model on the AddBiomechanics dataset')
+        subparser.add_argument('--dataset-home', type=str, default='..', help='The path to the AddBiomechanics dataset.')
         subparser.add_argument('--model-type', type=str, default='feedforward', help='The model to train.')
         subparser.add_argument('--checkpoint-dir', type=str, default='../checkpoints', help='The path to a model checkpoint to save during training. Also, starts from the latest checkpoint in this directory.')
         subparser.add_argument('--geometry-folder', type=str, default=None, help='Path to the Geometry folder with bone mesh data.')
@@ -43,6 +44,7 @@ class TrainCommand(AbstractCommand):
         batch_size: int = args.batch_size
         device: str = args.device
         short: bool = args.short
+        dataset_home: str = args.dataset_home
 
         geometry = self.ensure_geometry(args.geometry_folder)
 
@@ -65,10 +67,10 @@ class TrainCommand(AbstractCommand):
         # Create an instance of the dataset
         print('## Loading TRAIN set:')
         train_dataset = AddBiomechanicsDataset(
-            os.path.abspath('../data/train'), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
+            os.path.abspath(os.path.join(dataset_home, 'data/train')), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
         print('## Loading DEV set:')
         dev_dataset = AddBiomechanicsDataset(
-            os.path.abspath('../data/dev'), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
+            os.path.abspath(os.path.join(dataset_home, 'data/dev')), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
 
         # Create an instance of the model
         model = self.get_model(train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, hidden_size, device, checkpoint_dir=checkpoint_dir)
