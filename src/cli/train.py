@@ -67,10 +67,10 @@ class TrainCommand(AbstractCommand):
         # Create an instance of the dataset
         print('## Loading TRAIN set:')
         train_dataset = AddBiomechanicsDataset(
-            os.path.abspath(os.path.join(dataset_home, 'data/train')), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
+            os.path.abspath(os.path.join(dataset_home, 'train')), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
         print('## Loading DEV set:')
         dev_dataset = AddBiomechanicsDataset(
-            os.path.abspath(os.path.join(dataset_home, 'data/dev')), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
+            os.path.abspath(os.path.join(dataset_home, 'dev')), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
 
         # Create an instance of the model
         model = self.get_model(train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, hidden_size, device, checkpoint_dir=checkpoint_dir)
