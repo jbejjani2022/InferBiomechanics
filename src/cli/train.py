@@ -10,7 +10,8 @@ from cli.abstract_command import AbstractCommand
 import os
 import time
 import wandb
-
+import numpy as np
+import logging
 
 class TrainCommand(AbstractCommand):
     def __init__(self):
@@ -31,6 +32,18 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--batch-size', type=int, default=32, help='The batch size to use when training the model.')
         subparser.add_argument('--short', type=bool, default=False, help='Use very short datasets to test without loading a bunch of data.')
 
+    def get_subject_paths(self, data_path: str) -> List[str]:
+        subject_paths: List[str] = []
+        if os.path.isdir(data_path):
+            for root, dirs, files in os.walk(data_path):
+                for file in files:
+                    if file.endswith(".b3d"):
+                        subject_paths.append(os.path.join(root, file))
+        else:
+            assert data_path.endswith(".b3d")
+            subject_paths.append(data_path)
+        return subject_paths
+    
     def run(self, args: argparse.Namespace):
         if 'command' in args and args.command != 'train':
             return False
@@ -48,7 +61,7 @@ class TrainCommand(AbstractCommand):
 
         geometry = self.ensure_geometry(args.geometry_folder)
 
-        print('Initializing wandb...')
+        logging.info('Initializing wandb...')
         wandb.init(
             # set the wandb project where this run will be logged
             project="shpd1",
@@ -65,20 +78,19 @@ class TrainCommand(AbstractCommand):
         )
 
         # Create an instance of the dataset
-        print('## Loading TRAIN set:')
-        train_dataset = AddBiomechanicsDataset(
-            os.path.abspath(os.path.join(dataset_home, 'train')), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
-        print('## Loading DEV set:')
-        dev_dataset = AddBiomechanicsDataset(
-            os.path.abspath(os.path.join(dataset_home, 'dev')), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
-
-        # Create an instance of the model
-        model = self.get_model(train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, hidden_size, device, checkpoint_dir=checkpoint_dir)
+        logging.info('## Loading TRAIN set:')
+        train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
+        self.train_subject_paths = self.get_subject_paths(train_dataset_path)
+        
+        dev_dataset_path = os.path.abspath(os.path.join(dataset_home, 'dev'))
+        self.dev_subject_paths = self.get_subject_paths(dev_dataset_path)
 
         # Create a DataLoader to load the data in batches
-        train_dataloader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True)
-        dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True)
+        dev_dataset = AddBiomechanicsDataset(self.dev_subject_paths, history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
+        dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False)
+
+        # Create an instance of the model
+        model = self.get_model(dev_dataset.num_dofs, dev_dataset.num_joints, model_type, history_len, hidden_size, device, checkpoint_dir_root=checkpoint_dir)
 
         # Define the optimizer
         if opt_type == 'adagrad':
@@ -94,62 +106,76 @@ class TrainCommand(AbstractCommand):
         elif opt_type == 'adamax':
             optimizer = torch.optim.Adamax(model.parameters(), lr=learning_rate)
         else:
-            print('Invalid optimizer type: ' + opt_type)
+            logging.error('Invalid optimizer type: ' + opt_type)
             assert(False)
 
         for epoch in range(epochs):
             # Iterate over the entire training dataset
-            loss_evaluator = RegressionLossEvaluator(dataset=train_dataset)
-            for i, batch in enumerate(train_dataloader):
-                inputs: Dict[str, torch.Tensor]
-                labels: Dict[str, torch.Tensor]
-                batch_subject_indices: List[int]
-                inputs, labels, batch_subject_indices = batch
+            np.random.seed(epoch+9999)
+            np.random.shuffle(self.train_subject_paths)
+            
+            # Iterate over the entire training dataset
+            subject_window = 20
+            for subject_index in range(0, len(self.train_subject_paths), subject_window):
+                dataset_creation = time.time()
+                # Create an instance of the dataset
+                train_dataset = AddBiomechanicsDataset(self.train_subject_paths[subject_index:subject_index+subject_window], history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
+                # Create a DataLoader to load the data in batches
+                train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+                dataset_creation = time.time() - dataset_creation
+                logging.info(f"{dataset_creation=}")
+            
+                loss_evaluator = RegressionLossEvaluator(dataset=train_dataset)
+                for i, batch in enumerate(train_dataloader):
+                    inputs: Dict[str, torch.Tensor]
+                    labels: Dict[str, torch.Tensor]
+                    batch_subject_indices: List[int]
+                    inputs, labels, batch_subject_indices = batch
 
-                # Clear the gradients
-                optimizer.zero_grad()
+                    # Clear the gradients
+                    optimizer.zero_grad()
 
-                # Forward pass
-                outputs = model(inputs, [(train_dataset.skeletons[i], train_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices])
+                    # Forward pass
+                    outputs = model(inputs, [(train_dataset.skeletons[i], train_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices])
 
-                # Compute the loss
-                compute_report = i % 100 == 0
-                loss = loss_evaluator(inputs,
-                                      outputs,
-                                      labels,
-                                      batch_subject_indices,
-                                      compute_report,
-                                      log_reports_to_wandb=True)
+                    # Compute the loss
+                    compute_report = i % 100 == 0
+                    loss = loss_evaluator(inputs,
+                                        outputs,
+                                        labels,
+                                        batch_subject_indices,
+                                        compute_report,
+                                        log_reports_to_wandb=True)
 
-                if i % 100 == 0:
-                    print('  - Batch ' + str(i) + '/' + str(len(train_dataloader)))
-                if i % 1000 == 0:
-                    loss_evaluator.print_report()
-                    model_path = f"{checkpoint_dir}/epoch_{epoch}_batch_{i}.pt"
-                    if not os.path.exists(os.path.dirname(model_path)):
-                        os.makedirs(os.path.dirname(model_path))
-                    torch.save({
-                        'epoch': epoch,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                    }, model_path)
+                    if i % 100 == 0:
+                        logging.info('  - Batch ' + str(i) + '/' + str(len(train_dataloader)))
+                    if i % 1000 == 0:
+                        loss_evaluator.print_report()
+                        model_path = f"{checkpoint_dir}/{model_type}/epoch_{epoch}_batch_{i}.pt"
+                        if not os.path.exists(os.path.dirname(model_path)):
+                            os.makedirs(os.path.dirname(model_path))
+                        torch.save({
+                            'epoch': epoch,
+                            'model_state_dict': model.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
+                        }, model_path)
 
-                # Backward pass
-                loss.backward()
+                    # Backward pass
+                    loss.backward()
 
-                # Update the model's parameters
-                optimizer.step()
-            # Report training loss on this epoch
-            print('Epoch ' + str(epoch) + ': ')
-            print('Training Set Evaluation: ')
-            loss_evaluator.print_report()
+                    # Update the model's parameters
+                    optimizer.step()
+                # Report training loss on this epoch
+                logging.info(f"{epoch=} / {epochs} {subject_index=} / {len(self.train_subject_paths)}")
+                logging.info('Training Set Evaluation: ')
+                loss_evaluator.print_report()
 
             # At the end of each epoch, evaluate the model on the dev set
             dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset)
             with torch.no_grad():
                 for i, batch in enumerate(dev_dataloader):
                     if i % 100 == 0:
-                        print('  - Dev Batch ' + str(i) + '/' + str(len(dev_dataloader)))
+                        logging.info('  - Dev Batch ' + str(i) + '/' + str(len(dev_dataloader)))
                     inputs: Dict[str, torch.Tensor]
                     labels: Dict[str, torch.Tensor]
                     batch_subject_indices: List[int]
@@ -157,6 +183,6 @@ class TrainCommand(AbstractCommand):
                     outputs = model(inputs, [(dev_dataset.skeletons[i], dev_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices])
                     loss = dev_loss_evaluator(inputs, outputs, labels, batch_subject_indices)
             # Report dev loss on this epoch
-            print('Dev Set Evaluation: ')
+            logging.info('Dev Set Evaluation: ')
             dev_loss_evaluator.print_report()
         return True

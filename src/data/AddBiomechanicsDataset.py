@@ -97,16 +97,14 @@ class AddBiomechanicsDataset(Dataset):
                     continue
                 if body not in self.contact_bodies:
                     self.contact_bodies.append(body)
-            
-            all_frames: List[nimble.biomechanics.Frame] = subject.readFrames(trial, 0, numFramesToRead=trial_length, contactThreshold=0.1)
 
             # Also, count how many random windows we could select from this subject
             for trial in range(subject.getNumTrials()):
                 probably_missing: List[bool] = [reason != nimble.biomechanics.MissingGRFReason.notMissingGRF for reason in subject.getMissingGRF(trial)]
 
                 trial_length = subject.getTrialLength(trial)
-                # print(trial_length, window_size, stride)
-                # print(max(trial_length - (window_size * stride) + 1, 0))
+                all_frames: List[nimble.biomechanics.Frame] = subject.readFrames(trial, 0, numFramesToRead=trial_length, contactThreshold=0.1)
+                
                 for window_start in range(max(trial_length - window_size + 1, 0)):
                     # Check if any of the frames in this window are probably missing GRF data
                     # If so, skip this window

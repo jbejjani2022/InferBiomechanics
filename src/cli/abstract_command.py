@@ -46,7 +46,8 @@ class AbstractCommand:
                   history_len: int = 5,
                   hidden_size: int = 512,
                   device: str = 'cpu',
-                  checkpoint_dir="../checkpoints"):
+                  checkpoint_dir_root="../checkpoints"):
+        checkpoint_dir = os.path.join(checkpoint_dir_root, model_type)
         if model_type == 'feedforward':
             # Define the model
             model = FeedForwardBaseline(
