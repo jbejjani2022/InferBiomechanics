@@ -72,7 +72,7 @@ class AddBiomechanicsDataset(Dataset):
         self.skeletons = []
         self.skeletons_contact_bodies = []
 
-        # Walk the folder path, and check for any with the ".bin" extension (indicating that they are AddBiomechanics binary data files)
+        # Walk the folder path, and check for any with the ".b3d" extension (indicating that they are AddBiomechanics binary data files)
         num_skipped = 0
         subject_paths = []
         if os.path.isdir(data_path):
