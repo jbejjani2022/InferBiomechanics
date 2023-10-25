@@ -73,13 +73,7 @@ class AddBiomechanicsDataset(Dataset):
         self.skeletons_contact_bodies = []
 
         # Walk the folder path, and check for any with the ".bin" extension (indicating that they are AddBiomechanics binary data files)
-        num_skipped = 0
-
-        if testing_with_short_dataset:
-            subject_paths = subject_paths[:2]
-
-        index = 0
-        for i, subject_path in enumerate(subject_paths):
+        for i, subject_path in enumerate(self.subject_paths):
             # Create a subject object for each file. This will load just the header from this file, and keep that around in memory
             subject = nimble.biomechanics.SubjectOnDisk(
                 subject_path)
@@ -98,6 +92,27 @@ class AddBiomechanicsDataset(Dataset):
                 if body not in self.contact_bodies:
                     self.contact_bodies.append(body)
 
+        if testing_with_short_dataset:
+            subject_paths = subject_paths[:2]
+
+        if not skip_loading_skeletons:
+            for i, subject in enumerate(self.subjects):
+                # Add the skeleton to the list of skeletons
+                skeleton = subject.readSkel(subject.getNumProcessingPasses()-1, geometry_folder)
+                print('Loading skeleton ' + str(i+1) + '/' + str(len(subject_paths)))
+                self.skeletons.append(skeleton)
+                self.skeletons_contact_bodies.append([skeleton.getBodyNode(body) for body in self.contact_bodies])
+
+        print('Contact bodies: '+str(self.contact_bodies))
+
+        if testing_with_short_dataset:
+            self.windows = self.windows[:100]
+
+    def prepare_data_for_subset(self, subject_index: int, subject_window: int = 20):
+        self.windows = []
+        num_skipped = 0
+        np.random.seed(subject_index)
+        for iterator, subject in enumerate(self.subjects[subject_index:subject_index+subject_window]):
             # Also, count how many random windows we could select from this subject
             for trial in range(subject.getNumTrials()):
                 probably_missing: List[bool] = [reason != nimble.biomechanics.MissingGRFReason.notMissingGRF for reason in subject.getMissingGRF(trial)]
@@ -105,17 +120,16 @@ class AddBiomechanicsDataset(Dataset):
                 trial_length = subject.getTrialLength(trial)
                 all_frames: List[nimble.biomechanics.Frame] = subject.readFrames(trial, 0, numFramesToRead=trial_length, contactThreshold=0.1)
                 
-                for window_start in range(max(trial_length - window_size + 1, 0)):
+                for window_start in range(max(trial_length - self.window_size + 1, 0)):
                     # Check if any of the frames in this window are probably missing GRF data
                     # If so, skip this window
                     skip = False
-                    for i in range(window_start, window_start + window_size):
+                    for i in range(window_start, window_start + self.window_size):
                         if probably_missing[i]:
                             skip = True
                             break
                     if not skip:
-                        frames = [all_frames[i] for i in range(window_start, window_start+window_size)]
-                        np.random.seed(index)
+                        frames = [all_frames[i] for i in range(window_start, window_start+self.window_size)]
                         # We first assemble the data into numpy arrays, and then convert to tensors, to save from spurious memory copies which slow down data loading
                         numpy_input_dict: Dict[str, np.ndarray] = {}
                         numpy_output_dict: Dict[str, np.ndarray] = {}
@@ -177,23 +191,9 @@ class AddBiomechanicsDataset(Dataset):
                                 label_dict[key] = torch.tensor(
                                     numpy_output_dict[key], dtype=torch.float32, device=self.device)
                         
-                        self.windows.append((input_dict, label_dict, subject_index))
-                        index += 1
+                        self.windows.append((input_dict, label_dict, subject_index+iterator))
                     else:
                         num_skipped += 1
-
-        if not skip_loading_skeletons:
-            for i, subject in enumerate(self.subjects):
-                # Add the skeleton to the list of skeletons
-                skeleton = subject.readSkel(subject.getNumProcessingPasses()-1, geometry_folder)
-                print('Loading skeleton ' + str(i+1) + '/' + str(len(subject_paths)))
-                self.skeletons.append(skeleton)
-                self.skeletons_contact_bodies.append([skeleton.getBodyNode(body) for body in self.contact_bodies])
-
-        print('Contact bodies: '+str(self.contact_bodies))
-
-        if testing_with_short_dataset:
-            self.windows = self.windows[:100]
 
     def __len__(self):
         return len(self.windows)
