@@ -4,6 +4,7 @@ from torch.utils.data import Dataset
 from typing import List, Dict, Tuple
 import os
 import numpy as np
+from typing import Optional
 
 
 class InputDataKeys:
@@ -56,13 +57,13 @@ class AddBiomechanicsDataset(Dataset):
     skeletons_contact_bodies: List[List[nimble.dynamics.BodyNode]]
 
     def __init__(self,
-                 subject_paths: List[str],
+                 data_path: str,
                  window_size: int,
                  geometry_folder: str,
                  device: torch.device = torch.device('cpu'),
                  testing_with_short_dataset: bool = False,
                  skip_loading_skeletons: bool = False):
-        self.subject_paths = subject_paths
+        self.subject_paths = []
         self.window_size = window_size
         self.geometry_folder = geometry_folder
         self.device = device
@@ -71,6 +72,15 @@ class AddBiomechanicsDataset(Dataset):
         self.contact_bodies = []
         self.skeletons = []
         self.skeletons_contact_bodies = []
+
+        if os.path.isdir(data_path):
+            for root, dirs, files in os.walk(data_path):
+                for file in files:
+                    if file.endswith(".b3d"):
+                        self.subject_paths.append(os.path.join(root, file))
+        else:
+            assert data_path.endswith(".b3d")
+            self.subject_paths.append(data_path)
 
         # Walk the folder path, and check for any with the ".bin" extension (indicating that they are AddBiomechanics binary data files)
         for i, subject_path in enumerate(self.subject_paths):
@@ -99,7 +109,7 @@ class AddBiomechanicsDataset(Dataset):
             for i, subject in enumerate(self.subjects):
                 # Add the skeleton to the list of skeletons
                 skeleton = subject.readSkel(subject.getNumProcessingPasses()-1, geometry_folder)
-                print('Loading skeleton ' + str(i+1) + '/' + str(len(subject_paths)))
+                print('Loading skeleton ' + str(i+1) + '/' + str(len(self.subject_paths)))
                 self.skeletons.append(skeleton)
                 self.skeletons_contact_bodies.append([skeleton.getBodyNode(body) for body in self.contact_bodies])
 
@@ -108,11 +118,16 @@ class AddBiomechanicsDataset(Dataset):
         if testing_with_short_dataset:
             self.windows = self.windows[:100]
 
-    def prepare_data_for_subset(self, subject_index: int, subject_window: int = 20):
+    def prepare_data_for_subset(self, subset_indices: Optional[List[int]] = None):
         self.windows = []
         num_skipped = 0
-        np.random.seed(subject_index)
-        for iterator, subject in enumerate(self.subjects[subject_index:subject_index+subject_window]):
+        
+        if subset_indices is None:
+            subset_indices = range(len(self.subject_paths))
+
+        for subject_index in subset_indices:
+            np.random.seed(subject_index)
+            subject = self.subjects[subject_index]
             # Also, count how many random windows we could select from this subject
             for trial in range(subject.getNumTrials()):
                 probably_missing: List[bool] = [reason != nimble.biomechanics.MissingGRFReason.notMissingGRF for reason in subject.getMissingGRF(trial)]
@@ -191,7 +206,7 @@ class AddBiomechanicsDataset(Dataset):
                                 label_dict[key] = torch.tensor(
                                     numpy_output_dict[key], dtype=torch.float32, device=self.device)
                         
-                        self.windows.append((input_dict, label_dict, subject_index+iterator))
+                        self.windows.append((input_dict, label_dict, subject_index))
                     else:
                         num_skipped += 1
 

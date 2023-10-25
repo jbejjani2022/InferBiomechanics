@@ -68,14 +68,13 @@ class TrainCommand(AbstractCommand):
         # Create an instance of the dataset
         logging.info('## Loading TRAIN set:')
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
-        train_subject_paths = self.get_subject_paths(train_dataset_path)
         
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, 'dev'))
-        dev_subject_paths = self.get_subject_paths(dev_dataset_path)
 
         # Create an instance of the dataset
-        train_dataset = AddBiomechanicsDataset(train_subject_paths, history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
-        dev_dataset = AddBiomechanicsDataset(dev_subject_paths, history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
+        train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
+        dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
+        dev_dataset.prepare_data_for_subset()
         # Create a DataLoader to load the data in batches
         dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False)
 
@@ -102,13 +101,14 @@ class TrainCommand(AbstractCommand):
         for epoch in range(epochs):
             # Iterate over the entire training dataset
             np.random.seed(epoch+9999)
-            np.random.shuffle(train_subject_paths)
+            permuted_indices = np.random.permutation(len(train_dataset.subject_paths))
             
             # Iterate over the entire training dataset
             subject_window = 20
-            for subject_index in range(0, len(train_subject_paths), subject_window):
+            for subject_index in range(0, len(train_dataset.subject_paths), subject_window):
                 dataset_creation = time.time()
-                train_dataset.prepare_data_for_subset(subject_index, subject_window=subject_window)
+                subset_indices = permuted_indices[subject_index:subject_index+subject_window]
+                train_dataset.prepare_data_for_subset(subset_indices)
                 # Create a DataLoader to load the data in batches
                 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
                 dataset_creation = time.time() - dataset_creation
@@ -155,7 +155,7 @@ class TrainCommand(AbstractCommand):
                     # Update the model's parameters
                     optimizer.step()
                 # Report training loss on this epoch
-                logging.info(f"{epoch=} / {epochs} {subject_index=} / {len(train_subject_paths)}")
+                logging.info(f"{epoch=} / {epochs} {subject_index=} / {len(train_dataset.subject_paths)}")
                 logging.info('Training Set Evaluation: ')
                 loss_evaluator.print_report()
 

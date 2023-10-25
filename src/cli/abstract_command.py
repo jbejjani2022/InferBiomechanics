@@ -38,18 +38,6 @@ class AbstractCommand:
         if not geometry.endswith('/'):
             geometry += '/'
         return geometry
-
-    def get_subject_paths(self, data_path: str) -> List[str]:
-        subject_paths: List[str] = []
-        if os.path.isdir(data_path):
-            for root, dirs, files in os.walk(data_path):
-                for file in files:
-                    if file.endswith(".b3d"):
-                        subject_paths.append(os.path.join(root, file))
-        else:
-            assert data_path.endswith(".b3d")
-            subject_paths.append(data_path)
-        return subject_paths
     
     def get_model(self,
                   num_dofs: int,
