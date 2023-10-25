@@ -25,6 +25,10 @@ class MakePlotsCommand(AbstractCommand):
                                help='Whether to output scatter plots.')
         subparser.add_argument('--output-errvfreq', type=bool, default=True,
                                help='Whether to output error vs. frequency plot(s).')
+        subparser.add_argument('--output-subjmetrics', type=bool, default=False,
+                               help='Whether to print subject metrics.')
+        subparser.add_argument('--output-trialmetrics', type=bool, default=False,
+                               help='Whether to print trial metrics.')
         subparser.add_argument('--short', type=bool, default=False,
                                help='Only use first few files of dataset.')
     def run(self, args: argparse.Namespace):
@@ -35,11 +39,26 @@ class MakePlotsCommand(AbstractCommand):
         if 'command' in args and args.command != 'make-plots':
             return False
 
+        #  Make the Dataset
         dataset = Dataset(args)
-        dataset.process_data()
 
+        # Create and save plots and print metrics based on settings
         if dataset.output_histograms:
+            dataset.plot_demographics_histograms()
             dataset.plot_demographics_by_sex_histograms()
+            dataset.plot_biomechanics_metrics_histograms()
+            dataset.calculate_sex_breakdown()
+        if dataset.output_errvfreq:
+            dataset.make_err_v_freq_plots()
+        if dataset.output_scatterplots:
+            dataset.make_scatter_plot_matrices()
+        if dataset.output_subjmetrics:
+            dataset.print_subject_metrics()
+        if dataset.output_trialmetrics:
+            dataset.print_trial_metrics()
+
+        # Print how many total subjects and trials processed
+        dataset.print_totals()
 
 
 # # # HELPERS # # #
@@ -87,7 +106,7 @@ def plot_histograms(datas: List[Sequence], colors: List[str], labels: List[str],
 class Dataset:
     """
     Load a dataset, create helpful visualizations of underlying distributions and attributes of the dataset,
-    and compute and plot analytical baselines.
+    and plot analytical baselines.
     """
 
     def __init__(self, args: argparse.Namespace):
@@ -98,6 +117,8 @@ class Dataset:
         output_histograms: bool = args.output_histograms
         output_scatterplots: bool = args.output_scatterplots
         output_errvfreq: bool = args.output_errvfreq
+        output_subjmetrics: bool = args.output_subjmetrics
+        output_trialmetrics: bool = args.output_trialmetrics
         short: bool = args.short
 
         self.data_dir = data_dir
@@ -105,17 +126,22 @@ class Dataset:
         self.output_histograms = output_histograms
         self.output_scatterplots = output_scatterplots
         self.output_errvfreq = output_errvfreq
+        self.output_subjmetrics = output_subjmetrics
+        self.output_trialmetrics = output_trialmetrics
         self.short = short
 
         # Aggregate paths to subject data files
         self.subj_paths: List[str] = self.extract_data_files(file_type="b3d")
-        if self.short:
+        if self.short:  # test on only a few subjects
             self.subj_paths = self.subj_paths[0:2]
 
-        # Constants
+        # Constants and processing settings
         self.num_dofs: int = 23  # hard-coded for std skel
-        self.min_trial_length: int = 15
-        self.target_num_processing_passes: int = 3  # we'll use this to filter out trials that don't have dynamics
+        self.min_trial_length: int = 15  # don't process trials shorter than this TODO: put into AddB segmenting pipeline
+        self.require_same_processing_passes = False  # only process trials with all the same processing passes; however, we will always require a dynamics pass and look for it.
+        self.target_processing_passes = {nimble.biomechanics.ProcessingPassType.KINEMATICS,
+                                         nimble.biomechanics.ProcessingPassType.LOW_PASS_FILTER,
+                                         nimble.biomechanics.ProcessingPassType.DYNAMICS}  # if require_same_processing_passes is True, these are the passes we look for. technically don't need to include DYNAMICS since we explicitly check for this
 
         # Estimate mass for each subject (experiment)
         self.use_estimated_mass: bool = False
@@ -124,6 +150,9 @@ class Dataset:
         # Plotting settings
         self.freqs: List[int] = [0, 3, 6, 9, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45]  # for err v. freq plot
         self.verbose: bool = False  # for debugging / prototyping TODO: integrate this in
+
+        # Only prepare data for plotting once
+        self.has_prepared_data_for_plots = False
 
     def extract_data_files(self, file_type: str) -> List[str]:
         """
@@ -150,17 +179,24 @@ class Dataset:
             for trial in range(num_trials):
                 init_trial_length = subject.getTrialLength(trial)
 
-                # Check that the trial has at least a dynamics pass.
-                # In future builds, we may need to modify this statement if more processing pass types added.
-                # Also, this checks for an initial idea of the trial length. True trial length comes from only valid frames.
-                if ((subject.getTrialNumProcessingPasses(trial) >= self.target_num_processing_passes)
-                        and (init_trial_length >= self.min_trial_length)):
+                # Do a series of checks to see if okay to process this trial
+                has_dynamics = False
+                processing_passes = set()
+                for pass_ix in range(subject.getTrialNumProcessingPasses(trial)):
+                    processing_passes.add(subject.getProcessingPassType(pass_ix))
+                    if subject.getProcessingPassType(pass_ix) == nimble.biomechanics.ProcessingPassType.DYNAMICS:
+                        has_dynamics = True
 
-                    # # Extra check for Moore dataset: don't process first segment bc likely lacks GRFs in beginning
-                    # if "Moore" in subj_path:
-                    #     if subject.getTrialSplitIndex(trial) == 0:
-                    #         print(f"SKIPPING TRIAL {trial} BECAUSE SPLIT INDEX IS 0")
-                    #         continue
+                if self.require_same_processing_passes:
+                    if processing_passes == self.target_processing_passes:
+                        passes_satisfied = True
+                    else:
+                        passes_satisfied = False
+                else:  # we don't care if the trial has all the target passes
+                    passes_satisfied = True
+
+                # We can process if these are all true:
+                if has_dynamics and passes_satisfied and (init_trial_length >= self.min_trial_length):
 
                     frames = subject.readFrames(trial=trial, startFrame=0, numFramesToRead=init_trial_length)
                     trial_data = Trial(frames)
@@ -204,10 +240,15 @@ class Dataset:
 
         return errors
 
-    def process_data(self):
+    def prepare_data_for_plotting(self):
         """
-        Load in subject files and extract relevant info
+        Load in subject files and extract relevant data for plotting
         """
+        # Only prepare the data for plotting once
+        if self.has_prepared_data_for_plots:
+            return
+        self.has_prepared_data_for_plots = True
+
         # Calculate estimated mass if using
         if self.use_estimated_mass:
             self.estimated_masses = self.estimate_masses()
@@ -317,18 +358,24 @@ class Dataset:
             for trial in range(num_trials):
                 init_trial_length = subject_on_disk.getTrialLength(trial)
 
-                # Check that the trial has at least a dynamics pass.
-                # In future builds, we may need to modify this statement if more processing pass types added.
-                # Also, don't process super short trials. TODO: check this cleaning heuristic
-                # Also, this checks for an initial idea of the trial length. True trial length comes from only valid frames.
-                if ((subject_on_disk.getTrialNumProcessingPasses(trial) >= self.target_num_processing_passes)
-                        and (init_trial_length >= self.min_trial_length)):
+                # Do a series of checks to see if okay to process this trial
+                has_dynamics = False
+                processing_passes = set()
+                for pass_ix in range(subject_on_disk.getTrialNumProcessingPasses(trial)):
+                    processing_passes.add(subject_on_disk.getProcessingPassType(pass_ix))
+                    if subject_on_disk.getProcessingPassType(pass_ix) == nimble.biomechanics.ProcessingPassType.DYNAMICS:
+                        has_dynamics = True
 
-                    # # Extra check for Moore dataset: don't process first segment bc likely lacks GRFs in beginning
-                    # if "Moore" in subj_path:
-                    #     if subject_on_disk.getTrialSplitIndex(trial) == 0:
-                    #         print(f"SKIPPING TRIAL {trial} BECAUSE SPLIT INDEX IS 0")
-                    #         continue
+                if self.require_same_processing_passes:
+                    if processing_passes == self.target_processing_passes:
+                        passes_satisfied = True
+                    else:
+                        passes_satisfied = False
+                else:  # we don't care if the trial has all the target passes
+                    passes_satisfied = True
+
+                # We can process if these are all true:
+                if has_dynamics and passes_satisfied and (init_trial_length >= self.min_trial_length):
 
                     print(f"Processing trial {trial + 1} of {num_trials}... (Subject {subj_ix+1} of {len(self.subj_paths)})")
                     frames = subject_on_disk.readFrames(trial=trial, startFrame=0, numFramesToRead=init_trial_length)
@@ -446,6 +493,8 @@ class Dataset:
         """
         Save scatter plot matrices
         """
+        self.prepare_data_for_plotting()
+
         self.jointacc_vs_comacc_plots.save_plot(self.out_dir, "jointacc_vs_comacc.png")
         self.jointacc_vs_totgrf_plots.save_plot(self.out_dir, "jointacc_vs_totgrf.png")
         self.jointacc_vs_firstcontact_plots.save_plot(self.out_dir, "jointacc_vs_firstcontact.png")
@@ -472,6 +521,8 @@ class Dataset:
         """
         Plots histograms of demographics info over subjects
         """
+        self.prepare_data_for_plotting()
+
         ages_to_plot = self.ages[np.where(self.ages > 0)]  # exclude unknown
 
         plot_histograms(datas=[ages_to_plot], colors=["blue"], labels=[], edgecolor="black", alpha=1,
@@ -485,6 +536,8 @@ class Dataset:
         """
         Plots histograms of demographics by sex
         """
+        self.prepare_data_for_plotting()
+
         # Get indices for valid age and for valid sex fields
         valid_age_ix = np.where(self.ages > 0)[0]  # access within tuple return
         m_ix = np.where(self.sexes == 0)[0]  # we assign "males" to 0
@@ -503,6 +556,8 @@ class Dataset:
         """
         Plots histograms of biomechanics metrics over all trials
         """
+        self.prepare_data_for_plotting()
+
         plot_histograms(datas=[self.trial_lengths], colors=["blue"], labels=[], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png')
         plot_histograms(datas=[self.forward_speeds], colors=["blue"], labels=[], edgecolor="black", alpha=1,
@@ -512,15 +567,19 @@ class Dataset:
         """
         For accelerations, GRFs, joint torques
         """
-        self.plot_err_v_freq(errors=self.acc_errs, plots_outdir=self.out_dir,
+        self.prepare_data_for_plotting()
+
+        self.plot_err_v_freq(errors=self.acc_errs_v_freq,
                              outname='acc_err_vs_freq.png', plot_std=False)
-        self.plot_err_v_freq(errors=self.grf_errs, plots_outdir=self.out_dir,
+        self.plot_err_v_freq(errors=self.grf_errs_v_freq,
                              outname='grf_err_vs_freq.png', plot_std=False)
 
     def calculate_sex_breakdown(self):
         """
         Calculate biological sex breakdowns
         """
+        self.prepare_data_for_plotting()
+
         num_males = np.count_nonzero(self.sexes == 0)
         num_females = np.count_nonzero(self.sexes == 1)
         print(f"{np.round(num_males / len(self.subj_paths), 2) * 100}% of subjects are male.")
@@ -528,6 +587,8 @@ class Dataset:
         print("Rest of data has unknown sex.")
 
     def print_totals(self):
+        self.prepare_data_for_plotting()
+
         print(f"TOTAL NUM SUBJECTS: {len(self.subj_paths)}")
         print(f"TOTAL NUM TRIALS: {len(self.trial_lengths)}")
 
@@ -535,6 +596,8 @@ class Dataset:
         """
         For small dataset testing (to make sure aggregating data correctly)
         """
+        self.prepare_data_for_plotting()
+
         print(f"ages: {self.ages}")
         print(f"bmis: {self.bmis}")
         print(f"sexes: {self.sexes}")
@@ -543,6 +606,8 @@ class Dataset:
         """
         For small dataset testing (to make sure aggregating data correctly)
         """
+        self.prepare_data_for_plotting()
+
         print(f"trial_lengths: {self.trial_lengths}")
         print(f"speeds: {self.forward_speeds}")
 
@@ -646,7 +711,7 @@ class Trial:
         self.grm = np.array(self.grm)
         self.contact = np.array(self.contact)
 
-        # Check shapes (extra assert message from debugging Moore)
+        # Check shapes
         assert ((self.joint_pos_kin.shape[-1] == self.num_joints) and (self.joint_pos_dyn.shape[-1] == self.num_joints)), f"{len(frames)}, {num_valid_frames}, self.joint_pos_kin.shape[-1]: {self.joint_pos_kin.shape[-1]}; self.joint_pos_dyn.shape[-1]: {self.joint_pos_dyn.shape[-1]}"
         assert ((self.joint_vel_kin.shape[-1] == self.num_joints) and (self.joint_vel_dyn.shape[-1] == self.num_joints))
         assert ((self.joint_acc_kin.shape[-1] == self.num_joints) and (self.joint_acc_dyn.shape[-1] == self.num_joints))
