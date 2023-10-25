@@ -4,7 +4,7 @@ import torch
 from models.FeedForwardRegressionBaseline import FeedForwardBaseline
 from models.AnalyticalBaseline import AnalyticalBaseline
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset
-
+from typing import List
 
 class AbstractCommand:
     """
@@ -38,7 +38,7 @@ class AbstractCommand:
         if not geometry.endswith('/'):
             geometry += '/'
         return geometry
-
+    
     def get_model(self,
                   num_dofs: int,
                   num_joints: int,
@@ -46,7 +46,8 @@ class AbstractCommand:
                   history_len: int = 5,
                   hidden_size: int = 512,
                   device: str = 'cpu',
-                  checkpoint_dir="../checkpoints"):
+                  checkpoint_dir_root="../checkpoints"):
+        checkpoint_dir = os.path.join(checkpoint_dir_root, model_type)
         if model_type == 'feedforward':
             # Define the model
             model = FeedForwardBaseline(

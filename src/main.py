@@ -9,6 +9,7 @@ from cli.create_splits import CreateSplitsCommand
 from cli.analyze import AnalyzeCommand
 from cli.sanity_check import SanityCheckCommand
 import nimblephysics as nimble
+import logging
 
 def main():
     commands = [TrainCommand(),
@@ -38,4 +39,15 @@ def main():
 
 
 if __name__ == '__main__':
+    logpath = "log"
+    # Create and configure logger
+    logging.basicConfig(filename=logpath,
+                        format='%(asctime)s %(message)s',
+                        filemode='a')
+
+    # Creating an object
+    logger = logging.getLogger()
+    logger.addHandler(logging.StreamHandler())
+    # Setting the threshold of logger to INFO
+    logger.setLevel(logging.INFO)
     main()
