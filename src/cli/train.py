@@ -31,7 +31,8 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--opt-type', type=str, default='adagrad', help='The optimizer to use when adapting the weights of the model during training.')
         subparser.add_argument('--batch-size', type=int, default=32, help='The batch size to use when training the model.')
         subparser.add_argument('--short', type=bool, default=False, help='Use very short datasets to test without loading a bunch of data.')
-    
+        subparser.add_argument('--num-subjects-prefetch', type=int, default=5, help='Number of subjects to fetch all the data for in each iteration.')
+
     def run(self, args: argparse.Namespace):
         if 'command' in args and args.command != 'train':
             return False
@@ -66,17 +67,11 @@ class TrainCommand(AbstractCommand):
         )
 
         # Create an instance of the dataset
-        logging.info('## Loading TRAIN set:')
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
-        
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, 'dev'))
-
-        # Create an instance of the dataset
+        logging.info('## Loading datasets with skeletons:')
         train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
         dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
-        dev_dataset.prepare_data_for_subset()
-        # Create a DataLoader to load the data in batches
-        dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False)
 
         # Create an instance of the model
         model = self.get_model(train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, hidden_size, device, checkpoint_dir_root=checkpoint_dir)
@@ -104,15 +99,18 @@ class TrainCommand(AbstractCommand):
             permuted_indices = np.random.permutation(len(train_dataset.subject_paths))
             
             # Iterate over the entire training dataset
-            subject_window = 20
-            for subject_index in range(0, len(train_dataset.subject_paths), subject_window):
+            if args.num_subjects_prefetch < 0:
+                args.num_subjects_prefetch = len(train_dataset.subject_paths)
+
+            for subject_index in range(0, len(train_dataset.subject_paths), args.num_subjects_prefetch):
                 dataset_creation = time.time()
-                subset_indices = permuted_indices[subject_index:subject_index+subject_window]
-                train_dataset.prepare_data_for_subset(subset_indices)
+                subset_indices = permuted_indices[subject_index:subject_index+args.num_subjects_prefetch]
+                if args.num_subjects_prefetch < len(train_dataset.subject_paths) or epoch == 0:
+                    train_dataset.prepare_data_for_subset(subset_indices)
                 # Create a DataLoader to load the data in batches
                 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
                 dataset_creation = time.time() - dataset_creation
-                logging.info(f"{dataset_creation=}")
+                logging.info(f"Train Subject Index: {subject_index}/{len(train_dataset.subject_paths)} {dataset_creation=}")
             
                 loss_evaluator = RegressionLossEvaluator(dataset=train_dataset)
                 for i, batch in enumerate(train_dataloader):
@@ -161,16 +159,25 @@ class TrainCommand(AbstractCommand):
 
             # At the end of each epoch, evaluate the model on the dev set
             dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset)
-            with torch.no_grad():
-                for i, batch in enumerate(dev_dataloader):
-                    if i % 100 == 0:
-                        logging.info('  - Dev Batch ' + str(i) + '/' + str(len(dev_dataloader)))
-                    inputs: Dict[str, torch.Tensor]
-                    labels: Dict[str, torch.Tensor]
-                    batch_subject_indices: List[int]
-                    inputs, labels, batch_subject_indices = batch
-                    outputs = model(inputs, [(dev_dataset.skeletons[i], dev_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices])
-                    loss = dev_loss_evaluator(inputs, outputs, labels, batch_subject_indices)
+            permuted_indices = np.arange(len(dev_dataset.subject_paths))
+            for subject_index in range(0, len(dev_dataset.subject_paths), args.num_subjects_prefetch):
+                dataset_creation = time.time()
+                subset_indices = permuted_indices[subject_index:subject_index+args.num_subjects_prefetch]
+                if args.num_subjects_prefetch < len(dev_dataset.subject_paths) or epoch == 0:
+                    dev_dataset.prepare_data_for_subset(subset_indices)
+                dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False)
+                dataset_creation = time.time() - dataset_creation
+                logging.info(f"Dev batch: {subject_index}/{len(dev_dataset.subject_paths)} {dataset_creation=}")
+                with torch.no_grad():
+                    for i, batch in enumerate(dev_dataloader):
+                        if i % 100 == 0:
+                            logging.info('  - Dev Subject Index ' + str(i) + '/' + str(len(dev_dataloader)))
+                        inputs: Dict[str, torch.Tensor]
+                        labels: Dict[str, torch.Tensor]
+                        batch_subject_indices: List[int]
+                        inputs, labels, batch_subject_indices = batch
+                        outputs = model(inputs, [(dev_dataset.skeletons[i], dev_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices])
+                        loss = dev_loss_evaluator(inputs, outputs, labels, batch_subject_indices)
             # Report dev loss on this epoch
             logging.info('Dev Set Evaluation: ')
             dev_loss_evaluator.print_report()
