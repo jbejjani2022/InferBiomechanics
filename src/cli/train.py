@@ -18,7 +18,7 @@ class TrainCommand(AbstractCommand):
 
     def register_subcommand(self, subparsers: argparse._SubParsersAction):
         subparser = subparsers.add_parser('train', help='Train a model on the AddBiomechanics dataset')
-        subparser.add_argument('--dataset-home', type=str, default='..', help='The path to the AddBiomechanics dataset.')
+        subparser.add_argument('--dataset-home', type=str, default='../data', help='The path to the AddBiomechanics dataset.')
         subparser.add_argument('--model-type', type=str, default='feedforward', help='The model to train.')
         subparser.add_argument('--checkpoint-dir', type=str, default='../checkpoints', help='The path to a model checkpoint to save during training. Also, starts from the latest checkpoint in this directory.')
         subparser.add_argument('--geometry-folder', type=str, default=None, help='Path to the Geometry folder with bone mesh data.')
