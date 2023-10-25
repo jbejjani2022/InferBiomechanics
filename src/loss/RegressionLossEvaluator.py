@@ -3,7 +3,7 @@ from data.AddBiomechanicsDataset import AddBiomechanicsDataset, OutputDataKeys, 
 from typing import Dict, List
 import numpy as np
 import wandb
-
+import logging
 
 class RegressionLossEvaluator:
     dataset: AddBiomechanicsDataset
@@ -45,38 +45,30 @@ class RegressionLossEvaluator:
                  compute_report: bool = False,
                  log_reports_to_wandb: bool = False) -> torch.Tensor:
         # Compute the loss
-        force_diff = RegressionLossEvaluator.compute_norms(
-            outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] - labels[
-                OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME])
-        force_loss = torch.sum(force_diff ** 2)
-
+        force_diff = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] - labels[
+                OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME]
+        force_loss = torch.sum(force_diff ** 2, dim=(0,1))
+        
         # CoP loss is tricky, because when there is no force the CoP is meaningless, and so we want to ensure that
         # we only report CoP loss on the frames where there is a non-zero force.
         mask_tensor = (labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] != 0).float()
-        cop_diff = RegressionLossEvaluator.compute_norms(
-            (outputs[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] - labels[
-                OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME]) * mask_tensor, max=10.0)
-        cop_loss = torch.sum(cop_diff ** 2)
+        cop_diff = (outputs[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] - labels[
+                OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME]) * mask_tensor
+        cop_loss = torch.sum(cop_diff ** 2, dim=(0,1))
 
-        moment_diff = RegressionLossEvaluator.compute_norms(
-            (outputs[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] - labels[
-                OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME]) * mask_tensor)
-        moment_loss = torch.sum(moment_diff ** 2)
+        moment_diff = (outputs[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] - labels[
+                OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME]) * mask_tensor
+        moment_loss = torch.sum(moment_diff ** 2, dim=(0,1))
 
-        wrench_diff = RegressionLossEvaluator.compute_norms(
-            outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] - labels[
-                OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME])
-        wrench_loss = torch.sum(wrench_diff ** 2)
-
-        assert (force_diff.shape == moment_diff.shape)
-        assert (force_diff.shape == cop_diff.shape)
+        wrench_diff = outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] - labels[
+                OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME]
+        wrench_loss = torch.sum(wrench_diff ** 2, dim=(0,1))
 
         # Keep track of various performance metrics to report
         if compute_report:
             with torch.no_grad():
-                force_norms = RegressionLossEvaluator.compute_norms(
-                    labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME])
-                force_percentage_diff = 100 * force_diff / torch.max(force_norms, torch.ones_like(force_norms) * 5)
+                # force_norms = labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME]
+                # force_percentage_diff = 100 * force_diff / torch.max(torch.abs(force_norms), dim=(0,1))
 
                 num_batches = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].shape[0]
                 num_timesteps = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].shape[1]
@@ -105,7 +97,7 @@ class RegressionLossEvaluator:
                 # print(force_diff.mean().item())
                 self.sum_id_tau_error += tau_err_mean
                 self.sum_grf_forces_error += force_diff.mean().item()
-                self.sum_grf_forces_percent_error += force_percentage_diff.mean().item()
+                # self.sum_grf_forces_percent_error += force_percentage_diff.mean().item()
                 self.sum_grf_cop_error += cop_diff.mean().item()
                 self.sum_grf_moment_error += moment_diff.mean().item()
                 self.sum_grf_wrench_moment_error += (wrench_diff[:, :, 0].mean().item() + wrench_diff[:, :,
@@ -113,19 +105,20 @@ class RegressionLossEvaluator:
                 self.sum_grf_wrench_force_error += (wrench_diff[:, :, 1].mean().item() + wrench_diff[:, :,
                                                                                          3].mean().item()) / 2
 
-        loss = force_loss + cop_loss + moment_loss + wrench_loss
+        loss = torch.sum(force_loss) + torch.sum(cop_loss) + torch.sum(moment_loss) + torch.sum(wrench_loss)
 
+        components = {0: "left-x", 1: "left-y", 2: "left-z", 3: "right-x", 4: "right-y", 5: "right-z"}
         if log_reports_to_wandb:
             report: Dict[str, float] = {
-                'force_loss': force_loss.item(),
-                'cop_loss': cop_loss.item(),
-                'moment_loss': moment_loss.item(),
-                'wrench_loss': wrench_loss.item(),
+                **{f'force_loss_{components[i]}': force_loss[i].item() for i in range(6)},
+                **{f'cop_loss_{components[i]}': cop_loss[i].item() for i in range(6)},
+                **{f'moment_loss_{components[i]}': moment_loss[i].item() for i in range(6)},
+                'wrench_loss': torch.sum(wrench_loss).item(),
                 'loss': loss.item()
             }
             if compute_report:
                 report['Force Avg Err (N per kg)'] = force_diff.mean().item()
-                report['Force Avg Err (%)'] = force_percentage_diff.mean().item()
+                # report['Force Avg Err (%)'] = force_percentage_diff.mean().item()
                 report['CoP Avg Err (m)'] = cop_diff.mean().item()
                 report['Moment Avg Err (Nm per kg)'] = moment_diff.mean().item()
                 report['Wrench Force Avg Err (N per kg)'] = (wrench_diff[:, :, 1].mean().item() + wrench_diff[:, :,

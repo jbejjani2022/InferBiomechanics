@@ -7,7 +7,7 @@ physics information from pure motion, trained and evaluated on AddBiomechanics d
 
 If you are running on the [Sherlock cluster](https://www.sherlock.stanford.edu/docs/), the latest data is already loaded at `/home/groups/delp/data`.
 
-For local training runs, the latest dataset is available in a Google Drive folder, [here](https://drive.google.com/drive/u/1/folders/1x_ys7vN0wPn23IjIQkbLGYpvLf9HFXkv).
+For local training runs, the latest dataset is available in a Google Drive folder, [here](https://drive.google.com/drive/u/1/folders/14rcY7i3U8sXHjrb85YN9DkaeTFgQ6qeu).
 
 Please download the data, and place it into the `data` folder in this repository. When completed, there should be a `data/train` folder, and a `data/dev` folder, each with many `*.b3d` files in them.
 
