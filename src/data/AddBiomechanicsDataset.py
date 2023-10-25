@@ -47,7 +47,6 @@ class AddBiomechanicsDataset(Dataset):
     window_size: int
     geometry_folder: str
     device: torch.device
-    subjects: List[nimble.biomechanics.SubjectOnDisk]
     windows: List[Tuple[int, nimble.biomechanics.SubjectOnDisk, int, int, str]]
     num_dofs: int
     num_joints: int
@@ -67,7 +66,6 @@ class AddBiomechanicsDataset(Dataset):
         self.window_size = window_size
         self.geometry_folder = geometry_folder
         self.device = device
-        self.subjects = []
         self.windows = []
         self.contact_bodies = []
         self.skeletons = []
@@ -83,13 +81,10 @@ class AddBiomechanicsDataset(Dataset):
             self.subject_paths.append(data_path)
 
         # Walk the folder path, and check for any with the ".bin" extension (indicating that they are AddBiomechanics binary data files)
-        for i, subject_path in enumerate(self.subject_paths):
+        if len(self.subject_paths) > 0:
             # Create a subject object for each file. This will load just the header from this file, and keep that around in memory
             subject = nimble.biomechanics.SubjectOnDisk(
-                subject_path)
-            subject_index = len(self.subjects)
-            # Add the subject to the list of subjects
-            self.subjects.append(subject)
+                self.subject_paths[0])
             # Get the number of degrees of freedom for this subject
             self.num_dofs = subject.getNumDofs()
             # Get the number of joints for this subject
@@ -103,11 +98,12 @@ class AddBiomechanicsDataset(Dataset):
                     self.contact_bodies.append(body)
 
         if testing_with_short_dataset:
-            subject_paths = subject_paths[:2]
+            self.subject_paths = self.subject_paths[:2]
 
         if not skip_loading_skeletons:
-            for i, subject in enumerate(self.subjects):
+            for i, subject_path in enumerate(self.subject_paths):
                 # Add the skeleton to the list of skeletons
+                subject = nimble.biomechanics.SubjectOnDisk(subject_path)
                 skeleton = subject.readSkel(subject.getNumProcessingPasses()-1, geometry_folder)
                 print('Loading skeleton ' + str(i+1) + '/' + str(len(self.subject_paths)))
                 self.skeletons.append(skeleton)
@@ -121,20 +117,51 @@ class AddBiomechanicsDataset(Dataset):
     def prepare_data_for_subset(self, subset_indices: Optional[List[int]] = None):
         self.windows = []
         num_skipped = 0
-        
+
+        print('Pre-loading data for subset of subjects '+str(subset_indices))
         if subset_indices is None:
             subset_indices = range(len(self.subject_paths))
 
-        for subject_index in subset_indices:
+        for progress_index, subject_index in enumerate(subset_indices):
+            print('Pre-loading subject '+str(progress_index+1)+'/'+str(len(subset_indices)))
             np.random.seed(subject_index)
-            subject = self.subjects[subject_index]
+            subject = nimble.biomechanics.SubjectOnDisk(self.subject_paths[subject_index])
+
+            # Pre-load all the frames of this trial
+            subject.loadAllFrames(doNotStandardizeForcePlateData=True)
+
             # Also, count how many random windows we could select from this subject
             for trial in range(subject.getNumTrials()):
+                print('  Formatting Torch Tensor inputs/outputs for trial '+str(trial+1)+'/'+str(subject.getNumTrials()))
                 probably_missing: List[bool] = [reason != nimble.biomechanics.MissingGRFReason.notMissingGRF for reason in subject.getMissingGRF(trial)]
 
                 trial_length = subject.getTrialLength(trial)
-                all_frames: List[nimble.biomechanics.Frame] = subject.readFrames(trial, 0, numFramesToRead=trial_length, contactThreshold=0.1)
-                
+
+                processing_passes: List[nimble.biomechanics.SubjectOnDiskTrialPass] = subject.getHeaderProto().getTrials()[trial].getPasses()
+
+                # If we want to use the DYNAMICS pass, we should take the final pass as input. If we want to predict from
+                # KINEMATICS instead, we should take the first pass as input
+                input_pass_index = 0
+
+                # Copy all of the Numpy arrays from C++ to Python only once, because that's a slow operation
+
+                # Inputs
+                pos = processing_passes[input_pass_index].getPoses().transpose()
+                vel = processing_passes[input_pass_index].getVels().transpose()
+                acc = processing_passes[input_pass_index].getAccs().transpose()
+                joint_centers_in_root_frame = processing_passes[input_pass_index].getJointCentersInRootFrame().transpose()
+                root_spatial_vel_in_root_frame = processing_passes[input_pass_index].getRootSpatialVelInRootFrame().transpose()
+                root_spatial_acc_in_root_frame = processing_passes[input_pass_index].getRootSpatialAccInRootFrame().transpose()
+                root_pos_history = processing_passes[input_pass_index].getRootPosHistoryInRootFrame().transpose()
+                root_euler_history = processing_passes[input_pass_index].getRootEulerHistoryInRootFrame().transpose()
+
+                # Outputs
+                tau = processing_passes[-1].getTaus().transpose()
+                ground_contact_wrenches_in_root_frame = processing_passes[-1].getGroundBodyWrenchesInRootFrame().transpose()
+                ground_contact_cop_torque_force_in_root_frame = processing_passes[-1].getGroundBodyCopTorqueForceInRootFrame().transpose()
+                com_acc_in_root_frame = processing_passes[-1].getComAccsInRootFrame().transpose()
+                residual_wrench_in_root_frame = processing_passes[-1].getResidualWrenchInRootFrame().transpose()
+
                 for window_start in range(max(trial_length - self.window_size + 1, 0)):
                     # Check if any of the frames in this window are probably missing GRF data
                     # If so, skip this window
@@ -144,55 +171,36 @@ class AddBiomechanicsDataset(Dataset):
                             skip = True
                             break
                     if not skip:
-                        frames = [all_frames[i] for i in range(window_start, window_start+self.window_size)]
+                        window_end_exclusive = window_start + self.window_size
                         # We first assemble the data into numpy arrays, and then convert to tensors, to save from spurious memory copies which slow down data loading
                         numpy_input_dict: Dict[str, np.ndarray] = {}
                         numpy_output_dict: Dict[str, np.ndarray] = {}
 
-                        # If we want to use the DYNAMICS pass, we should take the final pass as input. If we want to predict from
-                        # KINEMATICS instead, we should take the first pass as input
-                        input_pass_index = 0
-
-                        numpy_input_dict[InputDataKeys.POS] = np.row_stack([frame.processingPasses[input_pass_index].pos for frame in frames])
-                        numpy_input_dict[InputDataKeys.VEL] = np.row_stack([frame.processingPasses[input_pass_index].vel for frame in frames])
-                        numpy_input_dict[InputDataKeys.ACC] = np.row_stack([frame.processingPasses[input_pass_index].acc for frame in frames])
-                        numpy_input_dict[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME] = np.row_stack([frame.processingPasses[input_pass_index].jointCentersInRootFrame for frame in frames])
-                        numpy_input_dict[InputDataKeys.ROOT_LINEAR_VEL_IN_ROOT_FRAME] = np.row_stack([frame.processingPasses[input_pass_index].rootLinearVelInRootFrame for frame in frames])
-                        numpy_input_dict[InputDataKeys.ROOT_ANGULAR_VEL_IN_ROOT_FRAME] = np.row_stack([frame.processingPasses[input_pass_index].rootAngularVelInRootFrame for frame in frames])
-                        numpy_input_dict[InputDataKeys.ROOT_LINEAR_ACC_IN_ROOT_FRAME] = np.row_stack([frame.processingPasses[input_pass_index].rootLinearAccInRootFrame for frame in frames])
-                        numpy_input_dict[InputDataKeys.ROOT_ANGULAR_ACC_IN_ROOT_FRAME] = np.row_stack([frame.processingPasses[input_pass_index].rootAngularAccInRootFrame for frame in frames])
-                        numpy_input_dict[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME] = np.row_stack([frame.processingPasses[input_pass_index].rootPosHistoryInRootFrame for frame in frames])
-                        numpy_input_dict[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME] = np.row_stack([frame.processingPasses[input_pass_index].rootEulerHistoryInRootFrame for frame in frames])
+                        numpy_input_dict[InputDataKeys.POS] = pos[window_start:window_end_exclusive, :]
+                        numpy_input_dict[InputDataKeys.VEL] = vel[window_start:window_end_exclusive, :]
+                        numpy_input_dict[InputDataKeys.ACC] = acc[window_start:window_end_exclusive, :]
+                        numpy_input_dict[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME] = joint_centers_in_root_frame[window_start:window_end_exclusive, :]
+                        numpy_input_dict[InputDataKeys.ROOT_LINEAR_VEL_IN_ROOT_FRAME] = root_spatial_vel_in_root_frame[window_start:window_end_exclusive, 3:6]
+                        numpy_input_dict[InputDataKeys.ROOT_ANGULAR_VEL_IN_ROOT_FRAME] = root_spatial_vel_in_root_frame[window_start:window_end_exclusive, 0:3]
+                        numpy_input_dict[InputDataKeys.ROOT_LINEAR_ACC_IN_ROOT_FRAME] = root_spatial_acc_in_root_frame[window_start:window_end_exclusive, 3:6]
+                        numpy_input_dict[InputDataKeys.ROOT_ANGULAR_ACC_IN_ROOT_FRAME] = root_spatial_acc_in_root_frame[window_start:window_end_exclusive, 0:3]
+                        numpy_input_dict[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME] = root_pos_history[window_start:window_end_exclusive, :]
+                        numpy_input_dict[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME] = root_euler_history[window_start:window_end_exclusive, :]
 
                         mass = subject.getMassKg()
+                        numpy_output_dict[OutputDataKeys.TAU] = tau[window_start:window_end_exclusive, :]
+                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = ground_contact_wrenches_in_root_frame[window_start:window_end_exclusive, :] / mass
+                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 3*len(self.contact_bodies)))
+                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 3*len(self.contact_bodies)))
+                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 3*len(self.contact_bodies)))
                         contact_indices: List[int] = [subject.getGroundForceBodies().index(body) if body in subject.getGroundForceBodies() else -1 for body in self.contact_bodies]
-                        contact_wrenches: List[np.ndarray] = []
-                        contact_cops: List[np.ndarray] = []
-                        contact_moments: List[np.ndarray] = []
-                        contact_forces: List[np.ndarray] = []
-                        
-                        for frame in frames:
-                            contact_wrench = np.zeros(6*len(self.contact_bodies))
-                            contact_cop = np.zeros(3*len(self.contact_bodies))
-                            contact_moment = np.zeros(3*len(self.contact_bodies))
-                            contact_force = np.zeros(3*len(self.contact_bodies))
-                            for i in range(len(self.contact_bodies)):
-                                if contact_indices[i] >= 0:
-                                    contact_wrench[6*i:6*i+6] = frame.processingPasses[-1].groundContactWrenchesInRootFrame[6*contact_indices[i]:6*contact_indices[i]+6]
-                                    contact_cop[3*i:3*i+3] = frame.processingPasses[-1].groundContactCenterOfPressureInRootFrame[3*contact_indices[i]:3*contact_indices[i]+3]
-                                    contact_moment[3*i:3*i+3] = frame.processingPasses[-1].groundContactTorqueInRootFrame[3*contact_indices[i]:3*contact_indices[i]+3]
-                                    contact_force[3*i:3*i+3] = frame.processingPasses[-1].groundContactForceInRootFrame[3*contact_indices[i]:3*contact_indices[i]+3]
-                            contact_wrenches.append(contact_wrench / mass)
-                            contact_cops.append(contact_cop)
-                            contact_moments.append(contact_moment / mass)
-                            contact_forces.append(contact_force / mass)
-                        numpy_output_dict[OutputDataKeys.TAU] = np.row_stack([frame.processingPasses[input_pass_index].tau for frame in frames])
-                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = np.row_stack(contact_wrenches)
-                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = np.row_stack(contact_cops)
-                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = np.row_stack(contact_moments)
-                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] = np.row_stack(contact_forces)
-                        numpy_output_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = np.row_stack([np.array(frame.processingPasses[-1].residualWrenchInRootFrame / mass, dtype=np.float64) for frame in frames])
-                        numpy_output_dict[OutputDataKeys.COM_ACC_IN_ROOT_FRAME] = np.row_stack([np.array(frame.processingPasses[-1].comAccInRootFrame, dtype=np.float64) for frame in frames])
+                        for i in range(len(self.contact_bodies)):
+                            if contact_indices[i] >= 0:
+                                numpy_output_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME][:, 3*i:3*i+3] = ground_contact_cop_torque_force_in_root_frame[window_start:window_end_exclusive, 9*contact_indices[i]:9*contact_indices[i]+3]
+                                numpy_output_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME][:, 3*i:3*i+3] = ground_contact_cop_torque_force_in_root_frame[window_start:window_end_exclusive, 9*contact_indices[i]+3:9*contact_indices[i]+6] / mass
+                                numpy_output_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME][:, 3*i:3*i+3] = ground_contact_cop_torque_force_in_root_frame[window_start:window_end_exclusive, 9*contact_indices[i]+6:9*contact_indices[i]+9] / mass
+                        numpy_output_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = residual_wrench_in_root_frame[window_start:window_end_exclusive, :]
+                        numpy_output_dict[OutputDataKeys.COM_ACC_IN_ROOT_FRAME] = com_acc_in_root_frame[window_start:window_end_exclusive, :]
 
                         # Doing things inside torch.no_grad() suppresses warnings and gradient tracking
                         with torch.no_grad():
