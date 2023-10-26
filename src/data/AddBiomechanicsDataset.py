@@ -71,6 +71,7 @@ class AddBiomechanicsDataset(Dataset):
         self.skeletons = []
         self.skeletons_contact_bodies = []
 
+
         if os.path.isdir(data_path):
             for root, dirs, files in os.walk(data_path):
                 for file in files:
