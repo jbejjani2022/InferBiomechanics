@@ -8,3 +8,4 @@ checkpoints/
 b3d-venv-py311
 __pycache__
 .idea/
+figures
