@@ -189,13 +189,14 @@ class AddBiomechanicsDataset(Dataset):
 
                         mass = subject.getMassKg()
                         numpy_output_dict[OutputDataKeys.TAU] = tau[window_start:window_end_exclusive, :]
-                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = ground_contact_wrenches_in_root_frame[window_start:window_end_exclusive, :] / mass
+                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 6*len(self.contact_bodies)))
                         numpy_output_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 3*len(self.contact_bodies)))
                         numpy_output_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 3*len(self.contact_bodies)))
                         numpy_output_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 3*len(self.contact_bodies)))
                         contact_indices: List[int] = [subject.getGroundForceBodies().index(body) if body in subject.getGroundForceBodies() else -1 for body in self.contact_bodies]
                         for i in range(len(self.contact_bodies)):
                             if contact_indices[i] >= 0:
+                                numpy_output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][:, 6*i:6*i+6] = ground_contact_wrenches_in_root_frame[window_start:window_end_exclusive, 6*contact_indices[i]:6*contact_indices[i]+6]
                                 numpy_output_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME][:, 3*i:3*i+3] = ground_contact_cop_torque_force_in_root_frame[window_start:window_end_exclusive, 9*contact_indices[i]:9*contact_indices[i]+3]
                                 numpy_output_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME][:, 3*i:3*i+3] = ground_contact_cop_torque_force_in_root_frame[window_start:window_end_exclusive, 9*contact_indices[i]+3:9*contact_indices[i]+6] / mass
                                 numpy_output_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME][:, 3*i:3*i+3] = ground_contact_cop_torque_force_in_root_frame[window_start:window_end_exclusive, 9*contact_indices[i]+6:9*contact_indices[i]+9] / mass
