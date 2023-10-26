@@ -5,3 +5,6 @@ Geometry/
 outputs/
 checkpoints/
 .DS_Store
+b3d-venv-py311
+__pycache__
+.idea/
