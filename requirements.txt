@@ -1,4 +1,7 @@
-nimblephysics
-torch
-numpy
-wandb
+nimblephysics~=0.10.20
+torch~=2.1.0
+numpy~=1.26.0
+wandb~=0.15.12
+matplotlib~=3.8.0
+seaborn~=0.13.0
+scipy~=1.11.3
