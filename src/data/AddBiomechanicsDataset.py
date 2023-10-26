@@ -146,21 +146,21 @@ class AddBiomechanicsDataset(Dataset):
                 # Copy all of the Numpy arrays from C++ to Python only once, because that's a slow operation
 
                 # Inputs
-                pos = processing_passes[input_pass_index].getPoses().transpose()
-                vel = processing_passes[input_pass_index].getVels().transpose()
-                acc = processing_passes[input_pass_index].getAccs().transpose()
-                joint_centers_in_root_frame = processing_passes[input_pass_index].getJointCentersInRootFrame().transpose()
-                root_spatial_vel_in_root_frame = processing_passes[input_pass_index].getRootSpatialVelInRootFrame().transpose()
-                root_spatial_acc_in_root_frame = processing_passes[input_pass_index].getRootSpatialAccInRootFrame().transpose()
-                root_pos_history = processing_passes[input_pass_index].getRootPosHistoryInRootFrame().transpose()
-                root_euler_history = processing_passes[input_pass_index].getRootEulerHistoryInRootFrame().transpose()
+                pos = processing_passes[input_pass_index].getPoses().transpose().astype(np.float32)
+                vel = processing_passes[input_pass_index].getVels().transpose().astype(np.float32)
+                acc = processing_passes[input_pass_index].getAccs().transpose().astype(np.float32)
+                joint_centers_in_root_frame = processing_passes[input_pass_index].getJointCentersInRootFrame().transpose().astype(np.float32)
+                root_spatial_vel_in_root_frame = processing_passes[input_pass_index].getRootSpatialVelInRootFrame().transpose().astype(np.float32)
+                root_spatial_acc_in_root_frame = processing_passes[input_pass_index].getRootSpatialAccInRootFrame().transpose().astype(np.float32)
+                root_pos_history = processing_passes[input_pass_index].getRootPosHistoryInRootFrame().transpose().astype(np.float32)
+                root_euler_history = processing_passes[input_pass_index].getRootEulerHistoryInRootFrame().transpose().astype(np.float32)
 
                 # Outputs
-                tau = processing_passes[-1].getTaus().transpose()
-                ground_contact_wrenches_in_root_frame = processing_passes[-1].getGroundBodyWrenchesInRootFrame().transpose()
-                ground_contact_cop_torque_force_in_root_frame = processing_passes[-1].getGroundBodyCopTorqueForceInRootFrame().transpose()
-                com_acc_in_root_frame = processing_passes[-1].getComAccsInRootFrame().transpose()
-                residual_wrench_in_root_frame = processing_passes[-1].getResidualWrenchInRootFrame().transpose()
+                tau = processing_passes[-1].getTaus().transpose().astype(np.float32)
+                ground_contact_wrenches_in_root_frame = processing_passes[-1].getGroundBodyWrenchesInRootFrame().transpose().astype(np.float32)
+                ground_contact_cop_torque_force_in_root_frame = processing_passes[-1].getGroundBodyCopTorqueForceInRootFrame().transpose().astype(np.float32)
+                com_acc_in_root_frame = processing_passes[-1].getComAccsInRootFrame().transpose().astype(np.float32)
+                residual_wrench_in_root_frame = processing_passes[-1].getResidualWrenchInRootFrame().transpose().astype(np.float32)
 
                 for window_start in range(max(trial_length - self.window_size + 1, 0)):
                     # Check if any of the frames in this window are probably missing GRF data
@@ -189,14 +189,14 @@ class AddBiomechanicsDataset(Dataset):
 
                         mass = subject.getMassKg()
                         numpy_output_dict[OutputDataKeys.TAU] = tau[window_start:window_end_exclusive, :]
-                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 6*len(self.contact_bodies)))
-                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 3*len(self.contact_bodies)))
-                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 3*len(self.contact_bodies)))
-                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 3*len(self.contact_bodies)))
+                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 6*len(self.contact_bodies)), dtype=np.float32)
+                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 3*len(self.contact_bodies)), dtype=np.float32)
+                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 3*len(self.contact_bodies)), dtype=np.float32)
+                        numpy_output_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] = np.zeros((window_end_exclusive - window_start, 3*len(self.contact_bodies)), dtype=np.float32)
                         contact_indices: List[int] = [subject.getGroundForceBodies().index(body) if body in subject.getGroundForceBodies() else -1 for body in self.contact_bodies]
                         for i in range(len(self.contact_bodies)):
                             if contact_indices[i] >= 0:
-                                numpy_output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][:, 6*i:6*i+6] = ground_contact_wrenches_in_root_frame[window_start:window_end_exclusive, 6*contact_indices[i]:6*contact_indices[i]+6]
+                                numpy_output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][:, 6*i:6*i+6] = ground_contact_wrenches_in_root_frame[window_start:window_end_exclusive, 6*contact_indices[i]:6*contact_indices[i]+6] / mass
                                 numpy_output_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME][:, 3*i:3*i+3] = ground_contact_cop_torque_force_in_root_frame[window_start:window_end_exclusive, 9*contact_indices[i]:9*contact_indices[i]+3]
                                 numpy_output_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME][:, 3*i:3*i+3] = ground_contact_cop_torque_force_in_root_frame[window_start:window_end_exclusive, 9*contact_indices[i]+3:9*contact_indices[i]+6] / mass
                                 numpy_output_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME][:, 3*i:3*i+3] = ground_contact_cop_torque_force_in_root_frame[window_start:window_end_exclusive, 9*contact_indices[i]+6:9*contact_indices[i]+9] / mass
@@ -207,13 +207,13 @@ class AddBiomechanicsDataset(Dataset):
                         with torch.no_grad():
                             input_dict: Dict[str, torch.Tensor] = {}
                             for key in numpy_input_dict:
-                                input_dict[key] = torch.tensor(
-                                    numpy_input_dict[key], dtype=torch.float32, device=self.device)
+                                input_dict[key] = torch.from_numpy(
+                                    numpy_input_dict[key]).detach()
 
                             label_dict: Dict[str, torch.Tensor] = {}
                             for key in numpy_output_dict:
-                                label_dict[key] = torch.tensor(
-                                    numpy_output_dict[key], dtype=torch.float32, device=self.device)
+                                label_dict[key] = torch.from_numpy(
+                                    numpy_output_dict[key]).detach()
                         
                         self.windows.append((input_dict, label_dict, subject_index))
                     else:
