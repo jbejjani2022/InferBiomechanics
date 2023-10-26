@@ -12,6 +12,28 @@ import time
 import wandb
 import numpy as np
 import logging
+import subprocess
+
+
+# Utility to get the current repo's git hash, which is useful for replicating runs later
+def get_git_hash():
+    try:
+        return subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
+    except subprocess.CalledProcessError:
+        return "Git hash could not be found."
+
+
+# Utility to check if the current repo has uncommited changes, which is useful for debugging why we can't replicate
+# runs later, and also yelling at people if they run experiments with uncommited changes.
+def has_uncommitted_changes():
+    try:
+        # The command below checks for changes including untracked files.
+        # You can modify this command as per your requirement.
+        status = subprocess.check_output(['git', 'status', '--porcelain']).decode('ascii').strip()
+        return bool(status)
+    except subprocess.CalledProcessError:
+        return "Could not determine if there are uncommitted changes."
+
 
 class TrainCommand(AbstractCommand):
     def __init__(self):
@@ -20,6 +42,7 @@ class TrainCommand(AbstractCommand):
     def register_subcommand(self, subparsers: argparse._SubParsersAction):
         subparser = subparsers.add_parser('train', help='Train a model on the AddBiomechanics dataset')
         subparser.add_argument('--dataset-home', type=str, default='../data', help='The path to the AddBiomechanics dataset.')
+        subparser.add_argument('--no-wandb', action='store_true', default=False, help='Log this run to Weights and Biases.')
         subparser.add_argument('--model-type', type=str, default='feedforward', help='The model to train.')
         subparser.add_argument('--checkpoint-dir', type=str, default='../checkpoints', help='The path to a model checkpoint to save during training. Also, starts from the latest checkpoint in this directory.')
         subparser.add_argument('--geometry-folder', type=str, default=None, help='Path to the Geometry folder with bone mesh data.')
@@ -47,24 +70,41 @@ class TrainCommand(AbstractCommand):
         device: str = args.device
         short: bool = args.short
         dataset_home: str = args.dataset_home
+        log_to_wandb: bool = not args.no_wandb
 
         geometry = self.ensure_geometry(args.geometry_folder)
 
-        logging.info('Initializing wandb...')
-        wandb.init(
-            # set the wandb project where this run will be logged
-            project="shpd1",
+        has_uncommitted = has_uncommitted_changes()
+        if has_uncommitted:
+            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            logging.error("ERROR: UNCOMMITTED CHANGES IN REPO! THIS WILL MAKE IT HARD TO REPLICATE THIS EXPERIMENT LATER")
+            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
-            # track hyperparameters and run metadata
-            config={
-                "learning_rate": learning_rate,
-                "hidden_size": hidden_size,
-                "batch_size": batch_size,
-                "model_type": model_type,
-                "optimizer_type": opt_type,
-                "epochs": epochs,
-            }
-        )
+        if log_to_wandb:
+            logging.info('Initializing wandb...')
+            wandb.init(
+                # set the wandb project where this run will be logged
+                project="shpd1",
+
+                # track hyperparameters and run metadata
+                config={
+                    "learning_rate": learning_rate,
+                    "hidden_size": hidden_size,
+                    "batch_size": batch_size,
+                    "model_type": model_type,
+                    "optimizer_type": opt_type,
+                    "epochs": epochs,
+                    "git_hash": get_git_hash(),
+                    "history_len": history_len,
+                    "uncommitted_changes": has_uncommitted,
+                    "checkpoint_dir": checkpoint_dir,
+                    "num_subjects_prefetch": args.num_subjects_prefetch,
+                }
+            )
 
         # Create an instance of the dataset
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
@@ -106,7 +146,13 @@ class TrainCommand(AbstractCommand):
                 dataset_creation = time.time()
                 subset_indices = permuted_indices[subject_index:subject_index+args.num_subjects_prefetch]
                 if args.num_subjects_prefetch < len(train_dataset.subject_paths) or epoch == 0:
+                    # Uncomment the below code to profile the prepare_data_for_subset() call, which is still slow
+                    # import cProfile
+                    # profiler = cProfile.Profile()
+                    # profiler.runcall(lambda: train_dataset.prepare_data_for_subset(subset_indices))
+                    # profiler.print_stats()
                     train_dataset.prepare_data_for_subset(subset_indices)
+
                 # Create a DataLoader to load the data in batches
                 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
                 dataset_creation = time.time() - dataset_creation
@@ -132,13 +178,13 @@ class TrainCommand(AbstractCommand):
                                         labels,
                                         batch_subject_indices,
                                         compute_report,
-                                        log_reports_to_wandb=True)
+                                        log_reports_to_wandb=log_to_wandb)
 
                     if i % 100 == 0:
                         logging.info('  - Batch ' + str(i) + '/' + str(len(train_dataloader)))
                     if i % 1000 == 0:
                         loss_evaluator.print_report()
-                        model_path = f"{checkpoint_dir}/{model_type}/epoch_{epoch}_batch_{i}.pt"
+                        model_path = f"{checkpoint_dir}/{model_type}/epoch_{epoch}_subjects_{subject_index}_batch_{i}.pt"
                         if not os.path.exists(os.path.dirname(model_path)):
                             os.makedirs(os.path.dirname(model_path))
                         torch.save({
