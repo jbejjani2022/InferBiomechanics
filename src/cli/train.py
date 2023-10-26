@@ -99,7 +99,10 @@ class TrainCommand(AbstractCommand):
                     "optimizer_type": opt_type,
                     "epochs": epochs,
                     "git_hash": get_git_hash(),
-                    "uncommitted_changes": has_uncommitted
+                    "history_len": history_len,
+                    "uncommitted_changes": has_uncommitted,
+                    "checkpoint_dir": checkpoint_dir,
+                    "num_subjects_prefetch": args.num_subjects_prefetch,
                 }
             )
 
@@ -181,7 +184,7 @@ class TrainCommand(AbstractCommand):
                         logging.info('  - Batch ' + str(i) + '/' + str(len(train_dataloader)))
                     if i % 1000 == 0:
                         loss_evaluator.print_report()
-                        model_path = f"{checkpoint_dir}/{model_type}/epoch_{epoch}_batch_{i}.pt"
+                        model_path = f"{checkpoint_dir}/{model_type}/epoch_{epoch}_subjects_{subject_index}_batch_{i}.pt"
                         if not os.path.exists(os.path.dirname(model_path)):
                             os.makedirs(os.path.dirname(model_path))
                         torch.save({
