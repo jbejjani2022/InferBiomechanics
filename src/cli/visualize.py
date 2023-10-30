@@ -48,6 +48,7 @@ class VisualizeCommand(AbstractCommand):
         print('## Loading TRAIN set:')
         train_dataset = AddBiomechanicsDataset(
             os.path.abspath('../data/train'), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
+        train_dataset.prepare_data_for_subset([0, 1])
         # print('## Loading DEV set:')
         # dev_dataset = AddBiomechanicsDataset(
         #     os.path.abspath('../data/dev'), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
@@ -70,6 +71,9 @@ class VisualizeCommand(AbstractCommand):
         frame: int = 0
         playing: bool = True
         num_frames = len(train_dataset)
+        if num_frames == 0:
+            print('No frames in dataset!')
+            exit(1)
 
         def onKeyPress(key):
             nonlocal playing
@@ -97,8 +101,9 @@ class VisualizeCommand(AbstractCommand):
 
                 inputs: Dict[str, torch.Tensor]
                 labels: Dict[str, torch.Tensor]
-                inputs, labels, batch_subject_index = train_dataset[frame]
+                inputs, labels, batch_subject_index, trial_index = train_dataset[frame]
                 batch_subject_indices: List[int] = [batch_subject_index]
+                batch_trial_indices: List[int] = [trial_index]
 
                 # Add a batch dimension
                 for key in inputs:
@@ -112,7 +117,7 @@ class VisualizeCommand(AbstractCommand):
                 skel = skel_and_contact_bodies[0][0]
                 contact_bodies = skel_and_contact_bodies[0][1]
 
-                loss_evaluator(inputs, outputs, labels, batch_subject_indices, compute_report=True)
+                loss_evaluator(inputs, outputs, labels, batch_subject_indices, batch_trial_indices, compute_report=True)
                 if frame % 100 == 0:
                     print('Results on Frame ' + str(frame) + '/' + str(num_frames))
                     loss_evaluator.print_report()
