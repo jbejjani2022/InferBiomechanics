@@ -651,6 +651,9 @@ class Trial:
         num_valid_frames = 0
         for i, frame in enumerate(frames):
 
+            # Only use frames that are confidently not missing GRF
+            not_missing_grf = 1 if frame.missingGRFReason == nimble.biomechanics.MissingGRFReason.notMissingGRF else 0
+
             # Check if kinematics and dynamics processing passes exist for this frame. If so, store their pass ix
             kin_processed, dyn_processed = 0, 0  # init to false
             kin_pass_ix, dyn_pass_ix = -1, -1  # init to invalid indices
@@ -662,7 +665,7 @@ class Trial:
                     dyn_processed = 1
                     dyn_pass_ix = j  # store the processing pass index corresponding to the dynamics pass
 
-            if kin_processed and dyn_processed:  # store the data
+            if kin_processed and dyn_processed and not_missing_grf:  # store the data
                 num_valid_frames += 1
                 # From kinematics processing pass
                 self.joint_pos_kin.append(frame.processingPasses[kin_pass_ix].pos)
@@ -745,7 +748,7 @@ class Trial:
 
         # Check contact and GRF distribution
         assert (np.all(np.logical_or(self.contact == 0, self.contact == 1)))  # all contact labels either 0 or 1
-        assert (np.all((self.grf_dist >= 0) & (self.grf_dist <= 1))), f"grf_dist: {self.grf_dist}"  # distribution must be between 0 and 1
+        assert (np.all((self.grf_dist >= 0) & (self.grf_dist <= 1))), f"Violation found at rows: {np.where(~((self.grf_dist >= 0) & (self.grf_dist <= 1)).all(axis=1))[0]} in grf_dist: {self.grf_dist}"  # distribution must be between 0 and 1
 
 
 class ScatterPlotMatrix:
