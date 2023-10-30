@@ -163,7 +163,8 @@ class TrainCommand(AbstractCommand):
                     inputs: Dict[str, torch.Tensor]
                     labels: Dict[str, torch.Tensor]
                     batch_subject_indices: List[int]
-                    inputs, labels, batch_subject_indices = batch
+                    batch_trial_indices: List[int]
+                    inputs, labels, batch_subject_indices, batch_trial_indices = batch
 
                     # Clear the gradients
                     optimizer.zero_grad()
@@ -177,6 +178,7 @@ class TrainCommand(AbstractCommand):
                                         outputs,
                                         labels,
                                         batch_subject_indices,
+                                        batch_trial_indices,
                                         compute_report,
                                         log_reports_to_wandb=log_to_wandb)
 
@@ -221,9 +223,10 @@ class TrainCommand(AbstractCommand):
                         inputs: Dict[str, torch.Tensor]
                         labels: Dict[str, torch.Tensor]
                         batch_subject_indices: List[int]
-                        inputs, labels, batch_subject_indices = batch
+                        batch_trial_indices: List[int]
+                        inputs, labels, batch_subject_indices, batch_trial_indices = batch
                         outputs = model(inputs, [(dev_dataset.skeletons[i], dev_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices])
-                        loss = dev_loss_evaluator(inputs, outputs, labels, batch_subject_indices)
+                        loss = dev_loss_evaluator(inputs, outputs, labels, batch_subject_indices, batch_trial_indices)
             # Report dev loss on this epoch
             logging.info('Dev Set Evaluation: ')
             dev_loss_evaluator.print_report()

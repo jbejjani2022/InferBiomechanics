@@ -47,6 +47,7 @@ class RegressionLossEvaluator:
                  outputs: Dict[str, torch.Tensor],
                  labels: Dict[str, torch.Tensor],
                  batch_subject_indices: List[int],
+                 batch_trial_indices: List[int],
                  compute_report: bool = False,
                  log_reports_to_wandb: bool = False,
                  analyze: bool = False,
@@ -136,11 +137,11 @@ class RegressionLossEvaluator:
             wandb.log(report)
 
         if analyze:
-            plot_ferror = ((force_diff)**2).reshape(-1, 6).detach().numpy()
+            self.plot_ferror = ((force_diff)**2)[:,-1,:].reshape(-1,6).detach().numpy()
             for i in range(6):
                 plt.clf()
-                plt.plot(plot_ferror[:,i])
-                plt.savefig(os.path.join(plot_path_root, f"{batch_subject_indices[0]}_grferror{components[i]}.png"))
+                plt.plot(self.plot_ferror[:,i])
+                plt.savefig(os.path.join(plot_path_root, f"{os.path.basename(self.dataset.subject_paths[batch_subject_indices[0]])}_{self.dataset.subjects[batch_subject_indices[0]].getTrialName(batch_trial_indices[0])}_grferror{components[i]}.png"))
         return loss
 
     def print_report(self, reset: bool = True, log_to_wandb: bool = False):

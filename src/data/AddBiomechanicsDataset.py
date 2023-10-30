@@ -63,6 +63,7 @@ class AddBiomechanicsDataset(Dataset):
                  testing_with_short_dataset: bool = False,
                  skip_loading_skeletons: bool = False):
         self.subject_paths = []
+        self.subjects = []
         self.window_size = window_size
         self.geometry_folder = geometry_folder
         self.device = device
@@ -107,6 +108,7 @@ class AddBiomechanicsDataset(Dataset):
                 subject = nimble.biomechanics.SubjectOnDisk(subject_path)
                 skeleton = subject.readSkel(subject.getNumProcessingPasses()-1, geometry_folder)
                 print('Loading skeleton ' + str(i+1) + '/' + str(len(self.subject_paths)))
+                self.subjects.append(subject)
                 self.skeletons.append(skeleton)
                 self.skeletons_contact_bodies.append([skeleton.getBodyNode(body) for body in self.contact_bodies])
 
@@ -115,7 +117,7 @@ class AddBiomechanicsDataset(Dataset):
         if testing_with_short_dataset:
             self.windows = self.windows[:100]
 
-    def prepare_data_for_subset(self, subset_indices: Optional[List[int]] = None):
+    def prepare_data_for_subset(self, subset_indices: Optional[List[int]] = None, trials: Optional[List[int]] = None):
         self.windows = []
         num_skipped = 0
 
@@ -132,8 +134,12 @@ class AddBiomechanicsDataset(Dataset):
             subject.loadAllFrames(doNotStandardizeForcePlateData=True)
 
             # Also, count how many random windows we could select from this subject
-            for trial in range(subject.getNumTrials()):
-                print('  Formatting Torch Tensor inputs/outputs for trial '+str(trial+1)+'/'+str(subject.getNumTrials()))
+            if trials is None:
+                cur_trials = range(subject.getNumTrials())
+            else:
+                cur_trials = trials
+            for trial_iter, trial in enumerate(cur_trials):
+                print('  Formatting Torch Tensor inputs/outputs for trial '+str(trial_iter+1)+'/'+str(len(cur_trials)))
                 probably_missing: List[bool] = [reason != nimble.biomechanics.MissingGRFReason.notMissingGRF for reason in subject.getMissingGRF(trial)]
 
                 trial_length = subject.getTrialLength(trial)
@@ -216,7 +222,7 @@ class AddBiomechanicsDataset(Dataset):
                                 label_dict[key] = torch.from_numpy(
                                     numpy_output_dict[key]).detach()
                         
-                        self.windows.append((input_dict, label_dict, subject_index))
+                        self.windows.append((input_dict, label_dict, subject_index, trial))
                     else:
                         num_skipped += 1
 
@@ -224,7 +230,7 @@ class AddBiomechanicsDataset(Dataset):
         return len(self.windows)
 
     def __getitem__(self, index: int) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], int]:
-        input_dict, label_dict, subject_index = self.windows[index]
+        input_dict, label_dict, subject_index, trial = self.windows[index]
         # Convert the frames to a dictionary of matrices, where columns are timesteps and rows are degrees of freedom / dimensions
         # (the DataLoader will then convert this to a batched tensor)
 
@@ -253,4 +259,4 @@ class AddBiomechanicsDataset(Dataset):
 
         # Return the input and output dictionaries at this timestep, as well as the skeleton pointer
 
-        return input_dict, label_dict, subject_index
+        return input_dict, label_dict, subject_index, trial
