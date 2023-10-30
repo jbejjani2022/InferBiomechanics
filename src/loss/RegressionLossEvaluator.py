@@ -4,6 +4,8 @@ from typing import Dict, List
 import numpy as np
 import wandb
 import logging
+import matplotlib.pyplot as plt
+import os
 
 class RegressionLossEvaluator:
     dataset: AddBiomechanicsDataset
@@ -30,6 +32,9 @@ class RegressionLossEvaluator:
         self.sum_id_tau_error = 0.0
         self.sum_direct_tau_error = 0.0
 
+        self.outputs = []
+        self.labels = []
+
     @staticmethod
     def compute_norms(diff: torch.Tensor, max: float = 1e3) -> torch.Tensor:
         diff = diff.view((-1, diff.shape[-2], int(diff.shape[-1] / 3), 3))
@@ -43,7 +48,9 @@ class RegressionLossEvaluator:
                  labels: Dict[str, torch.Tensor],
                  batch_subject_indices: List[int],
                  compute_report: bool = False,
-                 log_reports_to_wandb: bool = False) -> torch.Tensor:
+                 log_reports_to_wandb: bool = False,
+                 analyze: bool = False,
+                 plot_path_root: str = 'outputs/plots') -> torch.Tensor:
         # Compute the loss
         force_diff = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] - labels[
                 OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME]
@@ -128,6 +135,12 @@ class RegressionLossEvaluator:
                 report['Non-root Joint Torques (Inverse Dynamics) Avg Err (Nm per kg)'] = tau_err_mean
             wandb.log(report)
 
+        if analyze:
+            plot_ferror = ((force_diff)**2).reshape(-1, 6).detach().numpy()
+            for i in range(6):
+                plt.clf()
+                plt.plot(plot_ferror[:,i])
+                plt.savefig(os.path.join(plot_path_root, f"{batch_subject_indices[0]}_grferror{components[i]}.png"))
         return loss
 
     def print_report(self, reset: bool = True, log_to_wandb: bool = False):
