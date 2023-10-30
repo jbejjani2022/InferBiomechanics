@@ -68,6 +68,8 @@ class AnalyzeCommand(AbstractCommand):
                 dataset_creation = time.time()
                 train_dataset.prepare_data_for_subset([subject_index], [trial])
                 # Create a DataLoader to load the data in batches
+                if len(train_dataset.windows) == 0:
+                    continue
                 train_dataloader = DataLoader(train_dataset, batch_size=len(train_dataset.windows), shuffle=False)
                 dataset_creation = time.time() - dataset_creation
                 logging.info(f"Train Subject Index: {subject_index}/{len(train_dataset.subject_paths)}, Trial index: {trial}/{trials} {dataset_creation=}")
