@@ -12,4 +12,4 @@ TIMESTAMP=$(date +"%Y%m%d%H%M%S")
 #python3 ../main.py train --model feedforward --checkpoint-dir "$GROUP_HOME/cvpr/checkpoint-$TIMESTAMP" --hidden-size 256 --learning-rate 0.01 --opt-type adagrad --dataset-home "$GROUP_HOME/data" --epochs 500
 #python3 ../main.py train --model feedforward --checkpoint-dir "$GROUP_HOME/cvpr/checkpoint-20231027022502" --hidden-size 64 --learning-rate 0.01 --opt-type adagrad --dataset-home "$GROUP_HOME/data" --epochs 500
 #python3 ../main.py train --model feedforward --checkpoint-dir "$GROUP_HOME/cvpr/checkpoint-$TIMESTAMP" --hidden-size 512 --learning-rate 0.001 --opt-type adagrad --dataset-home "$GROUP_HOME/data" --epochs 50
-python3 ../main.py train --model feedforward --checkpoint-dir "$GROUP_HOME/cvpr/checkpoint-$TIMESTAMP" --hidden-size 64 --learning-rate 0.001 --opt-type adagrad --dataset-home "$GROUP_HOME/data" --epochs 15
+python3 ../main.py train --model feedforward --checkpoint-dir "$GROUP_HOME/cvpr/checkpoint-$TIMESTAMP" --hidden-size 1024 --learning-rate 0.001 --opt-type adagrad --dataset-home "$GROUP_HOME/data" --epochs 15
