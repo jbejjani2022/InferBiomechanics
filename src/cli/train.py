@@ -38,7 +38,7 @@ class TrainCommand(AbstractCommand):
             return False
         model_type: str = args.model_type
         opt_type: str = args.opt_type
-        checkpoint_dir: str = os.path.abspath(args.checkpoint_dir)
+        checkpoint_dir: str = os.path.join(os.path.abspath(args.checkpoint_dir), model_type)
         history_len: int = args.history_len
         hidden_size: int = args.hidden_size
         learning_rate: float = args.learning_rate
@@ -74,7 +74,7 @@ class TrainCommand(AbstractCommand):
         dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
 
         # Create an instance of the model
-        model = self.get_model(train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, hidden_size, device, checkpoint_dir_root=checkpoint_dir)
+        model = self.get_model(train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, hidden_size, device, checkpoint_dir=checkpoint_dir)
 
         # Define the optimizer
         if opt_type == 'adagrad':
