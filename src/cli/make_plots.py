@@ -200,12 +200,13 @@ class Dataset:
 
                     frames = subject.readFrames(trial=trial, startFrame=0, numFramesToRead=init_trial_length)
                     trial_data = Trial(frames)
-                    for i in range(trial_data.num_valid_frames):
-                        # Estimate the mass
-                        curr_mass = (np.linalg.norm(trial_data.total_grf[i, :]) /
-                                     np.linalg.norm(trial_data.com_acc_kin[i, :]))
-                        curr_mass = np.nan_to_num(curr_mass, nan=0.0)
-                        masses.append(curr_mass)
+                    if trial_data.num_valid_frames > 0:
+                        for i in range(trial_data.num_valid_frames):
+                            # Estimate the mass
+                            curr_mass = (np.linalg.norm(trial_data.total_grf[i, :]) /
+                                         np.linalg.norm(trial_data.com_acc_kin[i, :]))
+                            curr_mass = np.nan_to_num(curr_mass, nan=0.0)
+                            masses.append(curr_mass)
 
             # Store the average and std of the estimated mass
             estimated_mass[subj_path] = (subject.getMassKg(),
@@ -381,6 +382,9 @@ class Dataset:
                     frames = subject_on_disk.readFrames(trial=trial, startFrame=0, numFramesToRead=init_trial_length)
                     trial_data = Trial(frames)
                     num_valid_frames = trial_data.num_valid_frames
+                    if num_valid_frames == 0:
+                        print(f"SKIPPING TRIAL {trial + 1} due to 0 valid frames")
+                        continue
                     if num_valid_frames < len(frames):
                         print(f"REMOVING SOME FRAMES on trial {trial + 1}: "
                               f"num_valid_frames: {num_valid_frames} vs. total num frames: {len(frames)}")
@@ -690,65 +694,66 @@ class Trial:
                 self.grm.append(frame.processingPasses[dyn_pass_ix].groundContactTorque)
                 self.contact.append(frame.processingPasses[dyn_pass_ix].contact)
 
-        #  Convert lists to arrays
-        # From kinematics processing pass
-        self.joint_pos_kin = np.array(self.joint_pos_kin)
-        self.joint_vel_kin = np.array(self.joint_vel_kin)
-        self.joint_acc_kin = np.array(self.joint_acc_kin)
-        self.com_pos_kin = np.array(self.com_pos_kin)
-        self.com_vel_kin = np.array(self.com_vel_kin)
-        self.com_acc_kin = np.array(self.com_acc_kin)
-
-        # From dynamics processing pass
-        self.joint_pos_dyn = np.array(self.joint_pos_dyn)
-        self.joint_vel_dyn = np.array(self.joint_vel_dyn)
-        self.joint_acc_dyn = np.array(self.joint_acc_dyn)
-        self.com_pos_dyn = np.array(self.com_pos_dyn)
-        self.com_vel_dyn = np.array(self.com_vel_dyn)
-        self.com_acc_dyn = np.array(self.com_acc_dyn)
-        self.joint_tau_dyn = np.array(self.joint_tau_dyn)
-
-        # GRF stuff
-        self.grf = np.array(self.grf)
-        self.cop = np.array(self.cop)
-        self.grm = np.array(self.grm)
-        self.contact = np.array(self.contact)
-
-        # Check shapes
-        assert ((self.joint_pos_kin.shape[-1] == self.num_joints) and (self.joint_pos_dyn.shape[-1] == self.num_joints)), f"{len(frames)}, {num_valid_frames}, self.joint_pos_kin.shape[-1]: {self.joint_pos_kin.shape[-1]}; self.joint_pos_dyn.shape[-1]: {self.joint_pos_dyn.shape[-1]}"
-        assert ((self.joint_vel_kin.shape[-1] == self.num_joints) and (self.joint_vel_dyn.shape[-1] == self.num_joints))
-        assert ((self.joint_acc_kin.shape[-1] == self.num_joints) and (self.joint_acc_dyn.shape[-1] == self.num_joints))
-        assert (self.joint_tau_dyn.shape[-1] == self.num_joints)
-        assert ((self.com_pos_kin.shape[-1] == 3) and (self.com_pos_dyn.shape[-1] == 3))
-        assert ((self.com_vel_kin.shape[-1] == 3) and (self.com_vel_dyn.shape[-1] == 3))
-        assert ((self.com_acc_kin.shape[-1] == 3) and (self.com_acc_dyn.shape[-1] == 3))
-        assert (self.grf.shape[-1] == 6), f"grf shape: {self.grf.shape}"
-        assert (self.cop.shape[-1] == 6)
-        assert (self.grm.shape[-1] == 6)
-        assert (self.contact.shape[-1] == 2)
-
-        # Store the valid number of frames
+        # Store the number of valid frames
         self.num_valid_frames = num_valid_frames
-        assert (self.num_valid_frames != 0)
-        assert (self.num_valid_frames == self.joint_pos_kin.shape[0])  # first dim
-        assert (self.num_valid_frames <= len(frames))
+        if num_valid_frames > 0:  # only convert/store trial info if trial is valid
+            #  Convert lists to arrays
+            # From kinematics processing pass
+            self.joint_pos_kin = np.array(self.joint_pos_kin)
+            self.joint_vel_kin = np.array(self.joint_vel_kin)
+            self.joint_acc_kin = np.array(self.joint_acc_kin)
+            self.com_pos_kin = np.array(self.com_pos_kin)
+            self.com_vel_kin = np.array(self.com_vel_kin)
+            self.com_acc_kin = np.array(self.com_acc_kin)
 
-        # Offset gravity in y direction for COM acc
-        self.com_acc_kin[:, 1] += 9.81
-        self.com_acc_dyn[:, 1] += 9.81
+            # From dynamics processing pass
+            self.joint_pos_dyn = np.array(self.joint_pos_dyn)
+            self.joint_vel_dyn = np.array(self.joint_vel_dyn)
+            self.joint_acc_dyn = np.array(self.joint_acc_dyn)
+            self.com_pos_dyn = np.array(self.com_pos_dyn)
+            self.com_vel_dyn = np.array(self.com_vel_dyn)
+            self.com_acc_dyn = np.array(self.com_acc_dyn)
+            self.joint_tau_dyn = np.array(self.joint_tau_dyn)
 
-        # Compute total GRF from both contact bodies
-        self.total_grf = self.grf[:, 0:3] + self.grf[:, 3:6]
+            # GRF stuff
+            self.grf = np.array(self.grf)
+            self.cop = np.array(self.cop)
+            self.grm = np.array(self.grm)
+            self.contact = np.array(self.contact)
 
-        # Compute GRF distribution (on first listed contact body; second will just be complement)
-        # only if in double-support. Otherwise, 0.
-        ds_mask = np.all(self.contact == 1, axis=1)  # mask for double-support
-        self.grf_dist = np.zeros_like(self.total_grf)
-        self.grf_dist[ds_mask, :] = np.abs(self.grf[ds_mask, 0:3]) / (np.abs(self.grf[ds_mask, 0:3]) + np.abs(self.grf[ds_mask, 3:6]) ) # dist by abs value
+            # Check shapes
+            assert ((self.joint_pos_kin.shape[-1] == self.num_joints) and (self.joint_pos_dyn.shape[-1] == self.num_joints)), f"{len(frames)}, {num_valid_frames}, self.joint_pos_kin.shape[-1]: {self.joint_pos_kin.shape[-1]}; self.joint_pos_dyn.shape[-1]: {self.joint_pos_dyn.shape[-1]}"
+            assert ((self.joint_vel_kin.shape[-1] == self.num_joints) and (self.joint_vel_dyn.shape[-1] == self.num_joints))
+            assert ((self.joint_acc_kin.shape[-1] == self.num_joints) and (self.joint_acc_dyn.shape[-1] == self.num_joints))
+            assert (self.joint_tau_dyn.shape[-1] == self.num_joints)
+            assert ((self.com_pos_kin.shape[-1] == 3) and (self.com_pos_dyn.shape[-1] == 3))
+            assert ((self.com_vel_kin.shape[-1] == 3) and (self.com_vel_dyn.shape[-1] == 3))
+            assert ((self.com_acc_kin.shape[-1] == 3) and (self.com_acc_dyn.shape[-1] == 3))
+            assert (self.grf.shape[-1] == 6), f"grf shape: {self.grf.shape}"
+            assert (self.cop.shape[-1] == 6)
+            assert (self.grm.shape[-1] == 6)
+            assert (self.contact.shape[-1] == 2)
 
-        # Check contact and GRF distribution
-        assert (np.all(np.logical_or(self.contact == 0, self.contact == 1)))  # all contact labels either 0 or 1
-        assert (np.all((self.grf_dist >= 0) & (self.grf_dist <= 1))), f"Violation found at rows: {np.where(~((self.grf_dist >= 0) & (self.grf_dist <= 1)).all(axis=1))[0]} in grf_dist: {self.grf_dist}"  # distribution must be between 0 and 1
+            # Check the number of valid frames
+            assert (self.num_valid_frames == self.joint_pos_kin.shape[0])  # first dim
+            assert (self.num_valid_frames <= len(frames))
+
+            # Offset gravity in y direction for COM acc
+            self.com_acc_kin[:, 1] += 9.81
+            self.com_acc_dyn[:, 1] += 9.81
+
+            # Compute total GRF from both contact bodies
+            self.total_grf = self.grf[:, 0:3] + self.grf[:, 3:6]
+
+            # Compute GRF distribution (on first listed contact body; second will just be complement)
+            # only if in double-support. Otherwise, 0.
+            ds_mask = np.all(self.contact == 1, axis=1)  # mask for double-support
+            self.grf_dist = np.zeros_like(self.total_grf)
+            self.grf_dist[ds_mask, :] = np.abs(self.grf[ds_mask, 0:3]) / (np.abs(self.grf[ds_mask, 0:3]) + np.abs(self.grf[ds_mask, 3:6]) ) # dist by abs value
+
+            # Check contact and GRF distribution
+            assert (np.all(np.logical_or(self.contact == 0, self.contact == 1)))  # all contact labels either 0 or 1
+            assert (np.all((self.grf_dist >= 0) & (self.grf_dist <= 1))), f"Violation found at rows: {np.where(~((self.grf_dist >= 0) & (self.grf_dist <= 1)).all(axis=1))[0]} in grf_dist: {self.grf_dist}"  # distribution must be between 0 and 1
 
 
 class ScatterPlotMatrix:
