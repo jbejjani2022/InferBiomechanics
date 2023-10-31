@@ -5,7 +5,8 @@ from typing import List, Dict, Tuple
 import os
 import numpy as np
 from typing import Optional
-
+import csv
+import logging
 
 class InputDataKeys:
     # These are the joint quantities for the joints that we are observing
@@ -71,7 +72,13 @@ class AddBiomechanicsDataset(Dataset):
         self.contact_bodies = []
         self.skeletons = []
         self.skeletons_contact_bodies = []
+        self.csv_loss = {}
+        
+        with open("/home/groups/delp/cvpr/checkpoint-analysis/feedforward/train_analysis.csv", mode='r') as infile: #/home/groups/delp/cvpr/checkpoint-analysis/feedforward/train_analysis.csv
+            reader = csv.reader(infile)
+            self.csv_loss = {(rows[0], rows[1]): np.array(rows[2:]) for rows in reader}
 
+        print(f"{self.csv_loss=}")
 
         if os.path.isdir(data_path):
             for root, dirs, files in os.walk(data_path):
@@ -139,6 +146,8 @@ class AddBiomechanicsDataset(Dataset):
             else:
                 cur_trials = trials
             for trial_iter, trial in enumerate(cur_trials):
+                if np.any(self.csv_loss[(os.path.basename(self.subject_paths[subject_index]), subject.getTrialName(trial))] >= 20.):
+                    continue
                 print('  Formatting Torch Tensor inputs/outputs for trial '+str(trial_iter+1)+'/'+str(len(cur_trials)))
                 probably_missing: List[bool] = [reason != nimble.biomechanics.MissingGRFReason.notMissingGRF for reason in subject.getMissingGRF(trial)]
 
