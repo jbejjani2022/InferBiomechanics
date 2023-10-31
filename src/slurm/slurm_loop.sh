@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 #SBATCH --job-name=model_training_run
-#SBATCH --time=120:00:00
+#SBATCH --time=48:00:00
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64000M
 #SBATCH --partition=owners
