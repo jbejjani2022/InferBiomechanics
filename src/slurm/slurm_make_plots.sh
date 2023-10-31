@@ -5,6 +5,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64000M
 #SBATCH --partition=owners
+#SBATCH --mail-type=ALL
 
 ml python/3.9.0
 
