@@ -328,32 +328,26 @@ class Dataset:
 
             print(f"Processing subject file: {subj_path}...")
 
-            # Get the subject info
+            # Load the subject
             subject_on_disk = nimble.biomechanics.SubjectOnDisk(subj_path)
+
+            # Ensure only two contact bodies. TODO: skip this whole subject for now; integrate in per-trial checking later
+            if len(subject_on_disk.getGroundForceBodies()) > 2:
+                print(f"Skipping {subj_path}: too many contact bodies ({len(subject_on_disk.getGroundForceBodies())})")
+                continue
+
+            # Get the subject info needed for trial processing
             num_trials = subject_on_disk.getNumTrials()
-            age = subject_on_disk.getAgeYears()
-            sex = subject_on_disk.getBiologicalSex()
             if self.use_estimated_mass:
                 mass = self.estimated_masses[subj_path][1]
             else:
                 mass = subject_on_disk.getMassKg()
-            height = subject_on_disk.getHeightM()
-            bmi = mass / (height ** 2)
-
-            if self.output_histograms:
-                # Add to subject-specific storage
-                self.ages[subj_ix] = age
-                self.bmis[subj_ix] = bmi
-                if sex == "male":
-                    sex_int = 0
-                elif sex == "female":
-                    sex_int = 1
-                else:
-                    sex_int = 2  # unknown
-                self.sexes[subj_ix] = sex_int
 
             if self.output_scatterplots:  # TODO: change color scheme
                 color = "black"
+
+            # Keep track of number of valid trials for this subject
+            num_valid_trials = 0
 
             # Loop through all trials for each subject:
             for trial in range(num_trials):
@@ -382,6 +376,8 @@ class Dataset:
                     frames = subject_on_disk.readFrames(trial=trial, startFrame=0, numFramesToRead=init_trial_length)
                     trial_data = Trial(frames)
                     num_valid_frames = trial_data.num_valid_frames
+
+                    # Additional checks based on results of processing frames for given trial:
                     if num_valid_frames == 0:
                         print(f"SKIPPING TRIAL {trial + 1} due to 0 valid frames")
                         continue
@@ -391,6 +387,11 @@ class Dataset:
                     if num_valid_frames < len(frames):
                         print(f"REMOVING SOME FRAMES on trial {trial + 1}: "
                               f"num_valid_frames: {num_valid_frames} vs. total num frames: {len(frames)}")
+
+                    # We broke out of this iteration of trial looping if skipping trials due to reasons above;
+                    # otherwise, increment number of valid trials
+                    num_valid_trials += 1
+                    #print(f"Current number of valid trials: {num_valid_trials}")
 
                     if self.output_histograms:
                         # Add to trial-specific storage:
@@ -464,6 +465,27 @@ class Dataset:
                                                           pred=trial_data.com_acc_kin,
                                                           true=trial_data.total_grf / mass)
                         self.grf_errs_v_freq.append(grf_err_v_freq)
+
+            # Keep tally of number of valid trials per input subject file
+            print(f"FINISHED {subj_path}: num valid trials: {num_valid_trials} num trials: {num_trials}")
+
+            # Only get demographics info and store if this subject had at least one valid trial
+            if num_valid_trials >= 1:
+                age = subject_on_disk.getAgeYears()
+                sex = subject_on_disk.getBiologicalSex()
+                height = subject_on_disk.getHeightM()
+                bmi = mass / (height ** 2)
+                if self.output_histograms:
+                    # Add to subject-specific storage
+                    self.ages[subj_ix] = age
+                    self.bmis[subj_ix] = bmi
+                    if sex == "male":
+                        sex_int = 0
+                    elif sex == "female":
+                        sex_int = 1
+                    else:
+                        sex_int = 2  # unknown
+                    self.sexes[subj_ix] = sex_int
 
     # TODO: add plotting for multiple models
     def plot_err_v_freq(self, errors: List[List[float]], outname: str, plot_std: bool = False):
