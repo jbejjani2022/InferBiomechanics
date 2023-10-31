@@ -19,17 +19,17 @@ class MakePlotsCommand(AbstractCommand):
         subparser = subparsers.add_parser('make-plots', help='Make summary plots and metrics on entire dataset.')
         subparser.add_argument('--data-path', type=str, help='Root path to all data files.')
         subparser.add_argument('--out-path', type=str, default='../figures', help='Path to output plots to.')
-        subparser.add_argument('--output-histograms', type=bool, default=True,
+        subparser.add_argument('--output-histograms', action="store_true",
                                help='Whether to output summary histograms.')
-        subparser.add_argument('--output-scatterplots', type=bool, default=True,
+        subparser.add_argument('--output-scatterplots', action="store_true",
                                help='Whether to output scatter plots.')
-        subparser.add_argument('--output-errvfreq', type=bool, default=True,
+        subparser.add_argument('--output-errvfreq', action="store_true",
                                help='Whether to output error vs. frequency plot(s).')
-        subparser.add_argument('--output-subjmetrics', type=bool, default=False,
+        subparser.add_argument('--output-subjmetrics', action="store_true",
                                help='Whether to print subject metrics.')
-        subparser.add_argument('--output-trialmetrics', type=bool, default=False,
+        subparser.add_argument('--output-trialmetrics', action="store_true",
                                help='Whether to print trial metrics.')
-        subparser.add_argument('--short', type=bool, default=False,
+        subparser.add_argument('--short', action="store_true",
                                help='Only use first few files of dataset.')
     def run(self, args: argparse.Namespace):
         """
@@ -385,6 +385,9 @@ class Dataset:
                     if num_valid_frames == 0:
                         print(f"SKIPPING TRIAL {trial + 1} due to 0 valid frames")
                         continue
+                    if np.sum(trial_data.total_grf) == 0:
+                        print(f"SKIPPING TRIAL {trial + 1} due to no GRF at all in the valid frames")
+                        continue
                     if num_valid_frames < len(frames):
                         print(f"REMOVING SOME FRAMES on trial {trial + 1}: "
                               f"num_valid_frames: {num_valid_frames} vs. total num frames: {len(frames)}")
@@ -452,8 +455,6 @@ class Dataset:
                         #                                                color)
 
                     if self.output_errvfreq:
-                        # Check if no force at all during trial; we remove these
-                        assert np.sum(trial_data.total_grf) != 0, f"Error: trial {trial}, {subj_path} has no force!!!"
                         # COM acc error vs. frequency
                         acc_err_v_freq = self.compute_err_v_freq(order=2, dt=subject_on_disk.getTrialTimestep(0),
                                                           pred=trial_data.com_acc_kin,
