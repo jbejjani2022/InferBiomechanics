@@ -6,6 +6,7 @@ import wandb
 import logging
 import matplotlib.pyplot as plt
 import os
+import argparse
 
 class RegressionLossEvaluator:
     dataset: AddBiomechanicsDataset
@@ -19,8 +20,9 @@ class RegressionLossEvaluator:
     sum_grf_wrench_force_error: float
     sum_grf_wrench_moment_error: float
 
-    def __init__(self, dataset: AddBiomechanicsDataset):
+    def __init__(self, dataset: AddBiomechanicsDataset, split: str):
         self.dataset = dataset
+        self.split = split
         self.num_evaluations = 0
         self.sum_batches = 0
         self.sum_grf_forces_error = 0.0
@@ -48,6 +50,7 @@ class RegressionLossEvaluator:
                  labels: Dict[str, torch.Tensor],
                  batch_subject_indices: List[int],
                  batch_trial_indices: List[int],
+                 args: argparse.Namespace,
                  compute_report: bool = False,
                  log_reports_to_wandb: bool = False,
                  analyze: bool = False,
@@ -113,16 +116,16 @@ class RegressionLossEvaluator:
                 self.sum_grf_wrench_force_error += (wrench_diff[:, :, 1].mean().item() + wrench_diff[:, :,
                                                                                          3].mean().item()) / 2
 
-        loss = torch.sum(force_loss) + torch.sum(cop_loss) + torch.sum(moment_loss) + torch.sum(wrench_loss)
+        loss = torch.sum(force_loss[args.predict_grf_components]) + torch.sum(cop_loss[args.predict_cop_components]) + torch.sum(moment_loss[args.predict_moment_components]) + torch.sum(wrench_loss[args.predict_wrench_components])
 
         components = {0: "left-x", 1: "left-y", 2: "left-z", 3: "right-x", 4: "right-y", 5: "right-z"}
         if log_reports_to_wandb:
             report: Dict[str, float] = {
-                **{f'force_loss_{components[i]}': force_loss[i].item() for i in range(6)},
-                **{f'cop_loss_{components[i]}': cop_loss[i].item() for i in range(6)},
-                **{f'moment_loss_{components[i]}': moment_loss[i].item() for i in range(6)},
-                'wrench_loss': torch.sum(wrench_loss).item(),
-                'loss': loss.item()
+                **{f'{self.split}/force_loss/{components[i]}': force_loss[i].item() for i in args.predict_grf_components},
+                **{f'{self.split}/cop_loss/{components[i]}': cop_loss[i].item() for i in args.predict_cop_components},
+                **{f'{self.split}/moment_loss/{components[i]}': moment_loss[i].item() for i in args.predict_moment_components},
+                f'{self.split}/wrench_loss': torch.sum(wrench_loss).item(),
+                f'{self.split}/loss': loss.item()
             }
             if compute_report:
                 report['Force Avg Err (N per kg)'] = force_diff.mean().item()

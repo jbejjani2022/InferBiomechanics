@@ -54,7 +54,11 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--opt-type', type=str, default='adagrad', help='The optimizer to use when adapting the weights of the model during training.')
         subparser.add_argument('--batch-size', type=int, default=32, help='The batch size to use when training the model.')
         subparser.add_argument('--short', type=bool, default=False, help='Use very short datasets to test without loading a bunch of data.')
-        subparser.add_argument('--num-subjects-prefetch', type=int, default=5, help='Number of subjects to fetch all the data for in each iteration.')
+        subparser.add_argument('--prefetch-chunk-size', type=int, default=5, help='Number of trials to fetch all the data for in each iteration.')
+        subparser.add_argument('--predict-grf-components', type=int, nargs='+', default=[1], help='Which grf components to train.')
+        subparser.add_argument('--predict-cop-components', type=int, nargs='+', default=[], help='Which grf components to train.')
+        subparser.add_argument('--predict-moment-components', type=int, nargs='+', default=[], help='Which grf components to train.')
+        subparser.add_argument('--predict-wrench-components', type=int, nargs='+', default=[], help='Which grf components to train.')
 
     def run(self, args: argparse.Namespace):
         if 'command' in args and args.command != 'train':
@@ -102,7 +106,7 @@ class TrainCommand(AbstractCommand):
                     "history_len": history_len,
                     "uncommitted_changes": has_uncommitted,
                     "checkpoint_dir": checkpoint_dir,
-                    "num_subjects_prefetch": args.num_subjects_prefetch,
+                    "prefetch_chunk_size": args.prefetch_chunk_size,
                 }
             )
 
@@ -136,29 +140,29 @@ class TrainCommand(AbstractCommand):
         for epoch in range(epochs):
             # Iterate over the entire training dataset
             np.random.seed(epoch+9999)
-            permuted_indices = np.random.permutation(len(train_dataset.subject_paths))
+            permuted_indices = np.random.permutation(len(train_dataset.trials))
             
             # Iterate over the entire training dataset
-            if args.num_subjects_prefetch < 0:
-                args.num_subjects_prefetch = len(train_dataset.subject_paths)
+            if args.prefetch_chunk_size < 0:
+                args.prefetch_chunk_size = len(train_dataset.trials)
 
-            for subject_index in range(0, len(train_dataset.subject_paths), args.num_subjects_prefetch):
+            for trial_index in range(0, len(train_dataset.trials), args.prefetch_chunk_size):
                 dataset_creation = time.time()
-                subset_indices = permuted_indices[subject_index:subject_index+args.num_subjects_prefetch]
-                if args.num_subjects_prefetch < len(train_dataset.subject_paths) or epoch == 0:
+                trial_indices = permuted_indices[trial_index:trial_index+args.prefetch_chunk_size]
+                if args.prefetch_chunk_size < len(train_dataset.subject_paths) or epoch == 0:
                     # Uncomment the below code to profile the prepare_data_for_subset() call, which is still slow
                     # import cProfile
                     # profiler = cProfile.Profile()
-                    # profiler.runcall(lambda: train_dataset.prepare_data_for_subset(subset_indices))
+                    # profiler.runcall(lambda: train_dataset.prepare_data_for_subset(trial_indices))
                     # profiler.print_stats()
-                    train_dataset.prepare_data_for_subset(subset_indices)
+                    train_dataset.prepare_data_for_subset(trial_indices)
 
                 # Create a DataLoader to load the data in batches
                 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
                 dataset_creation = time.time() - dataset_creation
-                logging.info(f"Train Subject Index: {subject_index}/{len(train_dataset.subject_paths)} {dataset_creation=}")
+                logging.info(f"Train trial Index: {trial_index}/{len(train_dataset.trials)} {dataset_creation=}")
             
-                loss_evaluator = RegressionLossEvaluator(dataset=train_dataset)
+                loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train')
                 for i, batch in enumerate(train_dataloader):
                     inputs: Dict[str, torch.Tensor]
                     labels: Dict[str, torch.Tensor]
@@ -179,6 +183,7 @@ class TrainCommand(AbstractCommand):
                                         labels,
                                         batch_subject_indices,
                                         batch_trial_indices,
+                                        args,
                                         compute_report,
                                         log_reports_to_wandb=log_to_wandb)
 
@@ -186,7 +191,7 @@ class TrainCommand(AbstractCommand):
                         logging.info('  - Batch ' + str(i) + '/' + str(len(train_dataloader)))
                     if i % 1000 == 0:
                         loss_evaluator.print_report()
-                        model_path = f"{checkpoint_dir}/{model_type}/epoch_{epoch}_subjects_{subject_index}_batch_{i}.pt"
+                        model_path = f"{checkpoint_dir}/{model_type}/epoch_{epoch}_trialstep_{trial_index}_batch_{i}.pt"
                         if not os.path.exists(os.path.dirname(model_path)):
                             os.makedirs(os.path.dirname(model_path))
                         torch.save({
@@ -201,32 +206,30 @@ class TrainCommand(AbstractCommand):
                     # Update the model's parameters
                     optimizer.step()
                 # Report training loss on this epoch
-                logging.info(f"{epoch=} / {epochs} {subject_index=} / {len(train_dataset.subject_paths)}")
+                logging.info(f"{epoch=} / {epochs} {trial_index=} / {len(train_dataset.trials)}")
                 logging.info('Training Set Evaluation: ')
                 loss_evaluator.print_report()
 
             # At the end of each epoch, evaluate the model on the dev set
-            dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset)
-            permuted_indices = np.arange(len(dev_dataset.subject_paths))
-            for subject_index in range(0, len(dev_dataset.subject_paths), args.num_subjects_prefetch):
+            dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split='dev')
+            permuted_indices = np.arange(len(dev_dataset.trials))
+            for subject_index in range(0, len(dev_dataset.trials), args.prefetch_chunk_size):
                 dataset_creation = time.time()
-                subset_indices = permuted_indices[subject_index:subject_index+args.num_subjects_prefetch]
-                if args.num_subjects_prefetch < len(dev_dataset.subject_paths) or epoch == 0:
-                    dev_dataset.prepare_data_for_subset(subset_indices)
+                trial_indices = permuted_indices[trial_index:trial_index+args.prefetch_chunk_size]
+                if args.prefetch_chunk_size < len(dev_dataset.trials) or epoch == 0:
+                    dev_dataset.prepare_data_for_subset(trial_indices)
                 dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False)
                 dataset_creation = time.time() - dataset_creation
-                logging.info(f"Dev batch: {subject_index}/{len(dev_dataset.subject_paths)} {dataset_creation=}")
+                logging.info(f"Dev batch: {trial_index}/{len(dev_dataset.trials)} {dataset_creation=}")
                 with torch.no_grad():
                     for i, batch in enumerate(dev_dataloader):
-                        if i % 100 == 0:
-                            logging.info('  - Dev Subject Index ' + str(i) + '/' + str(len(dev_dataloader)))
                         inputs: Dict[str, torch.Tensor]
                         labels: Dict[str, torch.Tensor]
                         batch_subject_indices: List[int]
                         batch_trial_indices: List[int]
                         inputs, labels, batch_subject_indices, batch_trial_indices = batch
                         outputs = model(inputs, [(dev_dataset.skeletons[i], dev_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices])
-                        loss = dev_loss_evaluator(inputs, outputs, labels, batch_subject_indices, batch_trial_indices)
+                        loss = dev_loss_evaluator(inputs, outputs, labels, batch_subject_indices, batch_trial_indices, args, log_reports_to_wandb=log_to_wandb)
             # Report dev loss on this epoch
             logging.info('Dev Set Evaluation: ')
             dev_loss_evaluator.print_report()
