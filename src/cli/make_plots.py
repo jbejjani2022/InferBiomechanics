@@ -613,10 +613,10 @@ class Dataset:
         print(f"{np.round(num_females / len(self.subj_paths), 2) * 100}% of subjects are female.")
         print("Rest of data has unknown sex.")
 
-    def print_totals(self):
+    def print_totals(self):  # TODO: update this because some subjects can be removed; also what happens if don't append to trial lengths
         self.prepare_data_for_plotting()
 
-        print(f"TOTAL NUM SUBJECTS: {len(self.subj_paths)}")
+        print(f"TOTAL NUM SUBJECTS: {len(self.ages)}")
         print(f"TOTAL NUM TRIALS: {len(self.trial_lengths)}")
 
     def print_subject_metrics(self):
