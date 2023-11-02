@@ -191,7 +191,7 @@ class TrainCommand(AbstractCommand):
                         logging.info('  - Batch ' + str(i) + '/' + str(len(train_dataloader)))
                     if i % 1000 == 0:
                         loss_evaluator.print_report()
-                        model_path = f"{checkpoint_dir}/{model_type}/epoch_{epoch}_trialstep_{trial_index}_batch_{i}.pt"
+                        model_path = f"{checkpoint_dir}/epoch_{epoch}_trialstep_{trial_index}_batch_{i}.pt"
                         if not os.path.exists(os.path.dirname(model_path)):
                             os.makedirs(os.path.dirname(model_path))
                         torch.save({

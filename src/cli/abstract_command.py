@@ -5,6 +5,7 @@ from models.FeedForwardRegressionBaseline import FeedForwardBaseline
 from models.AnalyticalBaseline import AnalyticalBaseline
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset
 from typing import List
+import logging
 
 class AbstractCommand:
     """
@@ -82,6 +83,7 @@ class AbstractCommand:
         # Get the path of the latest checkpoint
         latest_checkpoint = os.path.join(checkpoint_dir, checkpoints[-1])
 
+        logging.info(f"{latest_checkpoint=}")
         # Load the checkpoint
         checkpoint = torch.load(latest_checkpoint)
 
