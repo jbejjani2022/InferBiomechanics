@@ -77,7 +77,7 @@ class AddBiomechanicsDataset(Dataset):
         if os.path.isdir(data_path):
             for root, dirs, files in os.walk(data_path):
                 for file in files:
-                    if file.endswith(".b3d"):
+                    if file.endswith(".b3d") and "vander" not in file.lower():
                         self.subject_paths.append(os.path.join(root, file))
         else:
             assert data_path.endswith(".b3d")
@@ -110,12 +110,14 @@ class AddBiomechanicsDataset(Dataset):
                 # Add the skeleton to the list of skeletons
                 subject = nimble.biomechanics.SubjectOnDisk(subject_path)
                 skeleton = subject.readSkel(subject.getNumProcessingPasses()-1, geometry_folder)
-                print('Loading skeleton ' + str(i+1) + '/' + str(len(self.subject_paths)))
+                print('Loading skeleton ' + str(i+1) + '/' + str(len(self.subject_paths)) + f'for subject {subject_path}')
                 self.subjects.append(subject)
                 self.skeletons.append(skeleton)
-                self.trials.extend([(subject_path, trial_id) for trial_id in range(subject.getNumTrials())])
+                print(f"{[subject.getTrialName(trial_id) for trial_id in range(subject.getNumTrials())]}")
+                self.trials.extend([(subject_path, trial_id) for trial_id in range(subject.getNumTrials()) if any(x in subject.getTrialName(trial_id).lower() for x in ["gait", "walk"])])
                 self.skeletons_contact_bodies.append([skeleton.getBodyNode(body) for body in self.contact_bodies])
-
+	
+        print(f"{self.trials=}")
         print('Contact bodies: '+str(self.contact_bodies))
 
     def prepare_data_for_subset(self, trial_indices: Optional[List[int]] = None):

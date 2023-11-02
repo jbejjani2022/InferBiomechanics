@@ -213,7 +213,7 @@ class TrainCommand(AbstractCommand):
             # At the end of each epoch, evaluate the model on the dev set
             dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split='dev')
             permuted_indices = np.arange(len(dev_dataset.trials))
-            for subject_index in range(0, len(dev_dataset.trials), args.prefetch_chunk_size):
+            for trial_index in range(0, len(dev_dataset.trials), args.prefetch_chunk_size):
                 dataset_creation = time.time()
                 trial_indices = permuted_indices[trial_index:trial_index+args.prefetch_chunk_size]
                 if args.prefetch_chunk_size < len(dev_dataset.trials) or epoch == 0:
