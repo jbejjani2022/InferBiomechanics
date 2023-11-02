@@ -141,7 +141,7 @@ class RegressionLossEvaluator:
 
         if analyze:
             self.plot_ferror = ((force_diff)**2)[:,-1,:].reshape(-1,6).detach().numpy()
-            for i in range(6):
+            for i in args.predict_grf_components:
                 plt.clf()
                 plt.plot(self.plot_ferror[:,i])
                 plt.savefig(os.path.join(plot_path_root, f"{os.path.basename(self.dataset.subject_paths[batch_subject_indices[0]])}_{self.dataset.subjects[batch_subject_indices[0]].getTrialName(batch_trial_indices[0])}_grferror{components[i]}.png"))
