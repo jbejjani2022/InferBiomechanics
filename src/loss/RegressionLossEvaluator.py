@@ -58,22 +58,22 @@ class RegressionLossEvaluator:
         # Compute the loss
         force_diff = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] - labels[
                 OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME]
-        force_loss = torch.sum(force_diff ** 2, dim=(0,1))
+        force_loss = torch.mean(force_diff ** 2, dim=(0,1))
         
         # CoP loss is tricky, because when there is no force the CoP is meaningless, and so we want to ensure that
         # we only report CoP loss on the frames where there is a non-zero force.
         mask_tensor = (labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] != 0).float()
         cop_diff = (outputs[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] - labels[
                 OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME]) * mask_tensor
-        cop_loss = torch.sum(cop_diff ** 2, dim=(0,1))
+        cop_loss = torch.mean(cop_diff ** 2, dim=(0,1))
 
         moment_diff = (outputs[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] - labels[
                 OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME]) * mask_tensor
-        moment_loss = torch.sum(moment_diff ** 2, dim=(0,1))
+        moment_loss = torch.mean(moment_diff ** 2, dim=(0,1))
 
         wrench_diff = outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] - labels[
                 OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME]
-        wrench_loss = torch.sum(wrench_diff ** 2, dim=(0,1))
+        wrench_loss = torch.mean(wrench_diff ** 2, dim=(0,1))
 
         # Keep track of various performance metrics to report
         if compute_report:
