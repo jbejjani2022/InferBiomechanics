@@ -9,4 +9,4 @@
 
 ml python/3.9.0
 
-python3 /home/users/jkaneda/InferBiomechanics/src/main.py analyze --dataset-home "$GROUP_HOME/data" --checkpoint-dir "$GROUP_HOME/cvpr/checkpoint-20231030112236/feedforward/epoch_3_subjects_35_batch_10000.pt" --hidden-size 1024
+python3 /home/users/jkaneda/InferBiomechanics/src/main.py analyze --dataset-home "$GROUP_HOME/data" --checkpoint-dir "$GROUP_HOME/cvpr/checkpoint-20231030112236" --hidden-size 1024
