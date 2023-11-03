@@ -82,7 +82,9 @@ class AddBiomechanicsDataset(Dataset):
         else:
             assert data_path.endswith(".b3d")
             self.subject_paths.append(data_path)
-
+        
+        if testing_with_short_dataset:
+            self.subject_paths = self.subject_paths[11:12]
         self.subject_indices = {subject_path: i for i, subject_path in enumerate(self.subject_paths)}
 
         # Walk the folder path, and check for any with the ".bin" extension (indicating that they are AddBiomechanics binary data files)
@@ -102,8 +104,6 @@ class AddBiomechanicsDataset(Dataset):
                 if body not in self.contact_bodies:
                     self.contact_bodies.append(body)
 
-        if testing_with_short_dataset:
-            self.subject_paths = self.subject_paths[:2]
 
         if not skip_loading_skeletons:
             for i, subject_path in enumerate(self.subject_paths):
@@ -117,7 +117,7 @@ class AddBiomechanicsDataset(Dataset):
                 self.trials.extend([(subject_path, trial_id) for trial_id in range(subject.getNumTrials()) if any(x in subject.getTrialName(trial_id).lower() for x in ["gait", "walk"])])
                 self.skeletons_contact_bodies.append([skeleton.getBodyNode(body) for body in self.contact_bodies])
 	
-        print(f"{self.trials=}")
+        print(f"{self.trials=}, {len(self.trials)=}")
         print('Contact bodies: '+str(self.contact_bodies))
 
     def prepare_data_for_subset(self, trial_indices: Optional[List[int]] = None):
