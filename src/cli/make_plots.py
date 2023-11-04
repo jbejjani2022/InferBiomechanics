@@ -560,7 +560,7 @@ class Dataset:
         plot_histograms(datas=[bmis_to_plot], num_bins=6, colors=["blue"], labels=[], edgecolor="black", alpha=1,
                         ylabel="no. of subjects", xlabel="BMI (kg/m^2)", outdir=self.out_dir, outname="bmi_histo.png")
         # Calculate % of data with reported age and print out
-        print(f"{np.round((len(ages_to_plot) / len(self.subj_paths)), 2) * 100}% of subjects have age info.")
+        print(f"{np.round((len(ages_to_plot) / self.num_valid_subjs), 2) * 100}% of subjects have age info.")
 
     def plot_demographics_by_sex_histograms(self):
         """
@@ -614,8 +614,8 @@ class Dataset:
 
         num_males = np.count_nonzero(self.sexes == 0)
         num_females = np.count_nonzero(self.sexes == 1)
-        print(f"{np.round(num_males / len(self.subj_paths), 2) * 100}% of subjects are male.")
-        print(f"{np.round(num_females / len(self.subj_paths), 2) * 100}% of subjects are female.")
+        print(f"{np.round(num_males / self.num_valid_subjs, 2) * 100}% of subjects are male.")
+        print(f"{np.round(num_females / self.num_valid_subjs, 2) * 100}% of subjects are female.")
         print("Rest of data has unknown sex.")
 
     def print_totals(self):  # TODO: update this because some subjects can be removed; also what happens if don't append to trial lengths
@@ -795,18 +795,35 @@ class ScatterPlotMatrix:
         self.num_plots = num_plots
         self.labels = labels
         self.fig, self.axs = plt.subplots(num_rows, num_cols, figsize=(20, 20), constrained_layout=True)
+        self.corrs: ndarray = np.zeros(num_plots)  # aggregate correlation coefficients
 
     def update_plots(self, x: ndarray, y: ndarray, color):
         for i in range(self.num_plots):
+
+            # Store the correlation coefficient
+            self.corrs[i] = np.corrcoef(x, y[:, i])[0, 1]
+
+            # Plot
             row = i // self.num_cols
             col = i % self.num_cols
-            ax = self.axs[row, col]
-            plot_title = self.labels[i]
+            if self.num_plots == 1:
+                ax = self.axs
+            else:
+                ax = self.axs[row, col]
             ax.scatter(x, y[:, i], s=0.5, alpha=0.25, color=color)
             ax.set_box_aspect(1)  # for formatting
-            ax.set_title(plot_title)
 
-    def save_plot(self, plots_outdir, outname):
+    def save_plot(self, plots_outdir: str, outname: str, num_trials: int):
+
+        for i in range(self.num_plots):
+            row = i // self.num_cols
+            col = i % self.num_cols
+            if self.num_plots == 1:
+                ax = self.axs
+            else:
+                ax = self.axs[row, col]
+            plot_title = f"{self.labels[i]}: r = {np.round(self.corrs[i] / num_trials, 2)}"
+            ax.set_title(plot_title)
         for i, ax in enumerate(self.axs.flat):
             if i >= self.num_plots:
                 ax.axis("off")  # remove empty plots
