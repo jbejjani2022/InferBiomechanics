@@ -300,8 +300,8 @@ class Dataset:
             self.jointtau_vs_firstdist_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
                                                               num_plots=self.num_dofs, labels=labels)
 
-            # self.comacc_vs_totgrf_x_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-            #                                                   num_plots=1, labels=labels)
+            self.comacc_vs_totgrf_x_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
+                                                              num_plots=1, labels=labels)
             # self.comacc_vs_totgrf_y_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
             #                                                   num_plots=1, labels=labels)
             # self.comacc_vs_totgrf_z_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
@@ -398,47 +398,47 @@ class Dataset:
                     if self.output_scatterplots:
                         assert (self.num_dofs == trial_data.num_joints),  f"self.num_dofs: {self.num_dofs}; trial_data.num_joints: {trial_data.num_joints}"  # check what we assume from std skel matches data
                         # joint accelerations vs. vertical component of COM acc
-                        self.jointacc_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[:, 1], trial_data.joint_acc_dyn,
+                        self.jointacc_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::10, 1], trial_data.joint_acc_dyn[::10],
                                                                    color)
                         # joint accelerations vs. vertical component of total GRF
-                        self.jointacc_vs_totgrf_plots.update_plots(trial_data.total_grf[:, 1], trial_data.joint_acc_dyn,
+                        self.jointacc_vs_totgrf_plots.update_plots(trial_data.total_grf[::10, 1], trial_data.joint_acc_dyn[::10],
                                                                    color)
                         # joint accelerations vs. contact classification of first listed contact body
-                        self.jointacc_vs_firstcontact_plots.update_plots(trial_data.contact[:, 0], trial_data.joint_acc_dyn,
+                        self.jointacc_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.joint_acc_dyn[::10],
                                                                          color)
                         # joint accelerations vs. vertical component of GRF distribution on first listed contact body
-                        self.jointacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[:, 1], trial_data.joint_acc_dyn,
+                        self.jointacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.joint_acc_dyn[::10],
                                                                       color)
 
                         # joint positions vs. vertical component of COM acc
-                        self.jointpos_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[:, 1], trial_data.joint_pos_dyn,
+                        self.jointpos_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::10, 1], trial_data.joint_pos_dyn[::10],
                                                                    color)
                         # joint positions vs. vertical component of total GRF
-                        self.jointpos_vs_totgrf_plots.update_plots(trial_data.total_grf[:, 1], trial_data.joint_pos_dyn,
+                        self.jointpos_vs_totgrf_plots.update_plots(trial_data.total_grf[::10, 1], trial_data.joint_pos_dyn[::10],
                                                                    color)
                         # joint positions vs. contact classification of first listed contact body
-                        self.jointpos_vs_firstcontact_plots.update_plots(trial_data.contact[:, 0], trial_data.joint_pos_dyn,
+                        self.jointpos_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.joint_pos_dyn[::10],
                                                                          color)
                         # joint positions vs. vertical component of GRF distribution on first listed contact body
-                        self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[:, 1], trial_data.joint_pos_dyn,
+                        self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.joint_pos_dyn[::10],
                                                                       color)
 
                         # joint torques vs. vertical component of COM acc
-                        self.jointtau_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[:, 1], trial_data.joint_tau_dyn,
+                        self.jointtau_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::10, 1], trial_data.joint_tau_dyn[::10],
                                                                    color)
                         # joint torques vs. vertical component of total GRF
-                        self.jointtau_vs_totgrf_plots.update_plots(trial_data.total_grf[:, 1], trial_data.joint_tau_dyn,
+                        self.jointtau_vs_totgrf_plots.update_plots(trial_data.total_grf[::10, 1], trial_data.joint_tau_dyn[::10],
                                                                    color)
                         # joint torques vs. contact classification of first listed contact body
-                        self.jointtau_vs_firstcontact_plots.update_plots(trial_data.contact[:, 0], trial_data.joint_tau_dyn,
+                        self.jointtau_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.joint_tau_dyn[::10],
                                                                          color)
                         # joint torques vs. vertical component of GRF distribution on first listed contact body
-                        self.jointtau_vs_firstdist_plots.update_plots(trial_data.grf_dist[:, 1], trial_data.joint_tau_dyn,
+                        self.jointtau_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.joint_tau_dyn[::10],
                                                                       color)
 
                         # # COM acc vs tot GRF
-                        # self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[:,0], trial_data.com_acc_dyn[:,0].reshape(-1,1),
-                        #                                            color)
+                        self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[::10, 0], trial_data.com_acc_dyn[::10, 0].reshape(-1,1),
+                                                                   color)
                         # self.comacc_vs_totgrf_y_plots.update_plots(trial_data.total_grf[:,1], trial_data.com_acc_dyn[:,1].reshape(-1,1),
                         #                                            color)
                         # self.comacc_vs_totgrf_z_plots.update_plots(trial_data.total_grf[:,2], trial_data.com_acc_dyn[:,2].reshape(-1,1),
@@ -539,7 +539,7 @@ class Dataset:
         self.jointtau_vs_firstcontact_plots.save_plot(self.out_dir, "jointtau_vs_firstcontact.png")
         self.jointtau_vs_firstdist_plots.save_plot(self.out_dir, "jointtau_vs_firstdist.png")
 
-        # self.comacc_vs_totgrf_x_plots.save_plot(self.out_dir, "comacc_vs_totgrf_x.png")
+        self.comacc_vs_totgrf_x_plots.save_plot(self.out_dir, "comacc_vs_totgrf_x.png")
         # self.comacc_vs_totgrf_y_plots.save_plot(self.out_dir, "comacc_vs_totgrf_y.png")
         # self.comacc_vs_totgrf_z_plots.save_plot(self.out_dir, "comacc_vs_totgrf_z.png")
         #
