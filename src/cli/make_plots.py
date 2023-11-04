@@ -7,6 +7,7 @@ import numpy as np
 from numpy import ndarray
 import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
+from scipy import stats
 import seaborn as sns
 import time
 
@@ -261,7 +262,7 @@ class Dataset:
 
         if self.output_scatterplots:
             # Init scatter plots matrices
-            labels = ["pelvis_tilt", "pelvis_list", "pelvis_rotation",
+            joint_labels = ["pelvis_tilt", "pelvis_list", "pelvis_rotation",
                       "pelvis_tx", "pelvis_ty", "pelvis_tz",
                       "hip_flexion_r", "hip_adduction_r", "hip_rotation_r",
                       "knee_angle_r", "ankle_angle_r", "subtalar_angle_r", "mtp_angle_r",
@@ -274,34 +275,34 @@ class Dataset:
             running_color = "green"
 
             self.jointacc_vs_comacc_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=labels)
+                                                         num_plots=self.num_dofs, labels=joint_labels)
             self.jointacc_vs_totgrf_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=labels)
+                                                         num_plots=self.num_dofs, labels=joint_labels)
             self.jointacc_vs_firstcontact_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                              num_plots=self.num_dofs, labels=labels)
+                                                              num_plots=self.num_dofs, labels=joint_labels)
             self.jointacc_vs_firstdist_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                              num_plots=self.num_dofs, labels=labels)
+                                                              num_plots=self.num_dofs, labels=joint_labels)
 
             self.jointpos_vs_comacc_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=labels)
+                                                         num_plots=self.num_dofs, labels=joint_labels)
             self.jointpos_vs_totgrf_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=labels)
+                                                         num_plots=self.num_dofs, labels=joint_labels)
             self.jointpos_vs_firstcontact_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                              num_plots=self.num_dofs, labels=labels)
+                                                              num_plots=self.num_dofs, labels=joint_labels)
             self.jointpos_vs_firstdist_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                              num_plots=self.num_dofs, labels=labels)
+                                                              num_plots=self.num_dofs, labels=joint_labels)
 
             self.jointtau_vs_comacc_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=labels)
+                                                         num_plots=self.num_dofs, labels=joint_labels)
             self.jointtau_vs_totgrf_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=labels)
+                                                         num_plots=self.num_dofs, labels=joint_labels)
             self.jointtau_vs_firstcontact_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                              num_plots=self.num_dofs, labels=labels)
+                                                              num_plots=self.num_dofs, labels=joint_labels)
             self.jointtau_vs_firstdist_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                              num_plots=self.num_dofs, labels=labels)
+                                                              num_plots=self.num_dofs, labels=joint_labels)
 
             self.comacc_vs_totgrf_x_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-                                                              num_plots=1, labels=labels)
+                                                              num_plots=1, labels=[""])
             # self.comacc_vs_totgrf_y_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
             #                                                   num_plots=1, labels=labels)
             # self.comacc_vs_totgrf_z_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
@@ -319,6 +320,7 @@ class Dataset:
 
         # Loop through each subject:
         self.num_valid_subjs = 0  # keep track of subjects we eliminate because no valid trials
+        self.num_valid_trials = 0  # keep track of total number of valid trials
         for subj_ix, subj_path in enumerate(self.subj_paths):
 
             print(f"Processing subject file: {subj_path}...")
@@ -342,7 +344,7 @@ class Dataset:
                 color = "black"
 
             # Keep track of number of valid trials for this subject
-            self.num_valid_trials = 0
+            subj_num_valid_trials = 0
 
             # Loop through all trials for each subject:
             for trial in range(num_trials):
@@ -384,9 +386,9 @@ class Dataset:
                               f"num_valid_frames: {num_valid_frames} vs. total num frames: {len(frames)}")
 
                     # We broke out of this iteration of trial looping if skipping trials due to reasons above;
-                    # otherwise, increment number of valid trials
+                    # otherwise, increment number of valid trials for each subject and for total
+                    subj_num_valid_trials += 1
                     self.num_valid_trials += 1
-                    #print(f"Current number of valid trials: {num_valid_trials}")
 
                     if self.output_histograms:
                         # Add to trial-specific storage:
@@ -399,46 +401,46 @@ class Dataset:
                         assert (self.num_dofs == trial_data.num_joints),  f"self.num_dofs: {self.num_dofs}; trial_data.num_joints: {trial_data.num_joints}"  # check what we assume from std skel matches data
                         # joint accelerations vs. vertical component of COM acc
                         self.jointacc_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::10, 1], trial_data.joint_acc_dyn[::10],
-                                                                   color)
+                                                                   color, "pearson")
                         # joint accelerations vs. vertical component of total GRF
                         self.jointacc_vs_totgrf_plots.update_plots(trial_data.total_grf[::10, 1], trial_data.joint_acc_dyn[::10],
-                                                                   color)
+                                                                   color, "pearson")
                         # joint accelerations vs. contact classification of first listed contact body
                         self.jointacc_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.joint_acc_dyn[::10],
-                                                                         color)
+                                                                         color, "biserial")
                         # joint accelerations vs. vertical component of GRF distribution on first listed contact body
                         self.jointacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.joint_acc_dyn[::10],
-                                                                      color)
+                                                                      color, "pearson")
 
                         # joint positions vs. vertical component of COM acc
                         self.jointpos_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::10, 1], trial_data.joint_pos_dyn[::10],
-                                                                   color)
+                                                                   color, "pearson")
                         # joint positions vs. vertical component of total GRF
                         self.jointpos_vs_totgrf_plots.update_plots(trial_data.total_grf[::10, 1], trial_data.joint_pos_dyn[::10],
-                                                                   color)
+                                                                   color, "pearson")
                         # joint positions vs. contact classification of first listed contact body
                         self.jointpos_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.joint_pos_dyn[::10],
-                                                                         color)
+                                                                         color, "biserial")
                         # joint positions vs. vertical component of GRF distribution on first listed contact body
                         self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.joint_pos_dyn[::10],
-                                                                      color)
+                                                                      color, "pearson")
 
                         # joint torques vs. vertical component of COM acc
                         self.jointtau_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::10, 1], trial_data.joint_tau_dyn[::10],
-                                                                   color)
+                                                                   color, "pearson")
                         # joint torques vs. vertical component of total GRF
                         self.jointtau_vs_totgrf_plots.update_plots(trial_data.total_grf[::10, 1], trial_data.joint_tau_dyn[::10],
-                                                                   color)
+                                                                   color, "pearson")
                         # joint torques vs. contact classification of first listed contact body
                         self.jointtau_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.joint_tau_dyn[::10],
-                                                                         color)
+                                                                         color, "biserial")
                         # joint torques vs. vertical component of GRF distribution on first listed contact body
                         self.jointtau_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.joint_tau_dyn[::10],
-                                                                      color)
+                                                                      color, "pearson")
 
                         # # COM acc vs tot GRF
                         self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[::10, 0], trial_data.com_acc_dyn[::10, 0].reshape(-1,1),
-                                                                   color)
+                                                                   color, "pearson")
                         # self.comacc_vs_totgrf_y_plots.update_plots(trial_data.total_grf[:,1], trial_data.com_acc_dyn[:,1].reshape(-1,1),
                         #                                            color)
                         # self.comacc_vs_totgrf_z_plots.update_plots(trial_data.total_grf[:,2], trial_data.com_acc_dyn[:,2].reshape(-1,1),
@@ -462,10 +464,10 @@ class Dataset:
                         self.grf_errs_v_freq.append(grf_err_v_freq)
 
             # Keep tally of number of valid trials per input subject file
-            print(f"FINISHED {subj_path}: num valid trials: {self.num_valid_trials} num trials: {num_trials}")
+            print(f"FINISHED {subj_path}: num valid trials: {subj_num_valid_trials} num trials: {num_trials}")
 
             # Only get demographics info and store if this subject had at least one valid trial
-            if self.num_valid_trials >= 1:
+            if subj_num_valid_trials >= 1:
                 self.num_valid_subjs += 1
                 age = subject_on_disk.getAgeYears()
                 sex = subject_on_disk.getBiologicalSex()
@@ -621,8 +623,8 @@ class Dataset:
     def print_totals(self):  # TODO: update this because some subjects can be removed; also what happens if don't append to trial lengths
         self.prepare_data_for_plotting()
 
-        print(f"TOTAL NUM SUBJECTS: {self.num_valid_subjs}")
-        print(f"TOTAL NUM TRIALS: {len(self.trial_lengths)}")
+        print(f"TOTAL NUM VALID SUBJECTS: {self.num_valid_subjs}")
+        print(f"TOTAL NUM VALID TRIALS: {self.num_valid_trials}")
 
     def print_subject_metrics(self):
         """
@@ -794,14 +796,21 @@ class ScatterPlotMatrix:
         self.num_cols = num_cols
         self.num_plots = num_plots
         self.labels = labels
-        self.fig, self.axs = plt.subplots(num_rows, num_cols, figsize=(20, 20), constrained_layout=True)
+        self.fig, self.axs = plt.subplots(num_rows, num_cols, figsize=(24, 24), constrained_layout=True)
         self.corrs: ndarray = np.zeros(num_plots)  # aggregate correlation coefficients
 
-    def update_plots(self, x: ndarray, y: ndarray, color):
+    def update_plots(self, x: ndarray, y: ndarray, color: str, corr_type: str):
         for i in range(self.num_plots):
 
             # Store the correlation coefficient
-            self.corrs[i] = np.corrcoef(x, y[:, i])[0, 1]
+            if corr_type == "biserial":
+                assert np.all(np.logical_or(x == 0, x == 1)), "X array is not binary"
+                corr, _ = stats.pointbiserialr(x, y[:, i])
+                self.corrs[i] = corr
+            elif corr_type == "pearson":
+                self.corrs[i] = np.corrcoef(x, y[:, i])[0, 1]
+            else:
+                raise ValueError("Invalid input for 'corr_type.'")
 
             # Plot
             row = i // self.num_cols
@@ -823,7 +832,7 @@ class ScatterPlotMatrix:
             else:
                 ax = self.axs[row, col]
             plot_title = f"{self.labels[i]}: r = {np.round(self.corrs[i] / num_trials, 2)}"
-            ax.set_title(plot_title)
+            ax.set_title(plot_title, fontsize=16)
         if self.num_plots > 1:
             for i, ax in enumerate(self.axs.flat):
                 if i >= self.num_plots:
