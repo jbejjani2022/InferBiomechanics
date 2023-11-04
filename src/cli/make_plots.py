@@ -483,11 +483,11 @@ class Dataset:
                         sex_int = 2  # unknown
                     self.sexes.append(sex_int)
 
-            # Convert demographics storage to arrays  # TODO: get rid of this in revamp
-            if self.output_histograms:
-                self.ages = np.array(self.ages)
-                self.bmis = np.array(self.bmis)
-                self.sexes = np.array(self.sexes)
+        # Convert demographics storage to arrays  # TODO: get rid of this in revamp
+        if self.output_histograms:
+            self.ages = np.array(self.ages)
+            self.bmis = np.array(self.bmis)
+            self.sexes = np.array(self.sexes)
 
     # TODO: add plotting for multiple models
     def plot_err_v_freq(self, errors: List[List[float]], outname: str, plot_std: bool = False):
