@@ -342,7 +342,7 @@ class Dataset:
                 color = "black"
 
             # Keep track of number of valid trials for this subject
-            num_valid_trials = 0
+            self.num_valid_trials = 0
 
             # Loop through all trials for each subject:
             for trial in range(num_trials):
@@ -385,7 +385,7 @@ class Dataset:
 
                     # We broke out of this iteration of trial looping if skipping trials due to reasons above;
                     # otherwise, increment number of valid trials
-                    num_valid_trials += 1
+                    self.num_valid_trials += 1
                     #print(f"Current number of valid trials: {num_valid_trials}")
 
                     if self.output_histograms:
@@ -462,10 +462,10 @@ class Dataset:
                         self.grf_errs_v_freq.append(grf_err_v_freq)
 
             # Keep tally of number of valid trials per input subject file
-            print(f"FINISHED {subj_path}: num valid trials: {num_valid_trials} num trials: {num_trials}")
+            print(f"FINISHED {subj_path}: num valid trials: {self.num_valid_trials} num trials: {num_trials}")
 
             # Only get demographics info and store if this subject had at least one valid trial
-            if num_valid_trials >= 1:
+            if self.num_valid_trials >= 1:
                 self.num_valid_subjs += 1
                 age = subject_on_disk.getAgeYears()
                 sex = subject_on_disk.getBiologicalSex()
@@ -524,22 +524,22 @@ class Dataset:
         """
         self.prepare_data_for_plotting()
 
-        self.jointacc_vs_comacc_plots.save_plot(self.out_dir, "jointacc_vs_comacc.png")
-        self.jointacc_vs_totgrf_plots.save_plot(self.out_dir, "jointacc_vs_totgrf.png")
-        self.jointacc_vs_firstcontact_plots.save_plot(self.out_dir, "jointacc_vs_firstcontact.png")
-        self.jointacc_vs_firstdist_plots.save_plot(self.out_dir, "jointacc_vs_firstdist.png")
+        self.jointacc_vs_comacc_plots.save_plot(self.out_dir, "jointacc_vs_comacc.png", self.num_valid_trials)
+        self.jointacc_vs_totgrf_plots.save_plot(self.out_dir, "jointacc_vs_totgrf.png", self.num_valid_trials)
+        self.jointacc_vs_firstcontact_plots.save_plot(self.out_dir, "jointacc_vs_firstcontact.png", self.num_valid_trials)
+        self.jointacc_vs_firstdist_plots.save_plot(self.out_dir, "jointacc_vs_firstdist.png", self.num_valid_trials)
 
-        self.jointpos_vs_comacc_plots.save_plot(self.out_dir, "jointpos_vs_comacc.png")
-        self.jointpos_vs_totgrf_plots.save_plot(self.out_dir, "jointpos_vs_totgrf.png")
-        self.jointpos_vs_firstcontact_plots.save_plot(self.out_dir, "jointpos_vs_firstcontact.png")
-        self.jointpos_vs_firstdist_plots.save_plot(self.out_dir, "jointpos_vs_firstdist.png")
+        self.jointpos_vs_comacc_plots.save_plot(self.out_dir, "jointpos_vs_comacc.png", self.num_valid_trials)
+        self.jointpos_vs_totgrf_plots.save_plot(self.out_dir, "jointpos_vs_totgrf.png", self.num_valid_trials)
+        self.jointpos_vs_firstcontact_plots.save_plot(self.out_dir, "jointpos_vs_firstcontact.png", self.num_valid_trials)
+        self.jointpos_vs_firstdist_plots.save_plot(self.out_dir, "jointpos_vs_firstdist.png", self.num_valid_trials)
 
-        self.jointtau_vs_comacc_plots.save_plot(self.out_dir, "jointtau_vs_comacc.png")
-        self.jointtau_vs_totgrf_plots.save_plot(self.out_dir, "jointtau_vs_totgrf.png")
-        self.jointtau_vs_firstcontact_plots.save_plot(self.out_dir, "jointtau_vs_firstcontact.png")
-        self.jointtau_vs_firstdist_plots.save_plot(self.out_dir, "jointtau_vs_firstdist.png")
+        self.jointtau_vs_comacc_plots.save_plot(self.out_dir, "jointtau_vs_comacc.png", self.num_valid_trials)
+        self.jointtau_vs_totgrf_plots.save_plot(self.out_dir, "jointtau_vs_totgrf.png", self.num_valid_trials)
+        self.jointtau_vs_firstcontact_plots.save_plot(self.out_dir, "jointtau_vs_firstcontact.png", self.num_valid_trials)
+        self.jointtau_vs_firstdist_plots.save_plot(self.out_dir, "jointtau_vs_firstdist.png", self.num_valid_trials)
 
-        self.comacc_vs_totgrf_x_plots.save_plot(self.out_dir, "comacc_vs_totgrf_x.png")
+        self.comacc_vs_totgrf_x_plots.save_plot(self.out_dir, "comacc_vs_totgrf_x.png", self.num_valid_trials)
         # self.comacc_vs_totgrf_y_plots.save_plot(self.out_dir, "comacc_vs_totgrf_y.png")
         # self.comacc_vs_totgrf_z_plots.save_plot(self.out_dir, "comacc_vs_totgrf_z.png")
         #
