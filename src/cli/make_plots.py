@@ -76,7 +76,7 @@ def plot_histograms(datas: List[Sequence], num_bins: int, colors: List[str], lab
     datas_min = np.min(combined_data)
     datas_max = np.max(combined_data)
 
-    bins = np.linspace(datas_min - 1, datas_max + 1, num_bins)
+    bins = np.linspace(datas_min - 0.5, datas_max + 0.5, num_bins)
 
     plt.figure()
     for i, data in enumerate(datas):
@@ -252,9 +252,9 @@ class Dataset:
         if self.output_histograms:
             # INIT STORAGE
             # Subject-specific
-            self.ages = np.zeros(len(self.subj_paths))
-            self.sexes = np.zeros(len(self.subj_paths))
-            self.bmis = np.zeros(len(self.subj_paths))
+            self.ages: List[int] = []
+            self.sexes: List[int] = []  # TODO: change this back to string
+            self.bmis: List[float] = []
             # Trial-specific
             self.trial_lengths: List[int] = []  # num frames
             self.forward_speeds: List[float] = []
@@ -318,6 +318,7 @@ class Dataset:
             self.tau_errs_v_freq: List[List[float]] = []  # TODO: compute this
 
         # Loop through each subject:
+        self.num_valid_subjs = 0  # keep track of subjects we eliminate because no valid trials
         for subj_ix, subj_path in enumerate(self.subj_paths):
 
             print(f"Processing subject file: {subj_path}...")
@@ -390,7 +391,7 @@ class Dataset:
                     if self.output_histograms:
                         # Add to trial-specific storage:
                         self.trial_lengths.append(num_valid_frames)
-                        self.forward_speeds.append(np.average(trial_data.com_vel_dyn[:, 0]))  # avg fwd speed over trial
+                        self.forward_speeds.append(np.average(np.abs(trial_data.com_vel_dyn[:, 0])))  # avg fwd speed over trial, absolute
                         # TODO: check if first coor is fwd; add if statement for walking or running;
                         #  separate out into speeds for walking and running; maybe store tuple of value and activity label
 
@@ -465,21 +466,28 @@ class Dataset:
 
             # Only get demographics info and store if this subject had at least one valid trial
             if num_valid_trials >= 1:
+                self.num_valid_subjs += 1
                 age = subject_on_disk.getAgeYears()
                 sex = subject_on_disk.getBiologicalSex()
                 height = subject_on_disk.getHeightM()
                 bmi = mass / (height ** 2)
                 if self.output_histograms:
                     # Add to subject-specific storage
-                    self.ages[subj_ix] = age
-                    self.bmis[subj_ix] = bmi
+                    self.ages.append(age)
+                    self.bmis.append(bmi)
                     if sex == "male":
                         sex_int = 0
                     elif sex == "female":
                         sex_int = 1
                     else:
                         sex_int = 2  # unknown
-                    self.sexes[subj_ix] = sex_int
+                    self.sexes.append(sex_int)
+
+            # Convert demographics storage to arrays  # TODO: get rid of this in revamp
+            if self.output_histograms:
+                self.ages = np.array(self.ages)
+                self.bmis = np.array(self.bmis)
+                self.sexes = np.array(self.sexes)
 
     # TODO: add plotting for multiple models
     def plot_err_v_freq(self, errors: List[List[float]], outname: str, plot_std: bool = False):
@@ -585,7 +593,7 @@ class Dataset:
         plot_histograms(datas=[self.trial_lengths], num_bins=20, colors=["blue"], labels=[], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png', plot_log_scale=True)
         plot_histograms(datas=[self.forward_speeds], num_bins=20, colors=["blue"], labels=[], edgecolor="black", alpha=1,
-                        ylabel='no. of trials', xlabel='forward speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)  # TODO: separate btwn walking and running
+                        ylabel='no. of trials', xlabel='absolute anterior-posterior speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)  # TODO: separate btwn walking and running
 
     def make_err_v_freq_plots(self):
         """
@@ -613,7 +621,7 @@ class Dataset:
     def print_totals(self):  # TODO: update this because some subjects can be removed; also what happens if don't append to trial lengths
         self.prepare_data_for_plotting()
 
-        print(f"TOTAL NUM SUBJECTS: {np.sum(self.ages > 0)}")
+        print(f"TOTAL NUM SUBJECTS: {self.num_valid_subjs}")
         print(f"TOTAL NUM TRIALS: {len(self.trial_lengths)}")
 
     def print_subject_metrics(self):
