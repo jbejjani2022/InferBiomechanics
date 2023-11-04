@@ -62,8 +62,8 @@ class MakePlotsCommand(AbstractCommand):
 
 
 # # # HELPERS # # #
-def plot_histograms(datas: List[Sequence], colors: List[str], labels: List[str], edgecolor: str, alpha: float,
-                    ylabel: str, xlabel: str, outdir: str, outname: str):
+def plot_histograms(datas: List[Sequence], num_bins: int, colors: List[str], labels: List[str], edgecolor: str, alpha: float,
+                    ylabel: str, xlabel: str, outdir: str, outname: str, plot_log_scale: bool = False):
     """
     Create a single histogram or overlaid histograms of the given input data with given plotting settings
     """
@@ -76,12 +76,6 @@ def plot_histograms(datas: List[Sequence], colors: List[str], labels: List[str],
     datas_min = np.min(combined_data)
     datas_max = np.max(combined_data)
 
-    # num_bins = int(((datas_max + 1) - (
-    #             datas_min - 1)) / 2)  # TODO: this is a little hacky, thinking about better auto adjustment of bins
-    # if num_bins <= 1:
-    #     num_bins = int(
-    #         np.mean([len(data) for data in datas]) / 2)  # find average num of pts; then we want half as many bins
-    num_bins = len(max(datas, key=len))  # length of longest data to plot
     bins = np.linspace(datas_min - 1, datas_max + 1, num_bins)
 
     plt.figure()
@@ -94,6 +88,7 @@ def plot_histograms(datas: List[Sequence], colors: List[str], labels: List[str],
         else:
             label = None
         plt.hist(x=data, bins=bins, color=colors[i], edgecolor=edgecolor, alpha=alpha, label=label)
+        if plot_log_scale: plt.yscale("log")
 
     plt.ylabel(ylabel)
     plt.xlabel(xlabel)
@@ -275,7 +270,6 @@ class Dataset:
                       "lumbar_extension", "lumbar_bending", "lumbar_rotation"]  # TODO: don't hard-code; confirm that lines up to quantities correctly
 
             # Set up plotting color schemes
-            #scatter_colors = sns.color_palette("hls", len(self.subj_paths))  # for right now, diff color for each subj
             walking_color = "blueviolet"
             running_color = "green"
 
@@ -551,10 +545,11 @@ class Dataset:
         self.prepare_data_for_plotting()
 
         ages_to_plot = self.ages[np.where(self.ages > 0)]  # exclude unknown
+        bmis_to_plot = self.bmis[np.where(self.bmis > 0)]
 
-        plot_histograms(datas=[ages_to_plot], colors=["blue"], labels=[], edgecolor="black", alpha=1,
+        plot_histograms(datas=[ages_to_plot], num_bins=6, colors=["blue"], labels=[], edgecolor="black", alpha=1,
                         ylabel="no. of subjects", xlabel="age (yrs)", outdir=self.out_dir, outname="age_histo.png")
-        plot_histograms(datas=[self.bmis], colors=["blue"], labels=[], edgecolor="black", alpha=1,
+        plot_histograms(datas=[bmis_to_plot], num_bins=6, colors=["blue"], labels=[], edgecolor="black", alpha=1,
                         ylabel="no. of subjects", xlabel="BMI (kg/m^2)", outdir=self.out_dir, outname="bmi_histo.png")
         # Calculate % of data with reported age and print out
         print(f"{np.round((len(ages_to_plot) / len(self.subj_paths)), 2) * 100}% of subjects have age info.")
@@ -569,15 +564,17 @@ class Dataset:
         valid_age_ix = np.where(self.ages > 0)[0]  # access within tuple return
         m_ix = np.where(self.sexes == 0)[0]  # we assign "males" to 0
         f_ix = np.where(self.sexes == 1)[0]  # we assign "females" to 1
+        u_ix = np.where(self.sexes == 2)[0]  # we assign "unknown" to 2
 
         # Only plot if there is both age and sex
         valid_m_ix = np.intersect1d(valid_age_ix, m_ix)
         valid_f_ix = np.intersect1d(valid_age_ix, f_ix)
+        valid_u_ix = np.intersect1d(valid_age_ix, u_ix)
 
-        plot_histograms(datas=[self.ages[valid_m_ix], self.ages[valid_f_ix]], colors=["blue", "red"], labels=["male", "female"],
-                        edgecolor="black", alpha=0.5, ylabel="no. of subjects", xlabel="age (yrs)", outdir=self.out_dir, outname="age_bysex_histo.png")
-        plot_histograms(datas=[self.bmis[valid_m_ix], self.bmis[valid_f_ix]], colors=["blue", "red"], labels=["male", "female"],
-                        edgecolor="black", alpha=0.5, ylabel="no. of subjects", xlabel="BMI (kg/m^2)", outdir=self.out_dir, outname="bmi_bysex_histo.png")
+        plot_histograms(datas=[self.ages[valid_m_ix], self.ages[valid_f_ix], self.ages[valid_u_ix]], num_bins=6, colors=["blue", "red", "yellow"], labels=["male", "female", "unknown"],
+                        edgecolor="black", alpha=0.7, ylabel="no. of subjects", xlabel="age (yrs)", outdir=self.out_dir, outname="age_bysex_histo.png")
+        plot_histograms(datas=[self.bmis[valid_m_ix], self.bmis[valid_f_ix], self.bmis[valid_u_ix]], num_bins=6, colors=["blue", "red", "yellow"], labels=["male", "female", "unknown"],
+                        edgecolor="black", alpha=0.7, ylabel="no. of subjects", xlabel="BMI (kg/m^2)", outdir=self.out_dir, outname="bmi_bysex_histo.png")
 
     def plot_biomechanics_metrics_histograms(self):
         """
@@ -585,10 +582,10 @@ class Dataset:
         """
         self.prepare_data_for_plotting()
 
-        plot_histograms(datas=[self.trial_lengths], colors=["blue"], labels=[], edgecolor="black", alpha=1,
-                        ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png')
-        plot_histograms(datas=[self.forward_speeds], colors=["blue"], labels=[], edgecolor="black", alpha=1,
-                        ylabel='no. of trials', xlabel='forward speed (m/s)', outdir=self.out_dir, outname='speed_histo.png')  # TODO: separate btwn walking and running
+        plot_histograms(datas=[self.trial_lengths], num_bins=20, colors=["blue"], labels=[], edgecolor="black", alpha=1,
+                        ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png', plot_log_scale=True)
+        plot_histograms(datas=[self.forward_speeds], num_bins=20, colors=["blue"], labels=[], edgecolor="black", alpha=1,
+                        ylabel='no. of trials', xlabel='forward speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)  # TODO: separate btwn walking and running
 
     def make_err_v_freq_plots(self):
         """
@@ -616,7 +613,7 @@ class Dataset:
     def print_totals(self):  # TODO: update this because some subjects can be removed; also what happens if don't append to trial lengths
         self.prepare_data_for_plotting()
 
-        print(f"TOTAL NUM SUBJECTS: {len(self.ages)}")
+        print(f"TOTAL NUM SUBJECTS: {np.sum(self.ages > 0)}")
         print(f"TOTAL NUM TRIALS: {len(self.trial_lengths)}")
 
     def print_subject_metrics(self):
