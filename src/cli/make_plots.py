@@ -824,8 +824,9 @@ class ScatterPlotMatrix:
                 ax = self.axs[row, col]
             plot_title = f"{self.labels[i]}: r = {np.round(self.corrs[i] / num_trials, 2)}"
             ax.set_title(plot_title)
-        for i, ax in enumerate(self.axs.flat):
-            if i >= self.num_plots:
-                ax.axis("off")  # remove empty plots
+        if self.num_plots > 1:
+            for i, ax in enumerate(self.axs.flat):
+                if i >= self.num_plots:
+                    ax.axis("off")  # remove empty plots
         plt.tight_layout()
         self.fig.savefig(os.path.join(plots_outdir, outname))
