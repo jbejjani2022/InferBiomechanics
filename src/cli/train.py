@@ -56,9 +56,10 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--short', type=bool, default=False, help='Use very short datasets to test without loading a bunch of data.')
         subparser.add_argument('--prefetch-chunk-size', type=int, default=5, help='Number of trials to fetch all the data for in each iteration.')
         subparser.add_argument('--predict-grf-components', type=int, nargs='+', default=[1], help='Which grf components to train.')
-        subparser.add_argument('--predict-cop-components', type=int, nargs='+', default=[], help='Which grf components to train.')
-        subparser.add_argument('--predict-moment-components', type=int, nargs='+', default=[], help='Which grf components to train.')
-        subparser.add_argument('--predict-wrench-components', type=int, nargs='+', default=[], help='Which grf components to train.')
+        subparser.add_argument('--predict-cop-components', type=int, nargs='+', default=[], help='Which cop components to train.')
+        subparser.add_argument('--predict-moment-components', type=int, nargs='+', default=[], help='Which moment components to train.')
+        subparser.add_argument('--predict-wrench-components', type=int, nargs='+', default=[], help='Which wrench components to train.')
+        subparser.add_argument('--trial-filter', type=str, nargs='+', default=[""], help='Whkind of trials to train/test on.')
 
     def run(self, args: argparse.Namespace):
         if 'command' in args and args.command != 'train':
@@ -114,8 +115,8 @@ class TrainCommand(AbstractCommand):
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, 'dev'))
         logging.info('## Loading datasets with skeletons:')
-        train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
-        dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
+        train_dataset = AddBiomechanicsDataset(args, train_dataset_path, history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
+        dev_dataset = AddBiomechanicsDataset(args, dev_dataset_path, history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
 
         # Create an instance of the model
         model = self.get_model(train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, hidden_size, device, checkpoint_dir=checkpoint_dir)

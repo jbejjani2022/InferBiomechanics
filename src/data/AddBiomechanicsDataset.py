@@ -5,7 +5,7 @@ from typing import List, Dict, Tuple
 import os
 import numpy as np
 from typing import Optional
-
+import argparse
 
 class InputDataKeys:
     # These are the joint quantities for the joints that we are observing
@@ -56,12 +56,14 @@ class AddBiomechanicsDataset(Dataset):
     skeletons_contact_bodies: List[List[nimble.dynamics.BodyNode]]
 
     def __init__(self,
+                 args: argparse.Namespace,
                  data_path: str,
                  window_size: int,
                  geometry_folder: str,
                  device: torch.device = torch.device('cpu'),
                  testing_with_short_dataset: bool = False,
                  skip_loading_skeletons: bool = False):
+        self.args = args
         self.subject_paths = []
         self.subjects = []
         self.trials = []
@@ -114,7 +116,7 @@ class AddBiomechanicsDataset(Dataset):
                 self.subjects.append(subject)
                 self.skeletons.append(skeleton)
                 print(f"{[subject.getTrialName(trial_id) for trial_id in range(subject.getNumTrials())]}")
-                self.trials.extend([(subject_path, trial_id) for trial_id in range(subject.getNumTrials()) if any(x in subject.getTrialName(trial_id).lower() for x in ["gait", "walk"])])
+                self.trials.extend([(subject_path, trial_id) for trial_id in range(subject.getNumTrials()) if any(x in subject.getTrialName(trial_id).lower() for x in self.args.trial_filter)])
                 self.skeletons_contact_bodies.append([skeleton.getBodyNode(body) for body in self.contact_bodies])
 	
         print(f"{self.trials=}, {len(self.trials)=}")
