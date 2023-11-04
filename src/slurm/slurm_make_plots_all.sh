@@ -9,4 +9,4 @@
 
 ml python/3.9.0
 
-python3 /home/users/jkaneda/InferBiomechanics/src/main.py make-plots --data-path "/home/groups/delp/data" --out-path "/home/groups/delp/jkaneda/figures_scatter" --output-scatterplots
+python3 /home/users/jkaneda/InferBiomechanics/src/main.py make-plots --data-path "/home/groups/delp/data" --out-path "/home/groups/delp/jkaneda/figures_scatter_v2" --output-histograms --output-scatterplots --output-errvfreq

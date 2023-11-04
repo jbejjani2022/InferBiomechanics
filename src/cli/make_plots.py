@@ -303,15 +303,15 @@ class Dataset:
 
             self.comacc_vs_totgrf_x_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
                                                               num_plots=1, labels=[""])
-            # self.comacc_vs_totgrf_y_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-            #                                                   num_plots=1, labels=labels)
-            # self.comacc_vs_totgrf_z_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-            #                                                   num_plots=1, labels=labels)
-            #
-            # self.comacc_vs_firstcontact_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-            #                                                   num_plots=1, labels=labels)
-            # self.comacc_vs_firstdist_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-            #                                                   num_plots=1, labels=labels)
+            self.comacc_vs_totgrf_y_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
+                                                              num_plots=1, labels=[""])
+            self.comacc_vs_totgrf_z_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
+                                                              num_plots=1, labels=[""])
+
+            self.comacc_vs_firstcontact_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
+                                                              num_plots=1, labels=[""])
+            self.comacc_vs_firstdist_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
+                                                              num_plots=1, labels=[""])
 
         if self.output_errvfreq:
             self.acc_errs_v_freq: List[List[float]] = []
@@ -441,16 +441,16 @@ class Dataset:
                         # # COM acc vs tot GRF
                         self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[::10, 0], trial_data.com_acc_dyn[::10, 0].reshape(-1,1),
                                                                    color, "pearson")
-                        # self.comacc_vs_totgrf_y_plots.update_plots(trial_data.total_grf[:,1], trial_data.com_acc_dyn[:,1].reshape(-1,1),
-                        #                                            color)
-                        # self.comacc_vs_totgrf_z_plots.update_plots(trial_data.total_grf[:,2], trial_data.com_acc_dyn[:,2].reshape(-1,1),
-                        #                                            color)
-                        #
-                        # # COM acc y vs contact and dist y
-                        # self.comacc_vs_firstcontact_plots.update_plots(trial_data.contact[:, 0], trial_data.com_acc_dyn[:,1].reshape(-1,1),
-                        #                                                color)
-                        # self.comacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[:, 1], trial_data.com_acc_dyn[:,1].reshape(-1,1),
-                        #                                                color)
+                        self.comacc_vs_totgrf_y_plots.update_plots(trial_data.total_grf[::10,1], trial_data.com_acc_dyn[::10,1].reshape(-1,1),
+                                                                   color, "pearson")
+                        self.comacc_vs_totgrf_z_plots.update_plots(trial_data.total_grf[::10,2], trial_data.com_acc_dyn[::10,2].reshape(-1,1),
+                                                                   color, "pearson")
+
+                        # COM acc y vs contact and dist y
+                        self.comacc_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.com_acc_dyn[::10,1].reshape(-1,1),
+                                                                       color, "biserial")
+                        self.comacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.com_acc_dyn[::10,1].reshape(-1,1),
+                                                                       color, "pearson")
 
                     if self.output_errvfreq:
                         # COM acc error vs. frequency
@@ -542,11 +542,11 @@ class Dataset:
         self.jointtau_vs_firstdist_plots.save_plot(self.out_dir, "jointtau_vs_firstdist.png", self.num_valid_trials)
 
         self.comacc_vs_totgrf_x_plots.save_plot(self.out_dir, "comacc_vs_totgrf_x.png", self.num_valid_trials)
-        # self.comacc_vs_totgrf_y_plots.save_plot(self.out_dir, "comacc_vs_totgrf_y.png")
-        # self.comacc_vs_totgrf_z_plots.save_plot(self.out_dir, "comacc_vs_totgrf_z.png")
-        #
-        # self.comacc_vs_firstcontact_plots.save_plot(self.out_dir, "comacc_vs_firstcontact.png")
-        # self.comacc_vs_firstdist_plots.save_plot(self.out_dir, "comacc_vs_firstdist.png")
+        self.comacc_vs_totgrf_y_plots.save_plot(self.out_dir, "comacc_vs_totgrf_y.png", self.num_valid_trials)
+        self.comacc_vs_totgrf_z_plots.save_plot(self.out_dir, "comacc_vs_totgrf_z.png", self.num_valid_trials)
+
+        self.comacc_vs_firstcontact_plots.save_plot(self.out_dir, "comacc_vs_firstcontact.png", self.num_valid_trials)
+        self.comacc_vs_firstdist_plots.save_plot(self.out_dir, "comacc_vs_firstdist.png", self.num_valid_trials)
 
     def plot_demographics_histograms(self):
         """
@@ -563,6 +563,9 @@ class Dataset:
                         ylabel="no. of subjects", xlabel="BMI (kg/m^2)", outdir=self.out_dir, outname="bmi_histo.png")
         # Calculate % of data with reported age and print out
         print(f"{np.round((len(ages_to_plot) / self.num_valid_subjs), 2) * 100}% of subjects have age info.")
+        # Calculate means
+        print(f"MEAN AGE: {np.mean(ages_to_plot)}")
+        print(f"MEAN BMI: {np.mean(bmis_to_plot)}")
 
     def plot_demographics_by_sex_histograms(self):
         """
@@ -604,9 +607,9 @@ class Dataset:
         self.prepare_data_for_plotting()
 
         self.plot_err_v_freq(errors=self.acc_errs_v_freq,
-                             outname='acc_err_vs_freq.png', plot_std=False)
+                             outname='acc_err_vs_freq.png', plot_std=True)
         self.plot_err_v_freq(errors=self.grf_errs_v_freq,
-                             outname='grf_err_vs_freq.png', plot_std=False)
+                             outname='grf_err_vs_freq.png', plot_std=True)
 
     def calculate_sex_breakdown(self):
         """
