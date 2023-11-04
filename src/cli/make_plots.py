@@ -321,6 +321,7 @@ class Dataset:
         # Loop through each subject:
         self.num_valid_subjs = 0  # keep track of subjects we eliminate because no valid trials
         self.num_valid_trials = 0  # keep track of total number of valid trials
+        self.total_num_valid_frames = 0  # keep track of total number of valid frames
         for subj_ix, subj_path in enumerate(self.subj_paths):
 
             print(f"Processing subject file: {subj_path}...")
@@ -386,9 +387,10 @@ class Dataset:
                               f"num_valid_frames: {num_valid_frames} vs. total num frames: {len(frames)}")
 
                     # We broke out of this iteration of trial looping if skipping trials due to reasons above;
-                    # otherwise, increment number of valid trials for each subject and for total
+                    # otherwise, increment number of valid trials for each subject and for totals
                     subj_num_valid_trials += 1
                     self.num_valid_trials += 1
+                    self.total_num_valid_frames += num_valid_frames
 
                     if self.output_histograms:
                         # Add to trial-specific storage:
@@ -623,11 +625,12 @@ class Dataset:
         print(f"{np.round(num_females / self.num_valid_subjs, 2) * 100}% of subjects are female.")
         print("Rest of data has unknown sex.")
 
-    def print_totals(self):  # TODO: update this because some subjects can be removed; also what happens if don't append to trial lengths
+    def print_totals(self):
         self.prepare_data_for_plotting()
 
         print(f"TOTAL NUM VALID SUBJECTS: {self.num_valid_subjs}")
         print(f"TOTAL NUM VALID TRIALS: {self.num_valid_trials}")
+        print(f"TOTAL NUM VALID FRAMES: {self.total_num_valid_frames}")
 
     def print_subject_metrics(self):
         """
