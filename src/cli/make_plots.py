@@ -409,10 +409,10 @@ class Dataset:
                                                                    color, "pearson")
                         # joint accelerations vs. contact classification of first listed contact body
                         self.jointacc_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.joint_acc_dyn[::10],
-                                                                         color, "biserial")
+                                                                         color, "biserial", x_scaled=False)
                         # joint accelerations vs. vertical component of GRF distribution on first listed contact body
                         self.jointacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.joint_acc_dyn[::10],
-                                                                      color, "pearson")
+                                                                      color, "pearson", x_scaled=False)
 
                         # joint positions vs. vertical component of COM acc
                         self.jointpos_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::10, 1], trial_data.joint_pos_dyn[::10],
@@ -422,10 +422,10 @@ class Dataset:
                                                                    color, "pearson")
                         # joint positions vs. contact classification of first listed contact body
                         self.jointpos_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.joint_pos_dyn[::10],
-                                                                         color, "biserial")
+                                                                         color, "biserial", x_scaled=False)
                         # joint positions vs. vertical component of GRF distribution on first listed contact body
                         self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.joint_pos_dyn[::10],
-                                                                      color, "pearson")
+                                                                      color, "pearson", x_scaled=False)
 
                         # joint torques vs. vertical component of COM acc
                         self.jointtau_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::10, 1], trial_data.joint_tau_dyn[::10],
@@ -435,10 +435,10 @@ class Dataset:
                                                                    color, "pearson")
                         # joint torques vs. contact classification of first listed contact body
                         self.jointtau_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.joint_tau_dyn[::10],
-                                                                         color, "biserial")
+                                                                         color, "biserial", x_scaled=False)
                         # joint torques vs. vertical component of GRF distribution on first listed contact body
                         self.jointtau_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.joint_tau_dyn[::10],
-                                                                      color, "pearson")
+                                                                      color, "pearson", x_scaled=False)
 
                         # # COM acc vs tot GRF
                         self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[::10, 0], trial_data.com_acc_dyn[::10, 0].reshape(-1,1),
@@ -450,9 +450,9 @@ class Dataset:
 
                         # COM acc y vs contact and dist y
                         self.comacc_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.com_acc_dyn[::10,1].reshape(-1,1),
-                                                                       color, "biserial")
+                                                                       color, "biserial", x_scaled=False)
                         self.comacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.com_acc_dyn[::10,1].reshape(-1,1),
-                                                                       color, "pearson")
+                                                                       color, "pearson", x_scaled=False)
 
                     if self.output_errvfreq:
                         # COM acc error vs. frequency
@@ -609,9 +609,9 @@ class Dataset:
         self.prepare_data_for_plotting()
 
         self.plot_err_v_freq(errors=self.acc_errs_v_freq,
-                             outname='acc_err_vs_freq.png', plot_std=True)
+                             outname='acc_err_vs_freq.png', plot_std=False)
         self.plot_err_v_freq(errors=self.grf_errs_v_freq,
-                             outname='grf_err_vs_freq.png', plot_std=True)
+                             outname='grf_err_vs_freq.png', plot_std=False)
 
     def calculate_sex_breakdown(self):
         """
@@ -805,16 +805,28 @@ class ScatterPlotMatrix:
         self.fig, self.axs = plt.subplots(num_rows, num_cols, figsize=(24, 24), constrained_layout=True)
         self.corrs: ndarray = np.zeros(num_plots)  # aggregate correlation coefficients
 
-    def update_plots(self, x: ndarray, y: ndarray, color: str, corr_type: str):
+    def update_plots(self, x: ndarray, y: ndarray, color: str, corr_type: str, scale_x: bool = True, scale_y: bool = True):
         for i in range(self.num_plots):
+
+            # Standardize the vars
+            if scale_x:
+                x_scaled = (x - np.mean(x)) / np.std(x)
+                np.nan_to_num(x_scaled, nan=0.0, copy=False)  # to address any 0 division errors
+            else:
+                x_scaled = x
+            if scale_y:
+                y_scaled = (y[:, i] - np.mean(y[:, i])) / np.std(y[:, i])
+                np.nan_to_num(y_scaled, nan=0.0, copy=False)
+            else:
+                y_scaled = y
 
             # Store the correlation coefficient
             if corr_type == "biserial":
-                assert np.all(np.logical_or(x == 0, x == 1)), "X array is not binary"
-                corr, _ = stats.pointbiserialr(x, y[:, i])
+                assert np.all(np.logical_or(x_scaled == 0, x_scaled == 1)), "X array is not binary"
+                corr, _ = stats.pointbiserialr(x_scaled, y_scaled)
                 self.corrs[i] = corr
             elif corr_type == "pearson":
-                self.corrs[i] = np.corrcoef(x, y[:, i])[0, 1]
+                self.corrs[i] = np.corrcoef(x_scaled, y_scaled)[0, 1]
             else:
                 raise ValueError("Invalid input for 'corr_type.'")
 
@@ -825,7 +837,7 @@ class ScatterPlotMatrix:
                 ax = self.axs
             else:
                 ax = self.axs[row, col]
-            ax.scatter(x, y[:, i], s=0.5, alpha=0.25, color=color)
+            ax.scatter(x_scaled, y_scaled, s=0.5, alpha=0.25, color=color)
             ax.set_box_aspect(1)  # for formatting
 
     def save_plot(self, plots_outdir: str, outname: str, num_trials: int):
@@ -837,7 +849,7 @@ class ScatterPlotMatrix:
                 ax = self.axs
             else:
                 ax = self.axs[row, col]
-            plot_title = f"{self.labels[i]}: r = {np.round(self.corrs[i] / num_trials, 2)}"
+            plot_title = f"{self.labels[i]}: r = {np.round(self.corrs[i] / num_trials, 5)}"
             ax.set_title(plot_title, fontsize=16)
         if self.num_plots > 1:
             for i, ax in enumerate(self.axs.flat):
