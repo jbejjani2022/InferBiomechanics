@@ -20,6 +20,9 @@ class MakePlotsCommand(AbstractCommand):
         subparser = subparsers.add_parser('make-plots', help='Make summary plots and metrics on entire dataset.')
         subparser.add_argument('--data-path', type=str, help='Root path to all data files.')
         subparser.add_argument('--out-path', type=str, default='../figures', help='Path to output plots to.')
+        subparser.add_argument('--downsample-size', type=int, default=10,
+                               help='Every Xth frame will be used for scatter plots and correlation calculations. '
+                                    'Input 1 for no downsampling.')
         subparser.add_argument('--output-histograms', action="store_true",
                                help='Whether to output summary histograms.')
         subparser.add_argument('--output-scatterplots', action="store_true",
@@ -108,23 +111,15 @@ class Dataset:
     def __init__(self, args: argparse.Namespace):
 
         # Argparse args
-        data_dir: str = args.data_path
-        out_dir: str = os.path.abspath(args.out_path)
-        output_histograms: bool = args.output_histograms
-        output_scatterplots: bool = args.output_scatterplots
-        output_errvfreq: bool = args.output_errvfreq
-        output_subjmetrics: bool = args.output_subjmetrics
-        output_trialmetrics: bool = args.output_trialmetrics
-        short: bool = args.short
-
-        self.data_dir = data_dir
-        self.out_dir = out_dir
-        self.output_histograms = output_histograms
-        self.output_scatterplots = output_scatterplots
-        self.output_errvfreq = output_errvfreq
-        self.output_subjmetrics = output_subjmetrics
-        self.output_trialmetrics = output_trialmetrics
-        self.short = short
+        self.data_dir: str = args.data_path
+        self.out_dir: str = os.path.abspath(args.out_path)
+        self.downsample_size: int = args.downsample_size
+        self.output_histograms: bool = args.output_histograms
+        self.output_scatterplots: bool = args.output_scatterplots
+        self.output_errvfreq: bool = args.output_errvfreq
+        self.output_subjmetrics: bool = args.output_subjmetrics
+        self.output_trialmetrics: bool = args.output_trialmetrics
+        self.short: bool = args.short
 
         # Aggregate paths to subject data files
         self.subj_paths: List[str] = self.extract_data_files(file_type="b3d")
@@ -262,44 +257,47 @@ class Dataset:
 
         if self.output_scatterplots:
             # Init scatter plots matrices
-            joint_labels = ["pelvis_tilt", "pelvis_list", "pelvis_rotation",
+            joint_names = ['ankle_l', 'ankle_r', 'back', 'ground_pelvis', 'hip_l', 'hip_r', 'mtp_l', 'mtp_r',
+                           'subtalar_l', 'subtalar_r', 'walker_knee_l', 'walker_knee_r']
+            
+            dof_names = ["pelvis_tilt", "pelvis_list", "pelvis_rotation",
                       "pelvis_tx", "pelvis_ty", "pelvis_tz",
                       "hip_flexion_r", "hip_adduction_r", "hip_rotation_r",
                       "knee_angle_r", "ankle_angle_r", "subtalar_angle_r", "mtp_angle_r",
                       "hip_flexion_l", "hip_adduction_l", "hip_rotation_l",
                       "knee_angle_l", "ankle_angle_l", "subtalar_angle_l", "mtp_angle_l",
-                      "lumbar_extension", "lumbar_bending", "lumbar_rotation"]  # TODO: don't hard-code; confirm that lines up to quantities correctly
+                      "lumbar_extension", "lumbar_bending", "lumbar_rotation"]
 
             # Set up plotting color schemes
             walking_color = "blueviolet"
             running_color = "green"
 
             self.jointacc_vs_comacc_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=joint_labels)
+                                                         num_plots=self.num_dofs, labels=dof_names)
             self.jointacc_vs_totgrf_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=joint_labels)
+                                                         num_plots=self.num_dofs, labels=dof_names)
             self.jointacc_vs_firstcontact_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                              num_plots=self.num_dofs, labels=joint_labels)
+                                                              num_plots=self.num_dofs, labels=dof_names)
             self.jointacc_vs_firstdist_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                              num_plots=self.num_dofs, labels=joint_labels)
+                                                              num_plots=self.num_dofs, labels=dof_names)
 
             self.jointpos_vs_comacc_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=joint_labels)
+                                                         num_plots=self.num_dofs, labels=dof_names)
             self.jointpos_vs_totgrf_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=joint_labels)
+                                                         num_plots=self.num_dofs, labels=dof_names)
             self.jointpos_vs_firstcontact_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                              num_plots=self.num_dofs, labels=joint_labels)
+                                                              num_plots=self.num_dofs, labels=dof_names)
             self.jointpos_vs_firstdist_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                              num_plots=self.num_dofs, labels=joint_labels)
+                                                              num_plots=self.num_dofs, labels=dof_names)
 
             self.jointtau_vs_comacc_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=joint_labels)
+                                                         num_plots=self.num_dofs, labels=dof_names)
             self.jointtau_vs_totgrf_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=joint_labels)
+                                                         num_plots=self.num_dofs, labels=dof_names)
             self.jointtau_vs_firstcontact_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                              num_plots=self.num_dofs, labels=joint_labels)
+                                                              num_plots=self.num_dofs, labels=dof_names)
             self.jointtau_vs_firstdist_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                              num_plots=self.num_dofs, labels=joint_labels)
+                                                              num_plots=self.num_dofs, labels=dof_names)
 
             self.comacc_vs_totgrf_x_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
                                                               num_plots=1, labels=[""])
@@ -312,6 +310,18 @@ class Dataset:
                                                               num_plots=1, labels=[""])
             self.comacc_vs_firstdist_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
                                                               num_plots=1, labels=[""])
+
+            self.jointcenters_vs_totgrf_plots = ScatterPlotMatrix(num_rows=4, num_cols=3,
+                                                              num_plots=len(joint_names), labels=joint_names)
+
+            self.root_lin_vel_vs_totgrf_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
+                                                              num_plots=1, labels=[""])  # y component for now
+            self.root_ang_vel_vs_totgrf_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
+                                                                  num_plots=1, labels=[""])
+            self.root_lin_acc_vs_totgrf_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
+                                                                  num_plots=1, labels=[""])
+            self.root_ang_acc_vs_totgrf_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
+                                                                  num_plots=1, labels=[""])
 
         if self.output_errvfreq:
             self.acc_errs_v_freq: List[List[float]] = []
@@ -402,57 +412,71 @@ class Dataset:
                     if self.output_scatterplots:
                         assert (self.num_dofs == trial_data.num_joints),  f"self.num_dofs: {self.num_dofs}; trial_data.num_joints: {trial_data.num_joints}"  # check what we assume from std skel matches data
                         # joint accelerations vs. vertical component of COM acc
-                        self.jointacc_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::10, 1], trial_data.joint_acc_dyn[::10],
+                        self.jointacc_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
                                                                    color, "pearson")
                         # joint accelerations vs. vertical component of total GRF
-                        self.jointacc_vs_totgrf_plots.update_plots(trial_data.total_grf[::10, 1], trial_data.joint_acc_dyn[::10],
+                        self.jointacc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
                                                                    color, "pearson")
                         # joint accelerations vs. contact classification of first listed contact body
-                        self.jointacc_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.joint_acc_dyn[::10],
-                                                                         color, "biserial", x_scaled=False)
+                        self.jointacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_acc_kin[::self.downsample_size],
+                                                                         color, "biserial", scale_x=False)
                         # joint accelerations vs. vertical component of GRF distribution on first listed contact body
-                        self.jointacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.joint_acc_dyn[::10],
-                                                                      color, "pearson", x_scaled=False)
+                        self.jointacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
+                                                                      color, "pearson", scale_x=False)
 
                         # joint positions vs. vertical component of COM acc
-                        self.jointpos_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::10, 1], trial_data.joint_pos_dyn[::10],
+                        self.jointpos_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
                                                                    color, "pearson")
                         # joint positions vs. vertical component of total GRF
-                        self.jointpos_vs_totgrf_plots.update_plots(trial_data.total_grf[::10, 1], trial_data.joint_pos_dyn[::10],
+                        self.jointpos_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
                                                                    color, "pearson")
                         # joint positions vs. contact classification of first listed contact body
-                        self.jointpos_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.joint_pos_dyn[::10],
-                                                                         color, "biserial", x_scaled=False)
+                        self.jointpos_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_pos_kin[::self.downsample_size],
+                                                                         color, "biserial", scale_x=False)
                         # joint positions vs. vertical component of GRF distribution on first listed contact body
-                        self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.joint_pos_dyn[::10],
-                                                                      color, "pearson", x_scaled=False)
+                        self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
+                                                                      color, "pearson", scale_x=False)
 
                         # joint torques vs. vertical component of COM acc
-                        self.jointtau_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::10, 1], trial_data.joint_tau_dyn[::10],
+                        self.jointtau_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
                                                                    color, "pearson")
                         # joint torques vs. vertical component of total GRF
-                        self.jointtau_vs_totgrf_plots.update_plots(trial_data.total_grf[::10, 1], trial_data.joint_tau_dyn[::10],
+                        self.jointtau_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
                                                                    color, "pearson")
                         # joint torques vs. contact classification of first listed contact body
-                        self.jointtau_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.joint_tau_dyn[::10],
-                                                                         color, "biserial", x_scaled=False)
+                        self.jointtau_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_tau_dyn[::self.downsample_size],
+                                                                         color, "biserial", scale_x=False)
                         # joint torques vs. vertical component of GRF distribution on first listed contact body
-                        self.jointtau_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.joint_tau_dyn[::10],
-                                                                      color, "pearson", x_scaled=False)
+                        self.jointtau_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
+                                                                      color, "pearson", scale_x=False)
 
                         # # COM acc vs tot GRF
-                        self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[::10, 0], trial_data.com_acc_dyn[::10, 0].reshape(-1,1),
+                        self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[::self.downsample_size, 0], trial_data.com_acc_dyn[::self.downsample_size, 0].reshape(-1,1),
                                                                    color, "pearson")
-                        self.comacc_vs_totgrf_y_plots.update_plots(trial_data.total_grf[::10,1], trial_data.com_acc_dyn[::10,1].reshape(-1,1),
+                        self.comacc_vs_totgrf_y_plots.update_plots(trial_data.total_grf[::self.downsample_size,1], trial_data.com_acc_dyn[::self.downsample_size,1].reshape(-1,1),
                                                                    color, "pearson")
-                        self.comacc_vs_totgrf_z_plots.update_plots(trial_data.total_grf[::10,2], trial_data.com_acc_dyn[::10,2].reshape(-1,1),
+                        self.comacc_vs_totgrf_z_plots.update_plots(trial_data.total_grf[::self.downsample_size,2], trial_data.com_acc_dyn[::self.downsample_size,2].reshape(-1,1),
                                                                    color, "pearson")
 
                         # COM acc y vs contact and dist y
-                        self.comacc_vs_firstcontact_plots.update_plots(trial_data.contact[::10, 0], trial_data.com_acc_dyn[::10,1].reshape(-1,1),
-                                                                       color, "biserial", x_scaled=False)
-                        self.comacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::10, 1], trial_data.com_acc_dyn[::10,1].reshape(-1,1),
-                                                                       color, "pearson", x_scaled=False)
+                        self.comacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.com_acc_dyn[::self.downsample_size,1].reshape(-1,1),
+                                                                       color, "biserial", scale_x=False)
+                        self.comacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.com_acc_dyn[::self.downsample_size,1].reshape(-1,1),
+                                                                       color, "pearson", scale_x=False)
+
+                        # Joint center positions in root frame vs tot GRF in y direction
+                        self.jointcenters_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_centers_kin[::self.downsample_size],
+                                                                       color, "pearson")
+
+                        # Linear and angular velocities and accelerations vs. tot GRF in y direction
+                        self.root_lin_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_lin_vel_kin[::self.downsample_size,1].reshape(-1,1),
+                                                                       color, "pearson")
+                        self.root_ang_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_ang_vel_kin[::self.downsample_size,1].reshape(-1,1),
+                                                                       color, "pearson")
+                        self.root_lin_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_lin_acc_kin[::self.downsample_size,1].reshape(-1,1),
+                                                                       color, "pearson")
+                        self.root_ang_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_ang_acc_kin[::self.downsample_size,1].reshape(-1,1),
+                                                                       color, "pearson")
 
                     if self.output_errvfreq:
                         # COM acc error vs. frequency
@@ -549,6 +573,13 @@ class Dataset:
 
         self.comacc_vs_firstcontact_plots.save_plot(self.out_dir, "comacc_vs_firstcontact.png", self.num_valid_trials)
         self.comacc_vs_firstdist_plots.save_plot(self.out_dir, "comacc_vs_firstdist.png", self.num_valid_trials)
+
+        self.jointcenters_vs_totgrf_plots.save_plot(self.out_dir, "jointcenters_vs_totgrf.png", self.num_valid_trials)
+
+        self.root_lin_vel_vs_totgrf_plots.save_plot(self.out_dir, "root_lin_vel_vs_totgrf.png", self.num_valid_trials)
+        self.root_ang_vel_vs_totgrf_plots.save_plot(self.out_dir, "root_ang_vel_vs_totgrf.png", self.num_valid_trials)
+        self.root_lin_acc_vs_totgrf_plots.save_plot(self.out_dir, "root_lin_acc_vs_totgrf.png", self.num_valid_trials)
+        self.root_ang_acc_vs_totgrf_plots.save_plot(self.out_dir, "root_ang_acc_vs_totgrf.png", self.num_valid_trials)
 
     def plot_demographics_histograms(self):
         """
@@ -672,6 +703,13 @@ class Trial:
         self.com_vel_kin = []
         self.com_acc_kin = []
 
+        self.root_lin_vel_kin = []
+        self.root_ang_vel_kin = []
+        self.root_lin_acc_kin = []
+        self.root_ang_acc_kin = []
+
+        self.joint_centers_kin = []
+
         # From dynamics processing pass
         self.joint_pos_dyn = []
         self.joint_vel_dyn = []
@@ -679,7 +717,13 @@ class Trial:
         self.com_pos_dyn = []
         self.com_vel_dyn = []
         self.com_acc_dyn = []
+
         self.joint_tau_dyn = []
+
+        # self.root_lin_vel_dyn = []
+        # self.root_ang_vel_dyn = []
+        # self.root_lin_acc_dyn = []
+        # self.root_ang_acc_dyn = []
 
         # GRF stuff
         self.grf = []
@@ -715,6 +759,13 @@ class Trial:
                 self.com_vel_kin.append(frame.processingPasses[kin_pass_ix].comVel)
                 self.com_acc_kin.append(frame.processingPasses[kin_pass_ix].comAcc)
 
+                self.root_lin_vel_kin.append(frame.processingPasses[kin_pass_ix].rootLinearVelInRootFrame)
+                self.root_ang_vel_kin.append(frame.processingPasses[kin_pass_ix].rootAngularVelInRootFrame)
+                self.root_lin_acc_kin.append(frame.processingPasses[kin_pass_ix].rootLinearAccInRootFrame)
+                self.root_ang_acc_kin.append(frame.processingPasses[kin_pass_ix].rootAngularAccInRootFrame)
+
+                self.joint_centers_kin.append(frame.processingPasses[kin_pass_ix].jointCentersInRootFrame)
+
                 # From dynamics processing pass
                 self.joint_pos_dyn.append(frame.processingPasses[dyn_pass_ix].pos)
                 self.joint_vel_dyn.append(frame.processingPasses[dyn_pass_ix].vel)
@@ -722,7 +773,13 @@ class Trial:
                 self.com_pos_dyn.append(frame.processingPasses[dyn_pass_ix].comPos)
                 self.com_vel_dyn.append(frame.processingPasses[dyn_pass_ix].comVel)
                 self.com_acc_dyn.append(frame.processingPasses[dyn_pass_ix].comAcc)
+
                 self.joint_tau_dyn.append(frame.processingPasses[dyn_pass_ix].tau)
+
+                # self.root_lin_vel_dyn.append(frame.processingPasses[dyn_pass_ix].rootLinearVelInRootFrame)
+                # self.root_ang_vel_dyn.append(frame.processingPasses[dyn_pass_ix].rootAngularVelInRootFrame)
+                # self.root_lin_acc_dyn.append(frame.processingPasses[dyn_pass_ix].rootLinearAccInRootFrame)
+                # self.root_ang_acc_dyn.append(frame.processingPasses[dyn_pass_ix].rootAngularAccInRootFrame)
 
                 # GRF stuff
                 self.grf.append(frame.processingPasses[dyn_pass_ix].groundContactForce)
@@ -742,6 +799,16 @@ class Trial:
             self.com_vel_kin = np.array(self.com_vel_kin)
             self.com_acc_kin = np.array(self.com_acc_kin)
 
+            self.root_lin_vel_kin = np.array(self.root_lin_vel_kin)
+            self.root_ang_vel_kin = np.array(self.root_ang_vel_kin)
+            self.root_lin_acc_kin = np.array(self.root_lin_acc_kin)
+            self.root_ang_acc_kin = np.array(self.root_ang_acc_kin)
+
+            self.joint_centers_kin = np.array(self.joint_centers_kin)
+            # More transformations for joint center positions: use magnitude of position vec for each joint center
+            self.joint_centers_kin = self.joint_centers_kin.reshape(-1,12,3)  # TODO: don't hardcode the 12
+            self.joint_centers_kin = np.linalg.norm(self.joint_centers_kin, axis=-1)
+
             # From dynamics processing pass
             self.joint_pos_dyn = np.array(self.joint_pos_dyn)
             self.joint_vel_dyn = np.array(self.joint_vel_dyn)
@@ -750,6 +817,11 @@ class Trial:
             self.com_vel_dyn = np.array(self.com_vel_dyn)
             self.com_acc_dyn = np.array(self.com_acc_dyn)
             self.joint_tau_dyn = np.array(self.joint_tau_dyn)
+
+            # self.root_lin_vel_dyn = np.array(self.root_lin_vel_dyn)
+            # self.root_ang_vel_dyn = np.array(self.root_ang_vel_dyn)
+            # self.root_lin_acc_dyn = np.array(self.root_lin_acc_dyn)
+            # self.root_ang_acc_dyn = np.array(self.root_ang_acc_dyn)
 
             # GRF stuff
             self.grf = np.array(self.grf)
@@ -761,10 +833,19 @@ class Trial:
             assert ((self.joint_pos_kin.shape[-1] == self.num_joints) and (self.joint_pos_dyn.shape[-1] == self.num_joints)), f"{len(frames)}, {num_valid_frames}, self.joint_pos_kin.shape[-1]: {self.joint_pos_kin.shape[-1]}; self.joint_pos_dyn.shape[-1]: {self.joint_pos_dyn.shape[-1]}"
             assert ((self.joint_vel_kin.shape[-1] == self.num_joints) and (self.joint_vel_dyn.shape[-1] == self.num_joints))
             assert ((self.joint_acc_kin.shape[-1] == self.num_joints) and (self.joint_acc_dyn.shape[-1] == self.num_joints))
+            assert (self.joint_centers_kin.shape[-1] == 12), f"size last dim: {self.joint_centers_kin.shape}"  # TODO: don't hardcode; fix num_joints name since really is DOFs
             assert (self.joint_tau_dyn.shape[-1] == self.num_joints)
             assert ((self.com_pos_kin.shape[-1] == 3) and (self.com_pos_dyn.shape[-1] == 3))
             assert ((self.com_vel_kin.shape[-1] == 3) and (self.com_vel_dyn.shape[-1] == 3))
             assert ((self.com_acc_kin.shape[-1] == 3) and (self.com_acc_dyn.shape[-1] == 3))
+            # assert ((self.root_lin_vel_kin.shape[-1] == 3) and (self.root_lin_vel_dyn.shape[-1] == 3)), f"root lin vel dyn shape: {self.root_lin_vel_dyn.shape}"
+            # assert ((self.root_ang_vel_kin.shape[-1] == 3) and (self.root_ang_vel_dyn.shape[-1] == 3))
+            # assert ((self.root_lin_acc_kin.shape[-1] == 3) and (self.root_lin_acc_dyn.shape[-1] == 3))
+            # assert ((self.root_ang_acc_kin.shape[-1] == 3) and (self.root_ang_acc_dyn.shape[-1] == 3))
+            assert (self.root_lin_vel_kin.shape[-1] == 3)
+            assert (self.root_ang_vel_kin.shape[-1] == 3)
+            assert (self.root_lin_acc_kin.shape[-1] == 3)
+            assert (self.root_ang_acc_kin.shape[-1] == 3)
             assert (self.grf.shape[-1] == 6), f"grf shape: {self.grf.shape}"
             assert (self.cop.shape[-1] == 6)
             assert (self.grm.shape[-1] == 6)
@@ -829,6 +910,9 @@ class ScatterPlotMatrix:
                 self.corrs[i] = np.corrcoef(x_scaled, y_scaled)[0, 1]
             else:
                 raise ValueError("Invalid input for 'corr_type.'")
+
+            if np.isnan(self.corrs[i]):  # happens when one vec is constant, like all 0s for distribution in running
+                self.corrs[i] = 0  # TODO: better way to address?
 
             # Plot
             row = i // self.num_cols
