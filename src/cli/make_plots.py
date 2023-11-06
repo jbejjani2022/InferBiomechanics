@@ -80,19 +80,22 @@ def plot_histograms(datas: List[Sequence], num_bins: int, colors: List[str], lab
     datas_min = np.min(combined_data)
     datas_max = np.max(combined_data)
 
-    bins = np.linspace(datas_min - 0.5, datas_max + 0.5, num_bins)
+    # bins = np.linspace(datas_min - 0.5, datas_max + 0.5, num_bins)
 
     plt.figure()
-    for i, data in enumerate(datas):
-        if len(data) == 0:  # if empty due to partitioning conditions, etc. we won't plot it
-            continue
+    # for i, data in enumerate(datas):
+    #     if len(data) == 0:  # if empty due to partitioning conditions, etc. we won't plot it
+    #         continue
+    #
+    #     if len(labels) != 0:
+    #         label = labels[i]
+    #     else:
+    #         label = None
+    #     plt.hist(x=data, bins=bins, color=colors[i], edgecolor=edgecolor, alpha=alpha, label=label)
+    #     if plot_log_scale: plt.yscale("log")
 
-        if len(labels) != 0:
-            label = labels[i]
-        else:
-            label = None
-        plt.hist(x=data, bins=bins, color=colors[i], edgecolor=edgecolor, alpha=alpha, label=label)
-        if plot_log_scale: plt.yscale("log")
+    plt.hist(datas, num_bins, colors=colors, edgecolor=edgecolor, alpha=alpha, label=labels)
+    if plot_log_scale: plt.yscale("log")
 
     plt.ylabel(ylabel)
     plt.xlabel(xlabel)
@@ -617,9 +620,11 @@ class Dataset:
         valid_f_ix = np.intersect1d(valid_age_ix, f_ix)
         valid_u_ix = np.intersect1d(valid_age_ix, u_ix)
 
-        plot_histograms(datas=[self.ages[valid_m_ix], self.ages[valid_f_ix], self.ages[valid_u_ix]], num_bins=6, colors=["blue", "red", "yellow"], labels=["male", "female", "unknown"],
+        colors = ['006BA4', 'FF800E', 'ABABAB']
+
+        plot_histograms(datas=[self.ages[valid_m_ix], self.ages[valid_f_ix], self.ages[valid_u_ix]], num_bins=6, colors=colors, labels=["male", "female", "unknown"],
                         edgecolor="black", alpha=0.7, ylabel="no. of subjects", xlabel="age (yrs)", outdir=self.out_dir, outname="age_bysex_histo.png")
-        plot_histograms(datas=[self.bmis[valid_m_ix], self.bmis[valid_f_ix], self.bmis[valid_u_ix]], num_bins=6, colors=["blue", "red", "yellow"], labels=["male", "female", "unknown"],
+        plot_histograms(datas=[self.bmis[valid_m_ix], self.bmis[valid_f_ix], self.bmis[valid_u_ix]], num_bins=6, colors=colors, labels=["male", "female", "unknown"],
                         edgecolor="black", alpha=0.7, ylabel="no. of subjects", xlabel="BMI (kg/m^2)", outdir=self.out_dir, outname="bmi_bysex_histo.png")
 
     def plot_biomechanics_metrics_histograms(self):
@@ -628,9 +633,9 @@ class Dataset:
         """
         self.prepare_data_for_plotting()
 
-        plot_histograms(datas=[self.trial_lengths], num_bins=20, colors=["blue"], labels=[], edgecolor="black", alpha=1,
+        plot_histograms(datas=[self.trial_lengths], num_bins=20, colors=['006BA4'], labels=[], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png', plot_log_scale=True)
-        plot_histograms(datas=[self.forward_speeds], num_bins=20, colors=["blue"], labels=[], edgecolor="black", alpha=1,
+        plot_histograms(datas=[self.forward_speeds], num_bins=20, colors=['006BA4'], labels=[], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='absolute anterior-posterior speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)  # TODO: separate btwn walking and running
 
     def make_err_v_freq_plots(self):
