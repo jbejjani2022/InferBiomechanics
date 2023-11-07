@@ -46,36 +46,36 @@ class RegressionLossEvaluator:
     def get_squared_diff_mean_vector(output_tensor: torch.Tensor, label_tensor: torch.Tensor) -> torch.Tensor:
         if output_tensor.shape != label_tensor.shape:
             raise ValueError('Output and label tensors must have the same shape')
-        if len(output_tensor.shape) != 3:
-            raise ValueError('Output and label tensors must be 3-dimensional')
-        if output_tensor.shape[0] * output_tensor.shape[1] * output_tensor.shape[2] == 0:
+        if len(output_tensor.shape) != 2:
+            raise ValueError('Output and label tensors must be 2-dimensional')
+        if output_tensor.shape[0] * output_tensor.shape[1] == 0:
             raise ValueError('Output and label tensors must not be empty')
         force_diff = output_tensor - label_tensor
-        force_loss = torch.mean(force_diff ** 2, dim=(0, 1))
+        force_loss = torch.mean(force_diff ** 2, dim=0)
         return force_loss
 
     @staticmethod
     def get_mask_by_threes(tensor: torch.Tensor, threshold: float = 0.0) -> torch.Tensor:
         with torch.no_grad():
-            if len(tensor.shape) != 3:
-                raise ValueError('Mask tensor must be 3-dimensional')
-            if tensor.shape[0] * tensor.shape[1] * tensor.shape[2] == 0:
+            if len(tensor.shape) != 2:
+                raise ValueError('Mask tensor must be 2-dimensional')
+            if tensor.shape[0] * tensor.shape[1] == 0:
                 raise ValueError('Mask tensor must not be empty')
-            if tensor.shape[2] % 3 != 0:
+            if tensor.shape[-1] % 3 != 0:
                 raise ValueError('Mask tensor must have a final dimension divisible by 3')
 
             # Reshape the tensor so that the last dimension is split into chunks of 3
-            reshaped_tensor = tensor.view(tensor.shape[0], tensor.shape[1], -1, 3)
+            reshaped_tensor = tensor.view(tensor.shape[0], -1, 3)
 
             # Compute the norm over the last dimension
-            norms = torch.norm(reshaped_tensor, dim=3)
+            norms = torch.norm(reshaped_tensor, dim=2)
 
             # Create a mask where the norm is greater than the threshold
             mask = (norms > threshold).float()
 
             # Expand the mask to cover the original last dimension size
-            expanded_mask = mask.unsqueeze(3).expand(-1, -1, -1, 3)
-
+            expanded_mask = mask.unsqueeze(2).expand(-1, -1, 3)
+            print(f"{expanded_mask.shape=}")
             # Reshape the expanded mask back to the original tensor shape
             return expanded_mask.reshape(tensor.shape)
 
@@ -92,20 +92,20 @@ class RegressionLossEvaluator:
     def get_mean_norm_error(output_tensor: torch.Tensor, label_tensor: torch.Tensor, vec_size: int = 3) -> torch.Tensor:
         if output_tensor.shape != label_tensor.shape:
             raise ValueError('Output and label tensors must have the same shape')
-        if len(output_tensor.shape) != 3:
-            raise ValueError('Output and label tensors must be 3-dimensional')
-        if output_tensor.shape[0] * output_tensor.shape[1] * output_tensor.shape[2] == 0:
+        if len(output_tensor.shape) != 2:
+            raise ValueError('Output and label tensors must be 2-dimensional')
+        if output_tensor.shape[0] * output_tensor.shape[1] == 0:
             raise ValueError('Output and label tensors must not be empty')
-        if output_tensor.shape[2] % vec_size != 0:
+        if output_tensor.shape[-1] % vec_size != 0:
             raise ValueError('Tensors must have a final dimension divisible by vec_size='+str(vec_size))
 
         diffs = output_tensor - label_tensor
 
         # Reshape the tensor so that the last dimension is split into chunks of `vec_size`
-        reshaped_tensor = diffs.view(diffs.shape[0], diffs.shape[1], -1, vec_size)
+        reshaped_tensor = diffs.view(diffs.shape[0], -1, vec_size)
 
         # Compute the norm over the last dimension
-        norms = torch.norm(reshaped_tensor, dim=3)
+        norms = torch.norm(reshaped_tensor, dim=2)
 
         # Compute the mean norm over all the dimensions
         mean_norm = torch.mean(norms)
@@ -203,25 +203,23 @@ class RegressionLossEvaluator:
 
                 # 2.3. Manually compute the inverse dynamics torque errors frame-by-frame
                 num_batches = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].shape[0]
-                num_timesteps = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].shape[1]
                 tau_err_mean = 0.0
                 for batch in range(num_batches):
-                    for timestep in range(num_timesteps):
-                        skel = self.dataset.skeletons[batch_subject_indices[batch]]
-                        skel.setPositions(inputs[InputDataKeys.POS][batch, timestep, :].cpu().numpy())
-                        skel.setVelocities(inputs[InputDataKeys.VEL][batch, timestep, :].cpu().numpy())
-                        acc = inputs[InputDataKeys.ACC][batch, timestep, :].cpu().numpy()
-                        contact_bodies = self.dataset.skeletons_contact_bodies[batch_subject_indices[batch]]
-                        contact_wrench_guesses = outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][batch,
-                                                 timestep, :].cpu().numpy() * skel.getMass()
-                        contact_wrench_guesses_list = [contact_wrench_guesses[i * 6:i * 6 + 6] for i in
-                                                       range(len(contact_bodies))]
-                        tau = skel.getInverseDynamicsFromPredictions(acc, contact_bodies, contact_wrench_guesses_list,
-                                                                     np.zeros(6))
-                        tau_error = tau - labels[OutputDataKeys.TAU][batch, timestep, :].cpu().numpy()
-                        # Exclude root residual from error
-                        tau_err_mean += np.linalg.norm(tau_error[6:])
-                tau_err_mean /= (num_batches * num_timesteps)
+                    skel = self.dataset.skeletons[batch_subject_indices[batch]]
+                    skel.setPositions(inputs[InputDataKeys.POS][batch, -1, :].cpu().numpy())
+                    skel.setVelocities(inputs[InputDataKeys.VEL][batch, -1, :].cpu().numpy())
+                    acc = inputs[InputDataKeys.ACC][batch, -1, :].cpu().numpy()
+                    contact_bodies = self.dataset.skeletons_contact_bodies[batch_subject_indices[batch]]
+                    contact_wrench_guesses = outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][batch,
+                                                :].cpu().numpy() * skel.getMass()
+                    contact_wrench_guesses_list = [contact_wrench_guesses[i * 6:i * 6 + 6] for i in
+                                                    range(len(contact_bodies))]
+                    tau = skel.getInverseDynamicsFromPredictions(acc, contact_bodies, contact_wrench_guesses_list,
+                                                                    np.zeros(6))
+                    tau_error = tau - labels[OutputDataKeys.TAU][batch, :].cpu().numpy()
+                    # Exclude root residual from error
+                    tau_err_mean += np.linalg.norm(tau_error[6:])
+                tau_err_mean /= (num_batches)
                 self.tau_errors.append(tau_err_mean)
 
                 # 2.4. Keep track of running sums so that we can print average values for these reportable metrics
