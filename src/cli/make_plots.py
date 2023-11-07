@@ -67,39 +67,24 @@ class MakePlotsCommand(AbstractCommand):
 
 # # # HELPERS # # #
 def plot_histograms(datas: List[Sequence], num_bins: int, colors: List[str], labels: List[str], edgecolor: str, alpha: float,
-                    ylabel: str, xlabel: str, outdir: str, outname: str, plot_log_scale: bool = False):
+                    ylabel: str, xlabel: str, outdir: str, outname: str, fontsize: int = 16, plot_log_scale: bool = False):
     """
     Create a single histogram or overlaid histograms of the given input data with given plotting settings
     """
     # Check inputs
     assert (len(datas) == len(colors))
 
-    # Find min and max of all data to be plotted for plotting settings
-    combined_data = np.concatenate([np.array(data).ravel() for data in datas])
-    assert (combined_data.ndim == 1)  # check to make sure flattened for taking min/max next
-    datas_min = np.min(combined_data)
-    datas_max = np.max(combined_data)
-
-    # bins = np.linspace(datas_min - 0.5, datas_max + 0.5, num_bins)
-
     plt.figure()
-    # for i, data in enumerate(datas):
-    #     if len(data) == 0:  # if empty due to partitioning conditions, etc. we won't plot it
-    #         continue
-    #
-    #     if len(labels) != 0:
-    #         label = labels[i]
-    #     else:
-    #         label = None
-    #     plt.hist(x=data, bins=bins, color=colors[i], edgecolor=edgecolor, alpha=alpha, label=label)
-    #     if plot_log_scale: plt.yscale("log")
 
-    plt.hist(datas, num_bins, colors=colors, edgecolor=edgecolor, alpha=alpha, label=labels)
+    plt.hist(datas, num_bins, color=colors, edgecolor=edgecolor, alpha=alpha, label=labels)
     if plot_log_scale: plt.yscale("log")
 
-    plt.ylabel(ylabel)
-    plt.xlabel(xlabel)
-    if len(labels) != 0: plt.legend(loc="best")
+    plt.ylabel(ylabel, fontsize=fontsize)
+    plt.xlabel(xlabel, fontsize=fontsize)
+    plt.xticks(fontsize=fontsize)
+    plt.yticks(fontsize=fontsize)
+    if len(labels) != 0: plt.legend(loc="best", fontsize=fontsize)
+    plt.tight_layout()
     plt.savefig(os.path.join(outdir, outname))
     plt.close()
 
@@ -142,7 +127,7 @@ class Dataset:
         self.estimated_masses: dict = {}  # init empty; only calculate if need
 
         # Plotting settings
-        self.freqs: List[int] = [0, 3, 6, 9, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45]  # for err v. freq plot
+        self.freqs: List[int] = [0, 3, 6, 9, 15, 18, 21, 24, 27, 30]  # for err v. freq plot
         self.verbose: bool = False  # for debugging / prototyping TODO: integrate this in
 
         # Only prepare data for plotting once
@@ -257,6 +242,11 @@ class Dataset:
             # Trial-specific
             self.trial_lengths: List[int] = []  # num frames
             self.forward_speeds: List[float] = []
+            self.vertical_speeds: List[float] = []
+            self.mediolat_speeds: List[float] = []
+            self.percent_double: List[float] = []
+            self.percent_single: List[float] = []
+            self.percent_flight: List[float] = []
 
         if self.output_scatterplots:
             # Init scatter plots matrices
@@ -409,8 +399,18 @@ class Dataset:
                         # Add to trial-specific storage:
                         self.trial_lengths.append(num_valid_frames)
                         self.forward_speeds.append(np.average(np.abs(trial_data.com_vel_dyn[:, 0])))  # avg fwd speed over trial, absolute
+                        self.vertical_speeds.append(np.average(np.abs(trial_data.com_vel_dyn[:, 1])))
+                        self.mediolat_speeds.append(np.average(np.abs(trial_data.com_vel_dyn[:, 2])))
                         # TODO: check if first coor is fwd; add if statement for walking or running;
                         #  separate out into speeds for walking and running; maybe store tuple of value and activity label
+
+                        flight_count = np.count_nonzero((trial_data.contact == [0, 0]).all(axis=1))
+                        double_count = np.count_nonzero((trial_data.contact == [1, 1]).all(axis=1))
+                        single_count = np.count_nonzero((trial_data.contact == [0, 1]).all(axis=1)) + np.count_nonzero((trial_data.contact == [1, 0]).all(axis=1))
+
+                        self.percent_flight.append((flight_count / trial_data.contact.shape[0]) * 100)
+                        self.percent_double.append((double_count / trial_data.contact.shape[0]) * 100)
+                        self.percent_single.append((single_count / trial_data.contact.shape[0]) * 100)
 
                     if self.output_scatterplots:
                         assert (self.num_dofs == trial_data.num_joints),  f"self.num_dofs: {self.num_dofs}; trial_data.num_joints: {trial_data.num_joints}"  # check what we assume from std skel matches data
@@ -520,33 +520,40 @@ class Dataset:
             self.bmis = np.array(self.bmis)
             self.sexes = np.array(self.sexes)
 
-    # TODO: add plotting for multiple models
-    def plot_err_v_freq(self, errors: List[List[float]], outname: str, plot_std: bool = False):
+    def plot_err_v_freq(self, errors: List[List[List[float]]], outname: str, colors: List[str], labels: List[str], fontsize: int = 16, plot_std: bool = False):
         """
         Plots the errors vs. frequency over a single or multiple trials,
         with errors computed from filtering at different cut off frequencies
+
+        errors: List of errors over all trials, for each metric of interest
         """
         # Check inputs
         assert (len(self.freqs) > 1)
         assert (len(errors) > 1)
 
-        errors = np.array(errors)  # make list of lists into a 2D array
-
-        # Check that transform to array was done with correct shape
-        assert (errors.shape[-1] == len(self.freqs))
-
-        err_avg = np.average(errors, axis=0)
-
-        # Check that averaging result has correct shape
-        assert (len(err_avg) == len(self.freqs))
-
         plt.figure()
-        plt.plot(self.freqs, err_avg)
-        if plot_std:
-            err_std = np.std(errors, axis=0)
-            plt.fill_between(self.freqs, err_avg - err_std, err_avg + err_std, alpha=0.5)
-        plt.ylabel('RMSE (N/kg)')
-        plt.xlabel('cut off freq (Hz)')
+
+        for i, var_errors in enumerate(errors):
+            var_errors = np.array(var_errors)  # make list of lists into a 2D array
+
+            # Check that transform to array was done with correct shape
+            assert (var_errors.shape[-1] == len(self.freqs))
+
+            err_avg = np.average(var_errors, axis=0)
+
+            # Check that averaging result has correct shape
+            assert (len(err_avg) == len(self.freqs))
+
+            plt.plot(self.freqs, err_avg, color=colors[i], label=labels[i])
+            if plot_std:
+                err_std = np.std(var_errors, axis=0)
+                plt.fill_between(self.freqs, err_avg - err_std, err_avg + err_std, alpha=0.5)
+        plt.ylabel('RMSE (N/kg)', fontsize=fontsize)
+        plt.xlabel('cutoff frequency (Hz)', fontsize=fontsize)
+        plt.xticks(fontsize=fontsize)
+        plt.yticks(fontsize=fontsize)
+        plt.legend(fontsize=fontsize)
+        plt.tight_layout()
         plt.savefig(os.path.join(self.out_dir, outname))
 
     def make_scatter_plot_matrices(self):
@@ -593,10 +600,10 @@ class Dataset:
         ages_to_plot = self.ages[np.where(self.ages > 0)]  # exclude unknown
         bmis_to_plot = self.bmis[np.where(self.bmis > 0)]
 
-        plot_histograms(datas=[ages_to_plot], num_bins=6, colors=["blue"], labels=[], edgecolor="black", alpha=1,
-                        ylabel="no. of subjects", xlabel="age (yrs)", outdir=self.out_dir, outname="age_histo.png")
-        plot_histograms(datas=[bmis_to_plot], num_bins=6, colors=["blue"], labels=[], edgecolor="black", alpha=1,
-                        ylabel="no. of subjects", xlabel="BMI (kg/m^2)", outdir=self.out_dir, outname="bmi_histo.png")
+        plot_histograms(datas=[ages_to_plot], num_bins=6, colors=['#006BA4'], labels=[], edgecolor="black", alpha=1,
+                        ylabel="no. of subjects", xlabel="age (years)", outdir=self.out_dir, outname="age_histo.png")
+        plot_histograms(datas=[bmis_to_plot], num_bins=6, colors=['#006BA4'], labels=[], edgecolor="black", alpha=1,
+                        ylabel="no. of subjects", xlabel="BMI (kg/$\\mathrm{m}^2$)", outdir=self.out_dir, outname="bmi_histo.png")
         # Calculate % of data with reported age and print out
         print(f"{np.round((len(ages_to_plot) / self.num_valid_subjs), 2) * 100}% of subjects have age info.")
         # Calculate means
@@ -620,12 +627,12 @@ class Dataset:
         valid_f_ix = np.intersect1d(valid_age_ix, f_ix)
         valid_u_ix = np.intersect1d(valid_age_ix, u_ix)
 
-        colors = ['006BA4', 'FF800E', 'ABABAB']
+        colors = ['#006BA4', '#FF800E', '#ABABAB']
 
         plot_histograms(datas=[self.ages[valid_m_ix], self.ages[valid_f_ix], self.ages[valid_u_ix]], num_bins=6, colors=colors, labels=["male", "female", "unknown"],
-                        edgecolor="black", alpha=0.7, ylabel="no. of subjects", xlabel="age (yrs)", outdir=self.out_dir, outname="age_bysex_histo.png")
+                        edgecolor="black", alpha=1, ylabel="no. of subjects", xlabel="age (years)", outdir=self.out_dir, outname="age_bysex_histo.png")
         plot_histograms(datas=[self.bmis[valid_m_ix], self.bmis[valid_f_ix], self.bmis[valid_u_ix]], num_bins=6, colors=colors, labels=["male", "female", "unknown"],
-                        edgecolor="black", alpha=0.7, ylabel="no. of subjects", xlabel="BMI (kg/m^2)", outdir=self.out_dir, outname="bmi_bysex_histo.png")
+                        edgecolor="black", alpha=1, ylabel="no. of subjects", xlabel="BMI (kg/$\\mathrm{m}^2$)", outdir=self.out_dir, outname="bmi_bysex_histo.png")
 
     def plot_biomechanics_metrics_histograms(self):
         """
@@ -633,21 +640,21 @@ class Dataset:
         """
         self.prepare_data_for_plotting()
 
-        plot_histograms(datas=[self.trial_lengths], num_bins=20, colors=['006BA4'], labels=[], edgecolor="black", alpha=1,
+        plot_histograms(datas=[self.trial_lengths], num_bins=20, colors=['#006BA4'], labels=[], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png', plot_log_scale=True)
-        plot_histograms(datas=[self.forward_speeds], num_bins=20, colors=['006BA4'], labels=[], edgecolor="black", alpha=1,
-                        ylabel='no. of trials', xlabel='absolute anterior-posterior speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)  # TODO: separate btwn walking and running
-
+        plot_histograms(datas=[self.forward_speeds, self.vertical_speeds, self.mediolat_speeds], num_bins=10, colors=['#006BA4', '#FF800E', '#ABABAB'], labels=["antero-posterior", "vertical", "mediolateral"], edgecolor="black", alpha=1,
+                        ylabel='no. of trials', xlabel='average absolute speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)  # TODO: separate btwn walking and running
+        plot_histograms(datas=[self.percent_double, self.percent_single, self.percent_flight], num_bins=10, colors=['#006BA4', '#FF800E', '#ABABAB'],
+                        labels=["double support", "single support", "flight"], edgecolor="black", alpha=1,
+                        ylabel='no. of trials', xlabel='percent of trial (%)', outdir=self.out_dir, outname='contact_histo.png', plot_log_scale=True)
     def make_err_v_freq_plots(self):
         """
         For accelerations, GRFs, joint torques
         """
         self.prepare_data_for_plotting()
 
-        self.plot_err_v_freq(errors=self.acc_errs_v_freq,
-                             outname='acc_err_vs_freq.png', plot_std=False)
-        self.plot_err_v_freq(errors=self.grf_errs_v_freq,
-                             outname='grf_err_vs_freq.png', plot_std=False)
+        self.plot_err_v_freq(errors=[self.acc_errs_v_freq, self.grf_errs_v_freq],
+                             outname='combined_err_vs_freq.png', colors=['#006BA4', '#FF800E'], labels=["COM acc", "total GRF"], plot_std=False)
 
     def calculate_sex_breakdown(self):
         """
