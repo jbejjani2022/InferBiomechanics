@@ -75,7 +75,7 @@ class RegressionLossEvaluator:
 
             # Expand the mask to cover the original last dimension size
             expanded_mask = mask.unsqueeze(2).expand(-1, -1, 3)
-            print(f"{expanded_mask.shape=}")
+            # print(f"{expanded_mask.shape=}")
             # Reshape the expanded mask back to the original tensor shape
             return expanded_mask.reshape(tensor.shape)
 
@@ -238,9 +238,9 @@ class RegressionLossEvaluator:
         if log_reports_to_wandb:
             components = {0: "left-x", 1: "left-y", 2: "left-z", 3: "right-x", 4: "right-y", 5: "right-z"}
             report: Dict[str, float] = {
-                **{f'{self.split}/force_loss/{components[i]}': force_loss[i].item() for i in args.predict_grf_components},
-                **{f'{self.split}/cop_loss/{components[i]}': cop_loss[i].item() for i in args.predict_cop_components},
-                **{f'{self.split}/moment_loss/{components[i]}': moment_loss[i].item() for i in
+                **{f'{self.split}/force_rmse/{components[i]}': force_loss[i].item()**0.5 for i in args.predict_grf_components},
+                **{f'{self.split}/cop_rmse/{components[i]}': cop_loss[i].item()**0.5 for i in args.predict_cop_components},
+                **{f'{self.split}/moment_rmse/{components[i]}': moment_loss[i].item()**0.5 for i in
                    args.predict_moment_components},
                 f'{self.split}/wrench_loss': torch.sum(wrench_loss).item(),
                 f'{self.split}/loss': loss.item()

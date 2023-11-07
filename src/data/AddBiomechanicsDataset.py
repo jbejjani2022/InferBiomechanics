@@ -184,19 +184,19 @@ class AddBiomechanicsDataset(Dataset):
                     numpy_input_dict: Dict[str, np.ndarray] = {}
                     numpy_output_dict: Dict[str, np.ndarray] = {}
 
-                    numpy_input_dict[InputDataKeys.POS] = pos[window_start:window_end_exclusive, :]
-                    numpy_input_dict[InputDataKeys.VEL] = vel[window_start:window_end_exclusive, :]
-                    numpy_input_dict[InputDataKeys.ACC] = acc[window_start:window_end_exclusive, :]
-                    numpy_input_dict[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME] = joint_centers_in_root_frame[window_start:window_end_exclusive, :]
-                    numpy_input_dict[InputDataKeys.ROOT_LINEAR_VEL_IN_ROOT_FRAME] = root_spatial_vel_in_root_frame[window_start:window_end_exclusive, 3:6]
-                    numpy_input_dict[InputDataKeys.ROOT_ANGULAR_VEL_IN_ROOT_FRAME] = root_spatial_vel_in_root_frame[window_start:window_end_exclusive, 0:3]
-                    numpy_input_dict[InputDataKeys.ROOT_LINEAR_ACC_IN_ROOT_FRAME] = root_spatial_acc_in_root_frame[window_start:window_end_exclusive, 3:6]
-                    numpy_input_dict[InputDataKeys.ROOT_ANGULAR_ACC_IN_ROOT_FRAME] = root_spatial_acc_in_root_frame[window_start:window_end_exclusive, 0:3]
-                    numpy_input_dict[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME] = root_pos_history[window_start:window_end_exclusive, :]
-                    numpy_input_dict[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME] = root_euler_history[window_start:window_end_exclusive, :]
+                    numpy_input_dict[InputDataKeys.POS] = pos[window_start:window_end_exclusive:self.args.stride, :]
+                    numpy_input_dict[InputDataKeys.VEL] = vel[window_start:window_end_exclusive:self.args.stride, :]
+                    numpy_input_dict[InputDataKeys.ACC] = acc[window_start:window_end_exclusive:self.args.stride, :]
+                    numpy_input_dict[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME] = joint_centers_in_root_frame[window_start:window_end_exclusive:self.args.stride, :]
+                    numpy_input_dict[InputDataKeys.ROOT_LINEAR_VEL_IN_ROOT_FRAME] = root_spatial_vel_in_root_frame[window_start:window_end_exclusive:self.args.stride, 3:6]
+                    numpy_input_dict[InputDataKeys.ROOT_ANGULAR_VEL_IN_ROOT_FRAME] = root_spatial_vel_in_root_frame[window_start:window_end_exclusive:self.args.stride, 0:3]
+                    numpy_input_dict[InputDataKeys.ROOT_LINEAR_ACC_IN_ROOT_FRAME] = root_spatial_acc_in_root_frame[window_start:window_end_exclusive:self.args.stride, 3:6]
+                    numpy_input_dict[InputDataKeys.ROOT_ANGULAR_ACC_IN_ROOT_FRAME] = root_spatial_acc_in_root_frame[window_start:window_end_exclusive:self.args.stride, 0:3]
+                    numpy_input_dict[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME] = root_pos_history[window_start:window_end_exclusive:self.args.stride, :]
+                    numpy_input_dict[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME] = root_euler_history[window_start:window_end_exclusive:self.args.stride, :]
 
                     mass = subject.getMassKg()
-                    numpy_output_dict[OutputDataKeys.TAU] = tau[window_start:window_end_exclusive, :]
+                    numpy_output_dict[OutputDataKeys.TAU] = tau[-1, :]
                     numpy_output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = np.zeros((6*len(self.contact_bodies)), dtype=np.float32)
                     numpy_output_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = np.zeros((3*len(self.contact_bodies)), dtype=np.float32)
                     numpy_output_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = np.zeros((3*len(self.contact_bodies)), dtype=np.float32)
