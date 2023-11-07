@@ -236,22 +236,7 @@ class RegressionLossEvaluator:
 
         # 3.1. If requested, log the reports to Weights and Biases
         if log_reports_to_wandb:
-            components = {0: "left-x", 1: "left-y", 2: "left-z", 3: "right-x", 4: "right-y", 5: "right-z"}
-            report: Dict[str, float] = {
-                **{f'{self.split}/force_rmse/{components[i]}': force_loss[i].item()**0.5 for i in args.predict_grf_components},
-                **{f'{self.split}/cop_rmse/{components[i]}': cop_loss[i].item()**0.5 for i in args.predict_cop_components},
-                **{f'{self.split}/moment_rmse/{components[i]}': moment_loss[i].item()**0.5 for i in
-                   args.predict_moment_components},
-                f'{self.split}/wrench_loss': torch.sum(wrench_loss).item(),
-                f'{self.split}/loss': loss.item()
-            }
-            if compute_report:
-                report[f'{self.split}/Force Avg Err (N per kg)'] = force_err_mean
-                report[f'{self.split}/CoP Avg Err (m)'] = cop_err_mean
-                report[f'{self.split}/Moment Avg Err (Nm per kg)'] = moment_err_mean
-                report[f'{self.split}/Wrench Avg Err (N+Nm per kg)'] = wrench_err_mean
-                report[f'{self.split}/Non-root Joint Torques (Inverse Dynamics) Avg Err (Nm per kg)'] = tau_err_mean
-            wandb.log(report)
+            self.log_to_wandb(args, force_loss, cop_loss, moment_loss, wrench_loss, loss, tau_err_mean, compute_report=compute_report)
 
         # 3.2. If requested, plot the results
         # if analyze:
@@ -263,20 +248,41 @@ class RegressionLossEvaluator:
         #                                  f"{os.path.basename(self.dataset.subject_paths[batch_subject_indices[0]])}_{self.dataset.subjects[batch_subject_indices[0]].getTrialName(batch_trial_indices[0])}_grferror{components[i]}.png"))
         return loss
 
+    def log_to_wandb(self, args: argparse.Namespace, force_loss: torch.Tensor, cop_loss: torch.Tensor, moment_loss: torch.Tensor, wrench_loss: torch.Tensor, loss: torch.Tensor, tau_err_mean, compute_report: bool = False):
+        components = {0: "left-x", 1: "left-y", 2: "left-z", 3: "right-x", 4: "right-y", 5: "right-z"}
+        report: Dict[str, float] = {
+            **{f'{self.split}/force_rmse/{components[i]}': force_loss[i].item()**0.5 for i in args.predict_grf_components},
+            **{f'{self.split}/cop_rmse/{components[i]}': cop_loss[i].item()**0.5 for i in args.predict_cop_components},
+            **{f'{self.split}/moment_rmse/{components[i]}': moment_loss[i].item()**0.5 for i in args.predict_moment_components},
+            f'{self.split}/wrench_loss': torch.sum(wrench_loss).item(),
+            f'{self.split}/loss': loss.item()
+        }
+        if compute_report:
+            report[f'{self.split}/Force Avg Err (N per kg)'] = force_loss[args.predict_grf_components].mean().item()**0.5
+            # report['Force Avg Err (%)'] = force_percentage_diff.mean().item()
+            report[f'{self.split}/CoP Avg Err (m)'] = cop_loss[args.predict_cop_components].mean().item()**0.5
+            report[f'{self.split}/Moment Avg Err (Nm per kg)'] = moment_loss[args.predict_moment_components].mean().item()**0.5
+            report[f'{self.split}/Wrench Force Avg Err (N per kg)'] = (wrench_loss[3:6].mean().item() + wrench_loss[9:12].mean().item()) / 2
+            report[f'{self.split}/Wrench Moment Avg Err (Nm per kg)'] = (wrench_loss[:3].mean().item() + wrench_loss[6:9].mean().item()) / 2
+            report[f'{self.split}/Non-root Joint Torques (Inverse Dynamics) Avg Err (Nm per kg)'] = tau_err_mean
+        #print(report)
+        wandb.log(report)
+
     def print_report(self, args: argparse.Namespace, reset: bool = True, log_to_wandb: bool = False,
                      compute_report: bool = False):
-        # if log_to_wandb:
-        #     aggregate_force_loss = torch.mean(torch.vstack(self.force_losses), dim=0)
-        #     aggregate_cop_loss = torch.mean(torch.vstack(self.cop_losses), dim=0)
-        #     aggregate_moment_loss = torch.mean(torch.vstack(self.moment_losses), dim=0)
-        #     aggregate_wrench_loss = torch.mean(torch.vstack(self.wrench_losses), dim=0)
-        #     aggregate_loss = torch.mean(torch.hstack(self.losses))
-        #     if compute_report:
-        #         aggregate_tau_error = np.mean(self.tau_errors)
-        #     else:
-        #         aggregate_tau_error = None
-        #     self.log_to_wandb(args, aggregate_force_loss, aggregate_cop_loss, aggregate_moment_loss,
-        #                       aggregate_wrench_loss, aggregate_loss, aggregate_tau_error, compute_report=compute_report)
+        
+        if log_to_wandb:
+            aggregate_force_loss = torch.mean(torch.vstack(self.force_losses), dim=0)
+            aggregate_cop_loss = torch.mean(torch.vstack(self.cop_losses), dim=0)
+            aggregate_moment_loss = torch.mean(torch.vstack(self.moment_losses), dim=0)
+            aggregate_wrench_loss = torch.mean(torch.vstack(self.wrench_losses), dim=0)
+            aggregate_loss = torch.mean(torch.hstack(self.losses))
+            if compute_report:
+                aggregate_tau_error = np.mean(self.tau_errors)
+            else:
+                aggregate_tau_error = None
+            self.log_to_wandb(args, aggregate_force_loss, aggregate_cop_loss, aggregate_moment_loss,
+                              aggregate_wrench_loss, aggregate_loss, aggregate_tau_error, compute_report=compute_report)
 
         if self.num_evaluations > 0:
             print(f'\tForce Avg Err: {self.sum_grf_forces_error / self.num_evaluations} N / kg')
