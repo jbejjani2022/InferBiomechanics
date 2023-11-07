@@ -32,7 +32,7 @@ class FeedForwardBaseline(nn.Module):
         # Compute input and output sizes
 
         # For input, we need each dof, for position and velocity and acceleration, for each frame in the window, and then also the COM acceleration for each frame in the window
-        self.input_size = (num_dofs * 3 + 12 + num_joints * 3 + root_history_len * 6) * self.args.history_len
+        self.input_size = (num_dofs * 3 + 12 + num_joints * 3 + root_history_len * 6) * (self.args.history_len // self.args.stride)
         # For output, we have four foot-ground contact classes (foot 1, foot 2, both, neither)
         self.output_size = 30
 
@@ -44,12 +44,12 @@ class FeedForwardBaseline(nn.Module):
             if self.args.batchnorm:
                 self.net.append(nn.BatchNorm1d(h0))
             self.net.append(nn.Linear(h0, h1, dtype=torch.float32, device=device))
-            if i < len(dims)-1:
+            if i < len(dims)-2:
                 self.net.append(ACTIVATION_FUNCS[self.args.activation])
         
         self.net = nn.Sequential(*self.net)
         logging.info(f"{self.net=}")
-
+        
     def forward(self, input: Dict[str, torch.Tensor], skels_and_contact: List[Tuple[nimble.dynamics.Skeleton, List[nimble.dynamics.BodyNode]]]) -> dict[str, torch.Tensor]:
         # Get the position, velocity, and acceleration tensors
 
@@ -73,7 +73,7 @@ class FeedForwardBaseline(nn.Module):
             input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME]
         ], dim=-1).reshape((input[InputDataKeys.POS].shape[0], -1))
         # Actually run the forward pass
-        print(f"{inputs.shape=}")
+        # print(f"{inputs.shape=}")
         x = self.net(inputs)
 
         return {
