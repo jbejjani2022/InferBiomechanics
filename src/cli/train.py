@@ -44,12 +44,16 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--dataset-home', type=str, default='../data', help='The path to the AddBiomechanics dataset.')
         subparser.add_argument('--no-wandb', action='store_true', default=False, help='Log this run to Weights and Biases.')
         subparser.add_argument('--model-type', type=str, default='feedforward', help='The model to train.')
+        subparser.add_argument('--device', type=str, default='cpu', help='Where to run the code, either cpu or gpu.')
         subparser.add_argument('--checkpoint-dir', type=str, default='../checkpoints', help='The path to a model checkpoint to save during training. Also, starts from the latest checkpoint in this directory.')
         subparser.add_argument('--geometry-folder', type=str, default=None, help='Path to the Geometry folder with bone mesh data.')
         subparser.add_argument('--history-len', type=int, default=5, help='The number of timesteps of context to show when constructing the inputs.')
-        subparser.add_argument('--hidden-size', type=int, default=512, help='The hidden size to use when constructing the model.')
-        subparser.add_argument('--device', type=str, default='cpu', help='Where to run the code, either cpu or gpu.')
         subparser.add_argument('--learning-rate', type=float, default=1e-2, help='The learning rate for weight updates.')
+        subparser.add_argument('--dropout', type=bool, default=False, help='Apply dropout?')
+        subparser.add_argument('--dropout-prob', type=float, default=0.5, help='Dropout prob')
+        subparser.add_argument('--hidden-dims', type=int, nargs='+', default=[512], help='Hidden dims across different layers.')
+        subparser.add_argument('--batchnorm', type=bool, default=False, help='Apply batchnorm?')
+        subparser.add_argument('--activation', type=str, default='relu', help='Which activation func?')
         subparser.add_argument('--epochs', type=int, default=10, help='The number of epochs to run training for.')
         subparser.add_argument('--opt-type', type=str, default='adagrad', help='The optimizer to use when adapting the weights of the model during training.')
         subparser.add_argument('--batch-size', type=int, default=32, help='The batch size to use when training the model.')
@@ -59,7 +63,7 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--predict-cop-components', type=int, nargs='+', default=[], help='Which cop components to train.')
         subparser.add_argument('--predict-moment-components', type=int, nargs='+', default=[], help='Which moment components to train.')
         subparser.add_argument('--predict-wrench-components', type=int, nargs='+', default=[], help='Which wrench components to train.')
-        subparser.add_argument('--trial-filter', type=str, nargs='+', default=[""], help='Whkind of trials to train/test on.')
+        subparser.add_argument('--trial-filter', type=str, nargs='+', default=[""], help='What kind of trials to train/test on.')
 
     def run(self, args: argparse.Namespace):
         if 'command' in args and args.command != 'train':
@@ -68,7 +72,7 @@ class TrainCommand(AbstractCommand):
         opt_type: str = args.opt_type
         checkpoint_dir: str = os.path.join(os.path.abspath(args.checkpoint_dir), model_type)
         history_len: int = args.history_len
-        hidden_size: int = args.hidden_size
+        hidden_dims: List[int] = args.hidden_dims
         learning_rate: float = args.learning_rate
         epochs: int = args.epochs
         batch_size: int = args.batch_size
@@ -98,7 +102,7 @@ class TrainCommand(AbstractCommand):
                 # track hyperparameters and run metadata
                 config={
                     "learning_rate": learning_rate,
-                    "hidden_size": hidden_size,
+                    "hidden_dims": hidden_dims,
                     "batch_size": batch_size,
                     "model_type": model_type,
                     "optimizer_type": opt_type,
@@ -119,7 +123,7 @@ class TrainCommand(AbstractCommand):
         dev_dataset = AddBiomechanicsDataset(args, dev_dataset_path, history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
 
         # Create an instance of the model
-        model = self.get_model(train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, hidden_size, device, checkpoint_dir=checkpoint_dir)
+        model = self.get_model(args, train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, device, checkpoint_dir=checkpoint_dir)
 
         # Define the optimizer
         if opt_type == 'adagrad':
@@ -234,3 +238,6 @@ class TrainCommand(AbstractCommand):
                 logging.info('Training Set Evaluation: ')
                 loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
         return True
+
+
+# python3 main.py train --model feedforward --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --prefetch-chunk-size 5 --hidden-dims 32 32 --batchnorm True --dropout True --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "../data" --epochs 500
