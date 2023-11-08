@@ -55,15 +55,22 @@ class FeedForwardBaseline(nn.Module):
         logging.info(f"{self.per_output_nets=}")
         
     def forward(self, input: Dict[str, torch.Tensor], skels_and_contact: List[Tuple[nimble.dynamics.Skeleton, List[nimble.dynamics.BodyNode]]]) -> dict[str, torch.Tensor]:
-        # Get the position, velocity, and acceleration tensors
+        # 1. Check input shape matches our assumptions.
+        assert len(input[InputDataKeys.POS].shape) == 3
+        assert input[InputDataKeys.POS].shape[-1] == self.num_dofs
+        assert len(input[InputDataKeys.VEL].shape) == 3
+        assert input[InputDataKeys.VEL].shape[-1] == self.num_dofs
+        assert len(input[InputDataKeys.ACC].shape) == 3
+        assert input[InputDataKeys.ACC].shape[-1] == self.num_dofs
+        assert len(input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape) == 3
+        assert input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1] == self.num_joints * 3
+        assert len(input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape) == 3
+        assert input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3
+        assert len(input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape) == 3
+        assert input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3
 
-        # assert(input[InputDataKeys.POS].shape[-1] == self.num_dofs)
-        # assert(input[InputDataKeys.VEL].shape[-1] == self.num_dofs)
-        # assert(input[InputDataKeys.ACC].shape[-1] == self.num_dofs)
-        # assert(input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1] == self.num_joints * 3)
-        # assert(input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3)
-        # assert(input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3)
-
+        # 2. Concatenate inputs, and flatten them to be a single long vector for each batch entry. That means each
+        # timestep in the input data gets concatenated end-to-end.
         inputs = torch.concat([
             input[InputDataKeys.POS],
             input[InputDataKeys.VEL],
@@ -76,10 +83,15 @@ class FeedForwardBaseline(nn.Module):
             input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME],
             input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME]
         ], dim=-1).reshape((input[InputDataKeys.POS].shape[0], -1))
-        # Actually run the forward pass
-        # print(f"{inputs.shape=}")
+
+        # 3. Run one forward model stack per output variable. Each stack is an MLP. The reason to have separate stacks
+        # per output is that we are doing a regression with different scales for each output, and we don't want to
+        # have to worry about scaling the outputs to be the same scale. So, we just train separate models for each
+        # output variable.
         x = torch.cat([net(inputs) for net in self.per_output_nets], dim=-1)
 
+        # 4. Break the output back up into separate tensors for each output variable. Predicts just a single frame of
+        # output, given the input context.
         return {
             OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME: x[:, 0:6],
             OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME: x[:, 6:12],
