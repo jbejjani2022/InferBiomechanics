@@ -61,7 +61,7 @@ class TrainCommand(AbstractCommand):
                                help='The learning rate for weight updates.')
         subparser.add_argument('--dropout', action='store_true', help='Apply dropout?')
         subparser.add_argument('--dropout-prob', type=float, default=0.5, help='Dropout prob')
-        subparser.add_argument('--hidden-dims', type=int, nargs='+', default=[512],
+        subparser.add_argument('--hidden-dims', type=int, nargs='+', default=[10],
                                help='Hidden dims across different layers.')
         subparser.add_argument('--batchnorm', action='store_true', help='Apply batchnorm?')
         subparser.add_argument('--activation', type=str, default='relu', help='Which activation func?')
@@ -74,7 +74,7 @@ class TrainCommand(AbstractCommand):
                                help='Use very short datasets to test without loading a bunch of data.')
         subparser.add_argument('--prefetch-chunk-size', type=int, default=5,
                                help='Number of trials to fetch all the data for in each iteration.')
-        subparser.add_argument('--data-loading-workers', type=int, default=0,
+        subparser.add_argument('--data-loading-workers', type=int, default=10,
                                help='Number of separate processes to spawn to load data in parallel.')
         subparser.add_argument('--predict-grf-components', type=int, nargs='+', default=[i for i in range(6)],
                                help='Which grf components to train.')
@@ -131,17 +131,17 @@ class TrainCommand(AbstractCommand):
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, 'dev'))
         logging.info('## Loading datasets with skeletons:')
-        train_dataset = AddBiomechanicsDataset(args, train_dataset_path, history_len, device=torch.device(device),
+        train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), stride=args.stride,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
         train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train')
-        train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=data_loading_workers)
+        train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=data_loading_workers, persistent_workers=True)
 
-        dev_dataset = AddBiomechanicsDataset(args, dev_dataset_path, history_len, device=torch.device(device),
+        dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(device), stride=args.stride,
                                              geometry_folder=geometry, testing_with_short_dataset=short)
         dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split='dev')
-        dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers)
+        dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True)
 
-        # mp.set_start_method('spawn')  # or 'fork' or 'forkserver'
+        mp.set_start_method('spawn')  # 'spawn' or 'fork' or 'forkserver'
 
         # Create an instance of the model
         model = self.get_model(args, train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, device,
@@ -167,31 +167,32 @@ class TrainCommand(AbstractCommand):
         for epoch in range(epochs):
             # Iterate over the entire training dataset
 
-            print('Evaluating Dev Set')
-            with torch.no_grad():
-                for i, batch in enumerate(dev_dataloader):
-                    inputs: Dict[str, torch.Tensor]
-                    labels: Dict[str, torch.Tensor]
-                    batch_subject_indices: List[int]
-                    batch_trial_indices: List[int]
-                    inputs, labels, batch_subject_indices, batch_trial_indices = batch
-                    outputs = model(inputs,
-                                    [(dev_dataset.skeletons[i], dev_dataset.skeletons_contact_bodies[i]) for i in
-                                     batch_subject_indices])
-                    dev_loss_evaluator(inputs,
-                                       outputs,
-                                       labels,
-                                       batch_subject_indices,
-                                       batch_trial_indices,
-                                       args,
-                                       compute_report=True)
-                    if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
-                        print('  - Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
-            # Report dev loss on this epoch
-            logging.info('Dev Set Evaluation: ')
-            dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb, compute_report=True)
+            if epoch > 0:
+                print('Evaluating Dev Set')
+                with torch.no_grad():
+                    for i, batch in enumerate(dev_dataloader):
+                        inputs: Dict[str, torch.Tensor]
+                        labels: Dict[str, torch.Tensor]
+                        batch_subject_indices: List[int]
+                        batch_trial_indices: List[int]
+                        inputs, labels, batch_subject_indices, batch_trial_indices = batch
+                        outputs = model(inputs,
+                                        [(dev_dataset.skeletons[i], dev_dataset.skeletons_contact_bodies[i]) for i in
+                                         batch_subject_indices])
+                        dev_loss_evaluator(inputs,
+                                           outputs,
+                                           labels,
+                                           batch_subject_indices,
+                                           batch_trial_indices,
+                                           args,
+                                           compute_report=False)
+                        if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
+                            print('  - Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
+                # Report dev loss on this epoch
+                logging.info('Dev Set Evaluation: ')
+                dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb, compute_report=True)
 
-            print('Running Train Epoch')
+            print('Running Train Epoch '+str(epoch))
             for i, batch in enumerate(train_dataloader):
                 inputs: Dict[str, torch.Tensor]
                 labels: Dict[str, torch.Tensor]

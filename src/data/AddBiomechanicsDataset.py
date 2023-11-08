@@ -44,6 +44,7 @@ class OutputDataKeys:
 
 
 class AddBiomechanicsDataset(Dataset):
+    stride: int
     data_path: str
     window_size: int
     geometry_folder: str
@@ -61,15 +62,15 @@ class AddBiomechanicsDataset(Dataset):
     subject_indices: Dict[str, int]
 
     def __init__(self,
-                 args: argparse.Namespace,
                  data_path: str,
                  window_size: int,
                  geometry_folder: str,
                  device: torch.device = torch.device('cpu'),
                  dtype: torch.dtype = torch.float32,
                  testing_with_short_dataset: bool = False,
+                 stride: int = 1,
                  skip_loading_skeletons: bool = False):
-        self.args = args
+        self.stride = stride
         self.subject_paths = []
         self.subjects = []
         self.window_size = window_size
@@ -129,7 +130,7 @@ class AddBiomechanicsDataset(Dataset):
                 probably_missing: List[bool] = [reason != nimble.biomechanics.MissingGRFReason.notMissingGRF for reason
                                                 in subject.getMissingGRF(trial_index)]
                 for window_start in range(max(trial_length - self.window_size - 1, 0)):
-                    if not any(probably_missing[window_start:window_start + self.window_size:self.args.stride]):
+                    if not any(probably_missing[window_start:window_start + self.window_size:self.stride]):
                         assert window_start + self.window_size < trial_length
                         self.windows.append((i, trial_index, window_start))
 
@@ -143,11 +144,11 @@ class AddBiomechanicsDataset(Dataset):
         subject = self.subjects[subject_index]
         frames: List[nimble.biomechanics.Frame] = subject.readFrames(trial,
                                                                      window_start,
-                                                                     self.window_size // self.args.stride,
-                                                                     stride=self.args.stride,
+                                                                     self.window_size // self.stride,
+                                                                     stride=self.stride,
                                                                      includeSensorData=False,
                                                                      includeProcessingPasses=True)
-        assert(len(frames) == self.window_size // self.args.stride)
+        assert(len(frames) == self.window_size // self.stride)
 
         first_passes: List[nimble.biomechanics.FramePass] = [frame.processingPasses[0] for frame in frames]
         last_pass: nimble.biomechanics.FramePass = frames[-1].processingPasses[-1]
