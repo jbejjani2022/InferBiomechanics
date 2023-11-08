@@ -149,46 +149,49 @@ class AddBiomechanicsDataset(Dataset):
                                                                      includeProcessingPasses=True)
         assert(len(frames) == self.window_size // self.args.stride)
 
+        first_passes: List[nimble.biomechanics.FramePass] = [frame.processingPasses[0] for frame in frames]
+        last_pass: nimble.biomechanics.FramePass = frames[-1].processingPasses[-1]
+
         input_dict: Dict[str, torch.Tensor] = {}
         label_dict: Dict[str, torch.Tensor] = {}
 
         with torch.no_grad():
             input_dict[InputDataKeys.POS] = torch.row_stack([
-                torch.tensor(frame.processingPasses[0].pos, dtype=self.dtype).detach() for frame in frames
+                torch.tensor(p.pos, dtype=self.dtype).detach() for p in first_passes
             ])
             input_dict[InputDataKeys.VEL] = torch.row_stack([
-                torch.tensor(frame.processingPasses[0].vel, dtype=self.dtype).detach() for frame in frames
+                torch.tensor(p.vel, dtype=self.dtype).detach() for p in first_passes
             ])
             input_dict[InputDataKeys.ACC] = torch.row_stack([
-                torch.tensor(frame.processingPasses[0].acc, dtype=self.dtype).detach() for frame in frames
+                torch.tensor(p.acc, dtype=self.dtype).detach() for p in first_passes
             ])
             input_dict[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME] = torch.row_stack([
-                torch.tensor(frame.processingPasses[0].jointCentersInRootFrame, dtype=self.dtype).detach() for frame in frames
+                torch.tensor(p.jointCentersInRootFrame, dtype=self.dtype).detach() for p in first_passes
             ])
             input_dict[InputDataKeys.ROOT_LINEAR_VEL_IN_ROOT_FRAME] = torch.row_stack([
-                torch.tensor(frame.processingPasses[0].rootLinearVelInRootFrame, dtype=self.dtype).detach() for frame in frames
+                torch.tensor(p.rootLinearVelInRootFrame, dtype=self.dtype).detach() for p in first_passes
             ])
             input_dict[InputDataKeys.ROOT_LINEAR_ACC_IN_ROOT_FRAME] = torch.row_stack([
-                torch.tensor(frame.processingPasses[0].rootLinearAccInRootFrame, dtype=self.dtype).detach() for frame in frames
+                torch.tensor(p.rootLinearAccInRootFrame, dtype=self.dtype).detach() for p in first_passes
             ])
             input_dict[InputDataKeys.ROOT_ANGULAR_VEL_IN_ROOT_FRAME] = torch.row_stack([
-                torch.tensor(frame.processingPasses[0].rootAngularVelInRootFrame, dtype=self.dtype).detach() for frame in frames
+                torch.tensor(p.rootAngularVelInRootFrame, dtype=self.dtype).detach() for p in first_passes
             ])
             input_dict[InputDataKeys.ROOT_ANGULAR_ACC_IN_ROOT_FRAME] = torch.row_stack([
-                torch.tensor(frame.processingPasses[0].rootAngularAccInRootFrame, dtype=self.dtype).detach() for frame in frames
+                torch.tensor(p.rootAngularAccInRootFrame, dtype=self.dtype).detach() for p in first_passes
             ])
             input_dict[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME] = torch.row_stack([
-                torch.tensor(frame.processingPasses[0].rootPosHistoryInRootFrame, dtype=self.dtype).detach() for frame in frames
+                torch.tensor(p.rootPosHistoryInRootFrame, dtype=self.dtype).detach() for p in first_passes
             ])
             input_dict[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME] = torch.row_stack([
-                torch.tensor(frame.processingPasses[0].rootEulerHistoryInRootFrame, dtype=self.dtype).detach() for frame in frames
+                torch.tensor(p.rootEulerHistoryInRootFrame, dtype=self.dtype).detach() for p in first_passes
             ])
 
             # The output dictionary contains a single frame, the last frame in the window
             mass = subject.getMassKg()
-            label_dict[OutputDataKeys.TAU] = torch.tensor(frames[-1].processingPasses[-1].tau, dtype=self.dtype).detach()
-            label_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = torch.tensor(frames[-1].processingPasses[-1].residualWrenchInRootFrame, dtype=self.dtype).detach()
-            label_dict[OutputDataKeys.COM_ACC_IN_ROOT_FRAME] = torch.tensor(frames[-1].processingPasses[-1].comAccInRootFrame, dtype=self.dtype).detach()
+            label_dict[OutputDataKeys.TAU] = torch.tensor(last_pass.tau, dtype=self.dtype).detach()
+            label_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = torch.tensor(last_pass.residualWrenchInRootFrame, dtype=self.dtype).detach()
+            label_dict[OutputDataKeys.COM_ACC_IN_ROOT_FRAME] = torch.tensor(last_pass.comAccInRootFrame, dtype=self.dtype).detach()
             label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = torch.zeros(
                 (6 * len(self.contact_bodies)), dtype=self.dtype)
             label_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = torch.zeros(
@@ -200,10 +203,10 @@ class AddBiomechanicsDataset(Dataset):
             contact_indices: List[int] = [
                 subject.getGroundForceBodies().index(body) if body in subject.getGroundForceBodies() else -1 for
                 body in self.contact_bodies]
-            ground_contact_wrenches_in_root_frame: torch.Tensor = torch.tensor(frames[-1].processingPasses[-1].groundContactWrenchesInRootFrame, dtype=self.dtype)
-            ground_contact_forces_in_root_frame: torch.Tensor = torch.tensor(frames[-1].processingPasses[-1].groundContactForceInRootFrame, dtype=self.dtype)
-            ground_contact_cop_in_root_frame: torch.Tensor = torch.tensor(frames[-1].processingPasses[-1].groundContactCenterOfPressureInRootFrame, dtype=self.dtype)
-            ground_contact_torque_in_root_frame: torch.Tensor = torch.tensor(frames[-1].processingPasses[-1].groundContactTorqueInRootFrame, dtype=self.dtype)
+            ground_contact_wrenches_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactWrenchesInRootFrame, dtype=self.dtype)
+            ground_contact_forces_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactForceInRootFrame, dtype=self.dtype)
+            ground_contact_cop_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactCenterOfPressureInRootFrame, dtype=self.dtype)
+            ground_contact_torque_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactTorqueInRootFrame, dtype=self.dtype)
             for i in range(len(self.contact_bodies)):
                 if contact_indices[i] >= 0:
                     label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][
