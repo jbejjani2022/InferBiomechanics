@@ -61,7 +61,7 @@ class TrainCommand(AbstractCommand):
                                help='The learning rate for weight updates.')
         subparser.add_argument('--dropout', action='store_true', help='Apply dropout?')
         subparser.add_argument('--dropout-prob', type=float, default=0.5, help='Dropout prob')
-        subparser.add_argument('--hidden-dims', type=int, nargs='+', default=[10],
+        subparser.add_argument('--hidden-dims', type=int, nargs='+', default=[512],
                                help='Hidden dims across different layers.')
         subparser.add_argument('--batchnorm', action='store_true', help='Apply batchnorm?')
         subparser.add_argument('--activation', type=str, default='relu', help='Which activation func?')
