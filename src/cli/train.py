@@ -101,19 +101,7 @@ class TrainCommand(AbstractCommand):
                 project="shpd1",
 
                 # track hyperparameters and run metadata
-                config={
-                    "learning_rate": learning_rate,
-                    "hidden_dims": hidden_dims,
-                    "batch_size": batch_size,
-                    "model_type": model_type,
-                    "optimizer_type": opt_type,
-                    "epochs": epochs,
-                    "git_hash": get_git_hash(),
-                    "history_len": history_len,
-                    "uncommitted_changes": has_uncommitted,
-                    "checkpoint_dir": checkpoint_dir,
-                    "prefetch_chunk_size": args.prefetch_chunk_size,
-                }
+                config=args.__dict__
             )
 
         # Create an instance of the dataset
