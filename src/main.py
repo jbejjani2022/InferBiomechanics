@@ -9,6 +9,7 @@ from cli.create_splits import CreateSplitsCommand
 from cli.analyze import AnalyzeCommand
 from cli.sanity_check import SanityCheckCommand
 from cli.make_plots import MakePlotsCommand
+from cli.review_file import ReviewFileCommand
 import nimblephysics as nimble
 import logging
 
@@ -19,7 +20,8 @@ def main():
                 CreateSplitsCommand(),
                 AnalyzeCommand(),
                 SanityCheckCommand(),
-                MakePlotsCommand()]
+                MakePlotsCommand(),
+                ReviewFileCommand()]
 
     # Create an ArgumentParser object
     parser = argparse.ArgumentParser(
