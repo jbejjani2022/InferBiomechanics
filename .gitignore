@@ -1,6 +1,5 @@
 *.DS_Store
 ./data/
-data/
 Geometry/
 outputs/
 checkpoints/

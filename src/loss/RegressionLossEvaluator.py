@@ -1,169 +1,397 @@
 import torch
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset, OutputDataKeys, InputDataKeys
-from typing import Dict, List
+from typing import Dict, List, Optional
 import numpy as np
 import wandb
 import logging
 import matplotlib.pyplot as plt
 import os
+import argparse
+
 
 class RegressionLossEvaluator:
     dataset: AddBiomechanicsDataset
-    num_evaluations: int
-    sum_loss: float
-    sum_batches: int
-    sum_grf_forces_error: float
-    sum_grf_forces_percent_error: float
-    sum_grf_cop_error: float
-    sum_grf_moment_error: float
-    sum_grf_wrench_force_error: float
-    sum_grf_wrench_moment_error: float
 
-    def __init__(self, dataset: AddBiomechanicsDataset):
+    losses: List[torch.Tensor]
+    force_losses: List[torch.Tensor]
+    moment_losses: List[torch.Tensor]
+    wrench_losses: List[torch.Tensor]
+    cop_losses: List[torch.Tensor]
+
+    force_reported_metrics: List[float]
+    moment_reported_metrics: List[float]
+    cop_reported_metrics: List[float]
+    wrench_reported_metrics: List[float]
+    tau_reported_metrics: List[float]
+    com_acc_reported_metrics: List[float]
+
+    def __init__(self, dataset: AddBiomechanicsDataset, split: str):
         self.dataset = dataset
-        self.num_evaluations = 0
-        self.sum_batches = 0
-        self.sum_grf_forces_error = 0.0
-        self.sum_grf_forces_percent_error = 0.0
-        self.sum_grf_cop_error = 0.0
-        self.sum_grf_moment_error = 0.0
-        self.sum_grf_wrench_force_error = 0.0
-        self.sum_grf_wrench_moment_error = 0.0
-        self.sum_id_tau_error = 0.0
-        self.sum_direct_tau_error = 0.0
+        self.split = split
 
-        self.outputs = []
-        self.labels = []
+        # Aggregating losses across batches for dev set evaluation
+        self.losses = []
+        self.force_losses = []
+        self.moment_losses = []
+        self.wrench_losses = []
+        self.cop_losses = []
+
+        # Aggregating reported metrics for dev set evaluation
+        self.force_reported_metrics = []
+        self.moment_reported_metrics = []
+        self.cop_reported_metrics = []
+        self.wrench_reported_metrics = []
+        self.tau_reported_metrics = []
+        self.com_acc_reported_metrics = []
 
     @staticmethod
-    def compute_norms(diff: torch.Tensor, max: float = 1e3) -> torch.Tensor:
-        diff = diff.view((-1, diff.shape[-2], int(diff.shape[-1] / 3), 3))
-        diff = torch.linalg.norm(diff, dim=-1)
-        diff = torch.clamp(diff, min=0, max=max)
-        return diff
+    def get_squared_diff_mean_vector(output_tensor: torch.Tensor, label_tensor: torch.Tensor) -> torch.Tensor:
+        if output_tensor.shape != label_tensor.shape:
+            raise ValueError('Output and label tensors must have the same shape')
+        if len(output_tensor.shape) != 2:
+            raise ValueError('Output and label tensors must be 2-dimensional')
+        if output_tensor.shape[0] * output_tensor.shape[1] == 0:
+            raise ValueError('Output and label tensors must not be empty')
+        force_diff = output_tensor - label_tensor
+        force_loss = torch.mean(force_diff ** 2, dim=0)
+        return force_loss
+
+    @staticmethod
+    def get_mask_by_threes(tensor: torch.Tensor, threshold: float = 0.0) -> torch.Tensor:
+        with torch.no_grad():
+            if len(tensor.shape) != 2:
+                raise ValueError('Mask tensor must be 2-dimensional')
+            if tensor.shape[0] * tensor.shape[1] == 0:
+                raise ValueError('Mask tensor must not be empty')
+            if tensor.shape[-1] % 3 != 0:
+                raise ValueError('Mask tensor must have a final dimension divisible by 3')
+
+            # Reshape the tensor so that the last dimension is split into chunks of 3
+            reshaped_tensor = tensor.view(tensor.shape[0], -1, 3)
+
+            # Compute the norm over the last dimension
+            norms = torch.norm(reshaped_tensor, dim=2)
+
+            # Create a mask where the norm is greater than the threshold
+            mask = (norms > threshold).float()
+
+            # Expand the mask to cover the original last dimension size
+            expanded_mask = mask.unsqueeze(2).expand(-1, -1, 3)
+            # print(f"{expanded_mask.shape=}")
+            # Reshape the expanded mask back to the original tensor shape
+            return expanded_mask.reshape(tensor.shape)
+
+            # Un-vectorized version:
+
+            # mask_tensor = torch.zeros_like(tensor)
+            # for batch in range(mask_tensor.shape[0]):
+            #     for timestep in range(mask_tensor.shape[1]):
+            #         for i in range(mask_tensor.shape[2] // 3):
+            #             mask_tensor[batch, timestep, i * 3:(i + 1) * 3] = (torch.norm(tensor[batch, timestep, i * 3:(i + 1) * 3]) > threshold).float()
+            # return mask_tensor
+
+    @staticmethod
+    def get_mean_norm_error(output_tensor: torch.Tensor, label_tensor: torch.Tensor, vec_size: int = 3) -> torch.Tensor:
+        if output_tensor.shape != label_tensor.shape:
+            raise ValueError('Output and label tensors must have the same shape')
+        if len(output_tensor.shape) != 2:
+            raise ValueError('Output and label tensors must be 2-dimensional')
+        if output_tensor.shape[0] * output_tensor.shape[1] == 0:
+            raise ValueError('Output and label tensors must not be empty')
+        if output_tensor.shape[-1] % vec_size != 0:
+            raise ValueError('Tensors must have a final dimension divisible by vec_size=' + str(vec_size))
+
+        diffs = output_tensor - label_tensor
+
+        # Reshape the tensor so that the last dimension is split into chunks of `vec_size`
+        reshaped_tensor = diffs.view(diffs.shape[0], -1, vec_size)
+
+        # Compute the norm over the last dimension
+        norms = torch.norm(reshaped_tensor, dim=2)
+
+        # Compute the mean norm over all the dimensions
+        mean_norm = torch.mean(norms)
+
+        return mean_norm
+
+    @staticmethod
+    def get_com_acc_error(output_force_tensor: torch.Tensor, label_force_tensor: torch.Tensor) -> torch.Tensor:
+        if output_force_tensor.shape != label_force_tensor.shape:
+            raise ValueError('Output and label tensors must have the same shape')
+        if len(output_force_tensor.shape) != 2:
+            raise ValueError('Output and label tensors must be 2-dimensional')
+        if output_force_tensor.shape[0] * output_force_tensor.shape[1] == 0:
+            raise ValueError('Output and label tensors must not be empty')
+        if output_force_tensor.shape[1] != 6:
+            raise ValueError('Output and label tensors must have a 6 dimensional final dimension')
+
+        # Compute the mean norm over all the dimensions
+        output_force_sum = output_force_tensor[:, :3] + output_force_tensor[:, 3:]
+        label_force_sum = label_force_tensor[:, :3] + label_force_tensor[:, 3:]
+
+        return RegressionLossEvaluator.get_mean_norm_error(output_force_sum, label_force_sum, vec_size=3)
 
     def __call__(self,
                  inputs: Dict[str, torch.Tensor],
                  outputs: Dict[str, torch.Tensor],
                  labels: Dict[str, torch.Tensor],
                  batch_subject_indices: List[int],
+                 batch_trial_indices: List[int],
+                 args: argparse.Namespace,
                  compute_report: bool = False,
                  log_reports_to_wandb: bool = False,
                  analyze: bool = False,
                  plot_path_root: str = 'outputs/plots') -> torch.Tensor:
-        # Compute the loss
-        force_diff = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] - labels[
-                OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME]
-        force_loss = torch.sum(force_diff ** 2, dim=(0,1))
-        
-        # CoP loss is tricky, because when there is no force the CoP is meaningless, and so we want to ensure that
-        # we only report CoP loss on the frames where there is a non-zero force.
-        mask_tensor = (labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] != 0).float()
-        cop_diff = (outputs[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] - labels[
-                OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME]) * mask_tensor
-        cop_loss = torch.sum(cop_diff ** 2, dim=(0,1))
 
-        moment_diff = (outputs[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] - labels[
-                OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME]) * mask_tensor
-        moment_loss = torch.sum(moment_diff ** 2, dim=(0,1))
+        ############################################################################
+        # Step 1: Compute the loss
+        ############################################################################
 
-        wrench_diff = outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] - labels[
-                OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME]
-        wrench_loss = torch.sum(wrench_diff ** 2, dim=(0,1))
+        # 1.1. Compute the force loss, as a single vector of length 3*N
+        force_loss = RegressionLossEvaluator.get_squared_diff_mean_vector(
+            outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME],
+            labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME]
+        )
+        self.force_losses.append(force_loss)
+        # 1.2. Compute the moment loss, as a single vector of length 3*N
+        moment_loss = RegressionLossEvaluator.get_squared_diff_mean_vector(
+            outputs[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME],
+            labels[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME]
+        )
+        self.moment_losses.append(moment_loss)
+        # 1.3. Compute the wrench loss, as a single vector of length 6*N. Note that this is NOT MASKED the same way the
+        # CoP loss is, because unlike the CoP the forces and moments in the wrench are well behaved when the foot is not
+        # in contact with the ground: they simply go to zero.
+        wrench_loss = RegressionLossEvaluator.get_squared_diff_mean_vector(
+            outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME],
+            labels[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME]
+        )
+        self.wrench_losses.append(wrench_loss)
+        # 1.4. CoP loss is tricky, because when there is no force the CoP is meaningless, and so we want to ensure that
+        # we only report CoP loss on the frames where there is a 10N force or more.
+        with torch.no_grad():
+            cop_mask_tensor = RegressionLossEvaluator.get_mask_by_threes(
+                labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME],
+                threshold=10.0
+            )
+        cop_loss = RegressionLossEvaluator.get_squared_diff_mean_vector(
+            outputs[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] * cop_mask_tensor,
+            labels[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] * cop_mask_tensor
+        )
+        self.cop_losses.append(cop_loss)
+        # 1.5. We allow the user to specify which axis of the force, moment, and wrench vectors to use for computing
+        # the loss. We do this by indexing into the loss vectors with the specified indices, and taking the sums.
+        loss = (torch.sum(force_loss[args.predict_grf_components]) +
+                torch.sum(cop_loss[args.predict_cop_components]) +
+                torch.sum(moment_loss[args.predict_moment_components]) +
+                torch.sum(wrench_loss[args.predict_wrench_components]))
+        self.losses.append(loss)
 
-        # Keep track of various performance metrics to report
-        if compute_report:
-            with torch.no_grad():
-                # force_norms = labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME]
-                # force_percentage_diff = 100 * force_diff / torch.max(torch.abs(force_norms), dim=(0,1))
+        ############################################################################
+        # Step 2: Compute report data, if we are asked to do so
+        ############################################################################
 
-                num_batches = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].shape[0]
-                num_timesteps = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].shape[1]
-                tau_err_mean = 0.0
-                for batch in range(num_batches):
-                    for timestep in range(num_timesteps):
-                        skel = self.dataset.skeletons[batch_subject_indices[batch]]
-                        skel.setPositions(inputs[InputDataKeys.POS][batch, timestep, :].cpu().numpy())
-                        skel.setVelocities(inputs[InputDataKeys.VEL][batch, timestep, :].cpu().numpy())
-                        acc = inputs[InputDataKeys.ACC][batch, timestep, :].cpu().numpy()
-                        contact_bodies = self.dataset.skeletons_contact_bodies[batch_subject_indices[batch]]
-                        contact_wrench_guesses = outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][batch,
-                                                 timestep, :].cpu().numpy() * skel.getMass()
-                        contact_wrench_guesses_list = [contact_wrench_guesses[i * 6:i * 6 + 6] for i in
-                                                       range(len(contact_bodies))]
-                        tau = skel.getInverseDynamicsFromPredictions(acc, contact_bodies, contact_wrench_guesses_list,
-                                                                     np.zeros(6))
-                        tau_error = tau - labels[OutputDataKeys.TAU][batch, timestep, :].cpu().numpy()
-                        # Exclude root residual from error
-                        tau_err_mean += np.linalg.norm(tau_error[6:])
-                tau_err_mean /= (num_batches * num_timesteps)
+        # 2.1. Initialize paper-reported values we will send to wandb, if requested
+        tau_reported_metric: Optional[float] = None
 
-                self.num_evaluations += 1
-                timesteps = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].shape[0]
-                self.sum_batches += timesteps
-                # print(force_diff.mean().item())
-                self.sum_id_tau_error += tau_err_mean
-                self.sum_grf_forces_error += force_diff.mean().item()
-                # self.sum_grf_forces_percent_error += force_percentage_diff.mean().item()
-                self.sum_grf_cop_error += cop_diff.mean().item()
-                self.sum_grf_moment_error += moment_diff.mean().item()
-                self.sum_grf_wrench_moment_error += (wrench_diff[:, :, 0].mean().item() + wrench_diff[:, :,
-                                                                                          2].mean().item()) / 2
-                self.sum_grf_wrench_force_error += (wrench_diff[:, :, 1].mean().item() + wrench_diff[:, :,
-                                                                                         3].mean().item()) / 2
+        with torch.no_grad():
+            # 2.2. Compute the norm errors for the force, moment, CoP, and wrench vectors
+            force_reported_metric: float = RegressionLossEvaluator.get_mean_norm_error(
+                outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME],
+                labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME]
+            ).item()
+            moment_reported_metric: float = RegressionLossEvaluator.get_mean_norm_error(
+                outputs[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME],
+                labels[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME]
+            ).item()
+            cop_reported_metric: float = RegressionLossEvaluator.get_mean_norm_error(
+                outputs[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] * cop_mask_tensor,
+                labels[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] * cop_mask_tensor
+            ).item()
+            wrench_reported_metric: float = RegressionLossEvaluator.get_mean_norm_error(
+                outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME],
+                labels[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME],
+                vec_size=6
+            ).item()
+            com_acc_reported_metric: float = RegressionLossEvaluator.get_com_acc_error(
+                outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME],
+                labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME]
+            ).item()
 
-        loss = torch.sum(force_loss) + torch.sum(cop_loss) + torch.sum(moment_loss) + torch.sum(wrench_loss)
-
-        components = {0: "left-x", 1: "left-y", 2: "left-z", 3: "right-x", 4: "right-y", 5: "right-z"}
-        if log_reports_to_wandb:
-            report: Dict[str, float] = {
-                **{f'force_loss_{components[i]}': force_loss[i].item() for i in range(6)},
-                **{f'cop_loss_{components[i]}': cop_loss[i].item() for i in range(6)},
-                **{f'moment_loss_{components[i]}': moment_loss[i].item() for i in range(6)},
-                'wrench_loss': torch.sum(wrench_loss).item(),
-                'loss': loss.item()
-            }
             if compute_report:
-                report['Force Avg Err (N per kg)'] = force_diff.mean().item()
-                # report['Force Avg Err (%)'] = force_percentage_diff.mean().item()
-                report['CoP Avg Err (m)'] = cop_diff.mean().item()
-                report['Moment Avg Err (Nm per kg)'] = moment_diff.mean().item()
-                report['Wrench Force Avg Err (N per kg)'] = (wrench_diff[:, :, 1].mean().item() + wrench_diff[:, :,
-                                                                                       3].mean().item()) / 2
-                report['Wrench Moment Avg Err (Nm per kg)'] = (wrench_diff[:, :, 0].mean().item() + wrench_diff[:, :,
-                                                                                        2].mean().item()) / 2
-                report['Non-root Joint Torques (Inverse Dynamics) Avg Err (Nm per kg)'] = tau_err_mean
-            wandb.log(report)
+                # 2.3. Manually compute the inverse dynamics torque errors frame-by-frame
+                num_batches = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].shape[0]
+                tau_reported_metric = 0.0
+                for batch in range(num_batches):
+                    skel = self.dataset.skeletons[batch_subject_indices[batch]]
+                    skel.setPositions(inputs[InputDataKeys.POS][batch, -1, :].cpu().numpy())
+                    skel.setVelocities(inputs[InputDataKeys.VEL][batch, -1, :].cpu().numpy())
+                    acc = inputs[InputDataKeys.ACC][batch, -1, :].cpu().numpy()
+                    contact_bodies = self.dataset.skeletons_contact_bodies[batch_subject_indices[batch]]
+                    contact_wrench_guesses = outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][batch,
+                                             :].cpu().numpy() * skel.getMass()
+                    contact_wrench_guesses_list = [contact_wrench_guesses[i * 6:i * 6 + 6] for i in
+                                                   range(len(contact_bodies))]
+                    tau = skel.getInverseDynamicsFromPredictions(acc, contact_bodies, contact_wrench_guesses_list,
+                                                                 np.zeros(6))
+                    tau_error = tau - labels[OutputDataKeys.TAU][batch, :].cpu().numpy()
+                    # Exclude root residual from error
+                    tau_reported_metric += np.linalg.norm(tau_error[6:])
+                tau_reported_metric /= num_batches
+                self.tau_reported_metrics.append(tau_reported_metric)
 
-        if analyze:
-            plot_ferror = ((force_diff)**2).reshape(-1, 6).detach().numpy()
-            for i in range(6):
-                plt.clf()
-                plt.plot(plot_ferror[:,i])
-                plt.savefig(os.path.join(plot_path_root, f"{batch_subject_indices[0]}_grferror{components[i]}.png"))
+            # 2.4. Keep track of the reported metrics for reporting averages across the entire dev set
+            self.force_reported_metrics.append(force_reported_metric)
+            self.moment_reported_metrics.append(moment_reported_metric)
+            self.cop_reported_metrics.append(cop_reported_metric)
+            self.wrench_reported_metrics.append(wrench_reported_metric)
+            self.com_acc_reported_metrics.append(com_acc_reported_metric)
+
+        ############################################################################
+        # Step 3: Log reports to wandb and plot results, if requested
+        ############################################################################
+
+        # 3.1. If requested, log the reports to Weights and Biases
+        if log_reports_to_wandb:
+            self.log_to_wandb(args,
+                              force_loss,
+                              cop_loss,
+                              moment_loss,
+                              wrench_loss,
+                              loss,
+                              force_reported_metric,
+                              cop_reported_metric,
+                              moment_reported_metric,
+                              com_acc_reported_metric,
+                              wrench_reported_metric,
+                              tau_reported_metric)
+
+        # 3.2. If requested, plot the results
+        # if analyze:
+        #     self.plot_ferror = ((force_diff) ** 2)[:, -1, :].reshape(-1, 6).detach().numpy()
+        #     for i in args.predict_grf_components:
+        #         plt.clf()
+        #         plt.plot(self.plot_ferror[:, i])
+        #         plt.savefig(os.path.join(plot_path_root,
+        #                                  f"{os.path.basename(self.dataset.subject_paths[batch_subject_indices[0]])}_{self.dataset.subjects[batch_subject_indices[0]].getTrialName(batch_trial_indices[0])}_grferror{components[i]}.png"))
         return loss
 
-    def print_report(self, reset: bool = True, log_to_wandb: bool = False):
-        if self.num_evaluations == 0:
-            return
+    def log_to_wandb(self,
+                     args: argparse.Namespace,
+                     force_loss: torch.Tensor,
+                     cop_loss: torch.Tensor,
+                     moment_loss: torch.Tensor,
+                     wrench_loss: torch.Tensor,
+                     loss: torch.Tensor,
+                     # IMPORTANT: THESE ARE NOT THE SAME AS THE LOSS VALUES ABOVE! These compute errors per vector pair
+                     # as a simple norm, and take the mean of that. The above losses are squared errors, and are summed.
+                     # If we were to then square-root the above losses, we would get higher values than the ones
+                     # reported here:
+                     force_reported_metric: Optional[float],
+                     cop_reported_metric: Optional[float],
+                     moment_reported_metric: Optional[float],
+                     com_acc_reported_metric: Optional[float],
+                     wrench_reported_metric: Optional[float],
+                     tau_reported_metric: Optional[float]):
+        components = {
+            0: "left-x",
+            1: "left-y",
+            2: "left-z",
+            3: "right-x",
+            4: "right-y",
+            5: "right-z"
+        }
+        wrench_components = {
+            0: "left-moment-x",
+            1: "left-moment-y",
+            2: "left-moment-z",
+            3: "left-force-x",
+            4: "left-force-y",
+            5: "left-force-z",
+            6: "right-moment-x",
+            7: "right-moment-y",
+            8: "right-moment-z",
+            9: "right-force-x",
+            10: "right-force-y",
+            11: "right-force-z"
+        }
+        report: Dict[str, float] = {
+            **{f'{self.split}/force_rmse/{components[i]}': force_loss[i].item() ** 0.5 for i in
+               args.predict_grf_components},
+            **{f'{self.split}/cop_rmse/{components[i]}': cop_loss[i].item() ** 0.5 for i in
+               args.predict_cop_components},
+            **{f'{self.split}/moment_rmse/{components[i]}': moment_loss[i].item() ** 0.5 for i in
+               args.predict_moment_components},
+            **{f'{self.split}/wrench_loss/{wrench_components[i]}': wrench_loss[i].item() ** 0.5 for i in
+               args.predict_wrench_components},
+            f'{self.split}/loss': loss.item()
+        }
+        if force_reported_metric is not None:
+            report[f'{self.split}/reports/Force Avg Err (N per kg)'] = force_reported_metric
+        if com_acc_reported_metric is not None:
+            report[f'{self.split}/reports/CoP Avg Err (m)'] = cop_reported_metric
+        if moment_reported_metric is not None:
+            report[f'{self.split}/reports/Moment Avg Err (Nm per kg)'] = moment_reported_metric
+        if wrench_reported_metric is not None:
+            report[f'{self.split}/reports/COM Acc Avg Err (m per s^2)'] = com_acc_reported_metric
+        if wrench_reported_metric is not None:
+            report[f'{self.split}/reports/Wrench Avg Err (N+Nm per kg)'] = wrench_reported_metric
+        if tau_reported_metric is not None:
+            report[f'{self.split}/reports/Non-root Joint Torques (Inverse Dynamics) Avg Err (Nm per kg)'] = tau_reported_metric
+        # print(report)
+        wandb.log(report)
 
-        print(f'\tForce Avg Err: {self.sum_grf_forces_error / self.num_evaluations} N / kg')
-        print(f'\tForce Avg Err: {self.sum_grf_forces_percent_error / self.num_evaluations} %')
-        print(f'\tCoP Avg Err: {self.sum_grf_cop_error / self.num_evaluations} m')
-        print(f'\tMoment Avg Err: {self.sum_grf_moment_error / self.num_evaluations} Nm / kg')
-        print(f'\tWrench Force Avg Err: {self.sum_grf_wrench_force_error / self.num_evaluations} N / kg')
-        print(f'\tWrench Moment Avg Err: {self.sum_grf_wrench_moment_error / self.num_evaluations} Nm / kg')
-        print(f'\tNon-root Joint Torques (Inverse Dynamics) Avg Err: {self.sum_id_tau_error / self.num_evaluations} Nm')
+    def print_report(self, args: argparse.Namespace, reset: bool = True, log_to_wandb: bool = False,
+                     compute_report: bool = False):
+
+        force_reported_metric: Optional[float] = np.mean(self.force_reported_metrics) if len(self.force_reported_metrics) > 0 else None
+        moment_reported_metric: Optional[float] = np.mean(self.moment_reported_metrics) if len(self.moment_reported_metrics) > 0 else None
+        cop_reported_metric: Optional[float] = np.mean(self.cop_reported_metrics) if len(self.cop_reported_metrics) > 0 else None
+        wrench_reported_metric: Optional[float] = np.mean(self.wrench_reported_metrics) if len(self.wrench_reported_metrics) > 0 else None
+        tau_reported_metric: Optional[float] = np.mean(self.tau_reported_metrics) if len(self.tau_reported_metrics) > 0 else None
+        com_acc_reported_metric: Optional[float] = np.mean(self.com_acc_reported_metrics) if len(self.com_acc_reported_metrics) > 0 else None
+
+        if log_to_wandb and len(self.force_losses) > 0:
+            aggregate_force_loss = torch.mean(torch.vstack(self.force_losses), dim=0)
+            aggregate_cop_loss = torch.mean(torch.vstack(self.cop_losses), dim=0)
+            aggregate_moment_loss = torch.mean(torch.vstack(self.moment_losses), dim=0)
+            aggregate_wrench_loss = torch.mean(torch.vstack(self.wrench_losses), dim=0)
+            aggregate_loss = torch.mean(torch.hstack(self.losses))
+            self.log_to_wandb(args,
+                              aggregate_force_loss,
+                              aggregate_cop_loss,
+                              aggregate_moment_loss,
+                              aggregate_wrench_loss,
+                              aggregate_loss,
+                              force_reported_metric,
+                              cop_reported_metric,
+                              moment_reported_metric,
+                              com_acc_reported_metric,
+                              wrench_reported_metric,
+                              tau_reported_metric)
+
+        if force_reported_metric is not None:
+            print(f'\tForce Avg Err: {force_reported_metric} N / kg')
+            print(f'\tCOM Acc Avg Err: {com_acc_reported_metric} m / s^2')
+            print(f'\tCoP Avg Err: {cop_reported_metric} m')
+            print(f'\tMoment Avg Err: {moment_reported_metric} Nm / kg')
+            print(f'\tWrench Avg Err: {wrench_reported_metric} N+Nm / kg')
+            print(
+                f'\tNon-root Joint Torques (Inverse Dynamics) Avg Err: {tau_reported_metric} Nm')
 
         # Reset
         if reset:
-            self.num_evaluations = 0
-            # self.sum_loss = 0.0
-            self.sum_batches = 0
-            self.sum_grf_forces_error = 0.0
-            self.sum_grf_forces_percent_error = 0.0
-            self.sum_grf_cop_error = 0.0
-            self.sum_grf_moment_error = 0.0
-            self.sum_grf_wrench_force_error = 0.0
-            self.sum_grf_wrench_moment_error = 0.0
-            self.sum_id_tau_error = 0.0
+            # Aggregating losses across batches for dev set evaluation
+            self.losses = []
+            self.force_losses = []
+            self.moment_losses = []
+            self.wrench_losses = []
+            self.cop_losses = []
+
+            # Aggregating reported metrics for dev set evaluation
+            self.force_reported_metrics = []
+            self.moment_reported_metrics = []
+            self.cop_reported_metrics = []
+            self.wrench_reported_metrics = []
+            self.tau_reported_metrics = []
+            self.com_acc_reported_metrics = []

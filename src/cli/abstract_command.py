@@ -5,6 +5,7 @@ from models.FeedForwardRegressionBaseline import FeedForwardBaseline
 from models.AnalyticalBaseline import AnalyticalBaseline
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset
 from typing import List
+import logging
 
 class AbstractCommand:
     """
@@ -40,21 +41,20 @@ class AbstractCommand:
         return geometry
     
     def get_model(self,
+                  args: argparse.Namespace,
                   num_dofs: int,
                   num_joints: int,
                   model_type: str = 'feedforward',
                   history_len: int = 5,
-                  hidden_size: int = 512,
                   device: str = 'cpu',
                   checkpoint_dir="../checkpoints"):
         if model_type == 'feedforward':
             # Define the model
             model = FeedForwardBaseline(
+                args,
                 num_dofs,
                 num_joints,
                 history_len,
-                hidden_size,
-                dropout_prob=0.0,
                 device=device)
             self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir)
         else:
@@ -82,6 +82,7 @@ class AbstractCommand:
         # Get the path of the latest checkpoint
         latest_checkpoint = os.path.join(checkpoint_dir, checkpoints[-1])
 
+        logging.info(f"{latest_checkpoint=}")
         # Load the checkpoint
         checkpoint = torch.load(latest_checkpoint)
 
