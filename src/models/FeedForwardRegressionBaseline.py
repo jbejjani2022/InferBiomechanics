@@ -54,7 +54,7 @@ class FeedForwardBaseline(nn.Module):
             self.per_output_nets.append(nn.Sequential(*net))
         logging.info(f"{self.per_output_nets=}")
         
-    def forward(self, input: Dict[str, torch.Tensor], skels_and_contact: List[Tuple[nimble.dynamics.Skeleton, List[nimble.dynamics.BodyNode]]]) -> dict[str, torch.Tensor]:
+    def forward(self, input: Dict[str, torch.Tensor], skels_and_contact: List[Tuple[nimble.dynamics.Skeleton, List[nimble.dynamics.BodyNode]]]) -> Dict[str, torch.Tensor]:
         # 1. Check input shape matches our assumptions.
         assert len(input[InputDataKeys.POS].shape) == 3
         assert input[InputDataKeys.POS].shape[-1] == self.num_dofs
