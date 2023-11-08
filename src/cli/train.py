@@ -74,7 +74,7 @@ class TrainCommand(AbstractCommand):
                                help='Use very short datasets to test without loading a bunch of data.')
         subparser.add_argument('--prefetch-chunk-size', type=int, default=5,
                                help='Number of trials to fetch all the data for in each iteration.')
-        subparser.add_argument('--data-loading-workers', type=int, default=20,
+        subparser.add_argument('--data-loading-workers', type=int, default=0,
                                help='Number of separate processes to spawn to load data in parallel.')
         subparser.add_argument('--predict-grf-components', type=int, nargs='+', default=[i for i in range(6)],
                                help='Which grf components to train.')
