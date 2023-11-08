@@ -8,6 +8,7 @@ from numpy import ndarray
 import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
 from scipy import stats
+import re
 import seaborn as sns
 import time
 
@@ -19,6 +20,8 @@ class MakePlotsCommand(AbstractCommand):
     def register_subcommand(self, subparsers: argparse._SubParsersAction):
         subparser = subparsers.add_parser('make-plots', help='Make summary plots and metrics on entire dataset.')
         subparser.add_argument('--data-path', type=str, help='Root path to all data files.')
+        subparser.add_argument('--class-path', type=str, help='Root path dir containing folders for motion classification.')
+        subparser.add_argument('--class-datasets', type=str, default=["none"], help='List of dataset names for which their is classification data.')
         subparser.add_argument('--out-path', type=str, default='../figures', help='Path to output plots to.')
         subparser.add_argument('--downsample-size', type=int, default=10,
                                help='Every Xth frame will be used for scatter plots and correlation calculations. '
@@ -100,6 +103,8 @@ class Dataset:
 
         # Argparse args
         self.data_dir: str = args.data_path
+        self.class_dir: str = args.class_path
+        self.class_datasets: List[str] = [name for name in args.class_datasets if name.strip() != ""]  # safeguard against possible empty entries
         self.out_dir: str = os.path.abspath(args.out_path)
         self.downsample_size: int = args.downsample_size
         self.output_histograms: bool = args.output_histograms
@@ -262,6 +267,8 @@ class Dataset:
                       "lumbar_extension", "lumbar_bending", "lumbar_rotation"]
 
             # Set up plotting color schemes
+            if self.output_scatterplots:  # TODO: change color scheme
+                color = "black"
             walking_color = "blueviolet"
             running_color = "green"
 
@@ -344,8 +351,22 @@ class Dataset:
             else:
                 mass = subject_on_disk.getMassKg()
 
-            if self.output_scatterplots:  # TODO: change color scheme
-                color = "black"
+            # Load classification info if it exists
+            # Get subject ID / name
+            pattern = re.compile(r'no_arm_(.*?)\.b3d', re.IGNORECASE)
+            match = re.search(pattern, subj_path)
+            if match:
+                subj_id = match.group(1)
+            else:
+                raise ValueError("Could not parse subject ID.")
+
+            dataset_name = next((name for name in self.class_datasets if name in subj_path), "")
+            if len(dataset_name) > 0:
+                class_dict = np.load(os.path.join(self.class_dir, dataset_name, subj_id, subj_id + ".npy"), allow_pickle=True)
+                # Create trial name to motion class lookup
+                class_dict = {trial['trial_name']: trial['motion_class'] for trial in class_dict}
+            else:
+                class_dict = {}
 
             # Keep track of number of valid trials for this subject
             subj_num_valid_trials = 0
@@ -375,7 +396,14 @@ class Dataset:
 
                     print(f"Processing trial {trial + 1} of {num_trials}... (Subject {subj_ix+1} of {len(self.subj_paths)})")
                     frames = subject_on_disk.readFrames(trial=trial, startFrame=0, numFramesToRead=init_trial_length)
-                    trial_data = Trial(frames)
+
+                    # Create Trial instance and store the motion classification if it exists
+                    if len(class_dict) > 0:
+                        motion_class = class_dict[subject_on_disk.getTrialName(trial)]
+                        if motion_class is None: motion_class = "none"
+                    else:
+                        motion_class = "none"
+                    trial_data = Trial(frames, motion_class)
                     num_valid_frames = trial_data.num_valid_frames
 
                     # Additional checks based on results of processing frames for given trial:
@@ -702,9 +730,12 @@ class Trial:
     A frame is valid if it has both kinematics and dynamics processing passes completed.
     """
 
-    def __init__(self, frames: List[nimble.biomechanics.Frame]):
+    def __init__(self, frames: List[nimble.biomechanics.Frame], motion_class: str = "none"):
 
-        self.num_joints = len(frames[0].processingPasses[0].pos)  # get the number of joints
+        # Store the activity classification
+        self.motion_class = motion_class
+
+        self.num_joints = len(frames[0].processingPasses[0].pos)  # get the number of joints (dofs)
 
         # # INIT ARRAYS FOR STORAGE # #
         # From kinematics processing pass
