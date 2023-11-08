@@ -54,6 +54,7 @@ class MakePlotsCommand(AbstractCommand):
             dataset.plot_demographics_histograms()
             dataset.plot_demographics_by_sex_histograms()
             dataset.plot_biomechanics_metrics_histograms()
+            dataset.make_contact_pie_chart()
             dataset.calculate_sex_breakdown()
         if dataset.output_errvfreq:
             dataset.make_err_v_freq_plots()
@@ -252,6 +253,7 @@ class Dataset:
             self.percent_double: List[float] = []
             self.percent_single: List[float] = []
             self.percent_flight: List[float] = []
+            self.contact_counts: ndarray[int, int, int] = np.array([0, 0, 0])  # we will increment counts in order of double, single, flight
 
         if self.output_scatterplots:
             # Init scatter plots matrices
@@ -425,16 +427,24 @@ class Dataset:
 
                     if self.output_histograms:
                         # Add to trial-specific storage:
+
+                        # Trial lengths:
                         self.trial_lengths.append(num_valid_frames)
+
+                        # Speeds:
                         self.forward_speeds.append(np.average(np.abs(trial_data.com_vel_dyn[:, 0])))  # avg fwd speed over trial, absolute
                         self.vertical_speeds.append(np.average(np.abs(trial_data.com_vel_dyn[:, 1])))
                         self.mediolat_speeds.append(np.average(np.abs(trial_data.com_vel_dyn[:, 2])))
-                        # TODO: check if first coor is fwd; add if statement for walking or running;
-                        #  separate out into speeds for walking and running; maybe store tuple of value and activity label
+                        # TODO: check if first coor is fwd, etc.
 
+                        # Contact dist:
                         flight_count = np.count_nonzero((trial_data.contact == [0, 0]).all(axis=1))
                         double_count = np.count_nonzero((trial_data.contact == [1, 1]).all(axis=1))
                         single_count = np.count_nonzero((trial_data.contact == [0, 1]).all(axis=1)) + np.count_nonzero((trial_data.contact == [1, 0]).all(axis=1))
+
+                        self.contact_counts[0] += double_count
+                        self.contact_counts[1] += single_count
+                        self.contact_counts[2] += flight_count
 
                         self.percent_flight.append((flight_count / trial_data.contact.shape[0]) * 100)
                         self.percent_double.append((double_count / trial_data.contact.shape[0]) * 100)
@@ -675,6 +685,24 @@ class Dataset:
         plot_histograms(datas=[self.percent_double, self.percent_single, self.percent_flight], num_bins=6, colors=['#006BA4', '#FF800E', '#ABABAB'],
                         labels=["double support", "single support", "flight"], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='percent of trial (%)', outdir=self.out_dir, outname='contact_histo.png', plot_log_scale=True)
+
+    def make_contact_pie_chart(self):
+        """
+        Make pie chart of contact classifications over whole dataset
+        """
+        assert (self.total_num_valid_frames == sum(self.contact_counts)), f"total_num_valid_frames: {self.total_num_valid_frames}, contact_counts: {self.contact_counts}"
+
+        self.prepare_data_for_plotting()
+
+        sizes = (self.contact_counts / self.total_num_valid_frames) * 100
+        labels = ["double support", "single support", "flight"]
+        colors = ['#006BA4', '#FF800E', '#ABABAB']
+        fig, ax = plt.subplots()
+        wedges, _, _ = ax.pie(sizes, colors=colors, autopct='%1.1f%%', textprops={'color': 'white', 'fontsize': 16, 'weight': 'bold'})
+        ax.legend(wedges, labels, loc="upper right", bbox_to_anchor=(1.3, 1.1), borderaxespad=1, fontsize=16)
+
+        plt.savefig(os.path.join(self.out_dir, "contact_pie_chart.png"))
+
     def make_err_v_freq_plots(self):
         """
         For accelerations, GRFs, joint torques
