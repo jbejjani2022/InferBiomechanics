@@ -60,10 +60,10 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--batch-size', type=int, default=32, help='The batch size to use when training the model.')
         subparser.add_argument('--short', action='store_true', help='Use very short datasets to test without loading a bunch of data.')
         subparser.add_argument('--prefetch-chunk-size', type=int, default=5, help='Number of trials to fetch all the data for in each iteration.')
-        subparser.add_argument('--predict-grf-components', type=int, nargs='+', default=[1], help='Which grf components to train.')
-        subparser.add_argument('--predict-cop-components', type=int, nargs='+', default=[], help='Which cop components to train.')
-        subparser.add_argument('--predict-moment-components', type=int, nargs='+', default=[], help='Which moment components to train.')
-        subparser.add_argument('--predict-wrench-components', type=int, nargs='+', default=[], help='Which wrench components to train.')
+        subparser.add_argument('--predict-grf-components', type=int, nargs='+', default=[i for i in range(6)], help='Which grf components to train.')
+        subparser.add_argument('--predict-cop-components', type=int, nargs='+', default=[i for i in range(6)], help='Which cop components to train.')
+        subparser.add_argument('--predict-moment-components', type=int, nargs='+', default=[i for i in range(6)], help='Which moment components to train.')
+        subparser.add_argument('--predict-wrench-components', type=int, nargs='+', default=[i for i in range(12)], help='Which wrench components to train.')
         subparser.add_argument('--trial-filter', type=str, nargs='+', default=[""], help='What kind of trials to train/test on.')
 
     def run(self, args: argparse.Namespace):
