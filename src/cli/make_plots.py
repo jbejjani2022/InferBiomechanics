@@ -8,7 +8,6 @@ from numpy import ndarray
 import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
 from scipy import stats
-import seaborn as sns
 import time
 
 
