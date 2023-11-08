@@ -72,8 +72,6 @@ class TrainCommand(AbstractCommand):
                                help='The batch size to use when training the model.')
         subparser.add_argument('--short', action='store_true',
                                help='Use very short datasets to test without loading a bunch of data.')
-        subparser.add_argument('--prefetch-chunk-size', type=int, default=5,
-                               help='Number of trials to fetch all the data for in each iteration.')
         subparser.add_argument('--data-loading-workers', type=int, default=10,
                                help='Number of separate processes to spawn to load data in parallel.')
         subparser.add_argument('--predict-grf-components', type=int, nargs='+', default=[i for i in range(6)],
@@ -243,4 +241,4 @@ class TrainCommand(AbstractCommand):
             train_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
         return True
 
-# python3 main.py train --model feedforward --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --prefetch-chunk-size 5 --hidden-dims 32 32 --batchnorm True --dropout True --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "../data" --epochs 500
+# python3 main.py train --model feedforward --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --hidden-dims 32 32 --batchnorm True --dropout True --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "../data" --epochs 500
