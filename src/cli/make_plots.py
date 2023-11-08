@@ -629,9 +629,9 @@ class Dataset:
 
         colors = ['#006BA4', '#FF800E', '#ABABAB']
 
-        plot_histograms(datas=[self.ages[valid_m_ix], self.ages[valid_f_ix], self.ages[valid_u_ix]], num_bins=6, colors=colors, labels=["male", "female", "unknown"],
+        plot_histograms(datas=[self.ages[valid_m_ix], self.ages[valid_f_ix], self.ages[valid_u_ix]], num_bins=3, colors=colors, labels=["male", "female", "unknown"],
                         edgecolor="black", alpha=1, ylabel="no. of subjects", xlabel="age (years)", outdir=self.out_dir, outname="age_bysex_histo.png")
-        plot_histograms(datas=[self.bmis[valid_m_ix], self.bmis[valid_f_ix], self.bmis[valid_u_ix]], num_bins=6, colors=colors, labels=["male", "female", "unknown"],
+        plot_histograms(datas=[self.bmis[valid_m_ix], self.bmis[valid_f_ix], self.bmis[valid_u_ix]], num_bins=3, colors=colors, labels=["male", "female", "unknown"],
                         edgecolor="black", alpha=1, ylabel="no. of subjects", xlabel="BMI (kg/$\\mathrm{m}^2$)", outdir=self.out_dir, outname="bmi_bysex_histo.png")
 
     def plot_biomechanics_metrics_histograms(self):
@@ -642,9 +642,9 @@ class Dataset:
 
         plot_histograms(datas=[self.trial_lengths], num_bins=20, colors=['#006BA4'], labels=[], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png', plot_log_scale=True)
-        plot_histograms(datas=[self.forward_speeds, self.vertical_speeds, self.mediolat_speeds], num_bins=10, colors=['#006BA4', '#FF800E', '#ABABAB'], labels=["antero-posterior", "vertical", "mediolateral"], edgecolor="black", alpha=1,
+        plot_histograms(datas=[self.forward_speeds, self.vertical_speeds, self.mediolat_speeds], num_bins=6, colors=['#006BA4', '#FF800E', '#ABABAB'], labels=["antero-posterior", "vertical", "mediolateral"], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='average absolute speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)  # TODO: separate btwn walking and running
-        plot_histograms(datas=[self.percent_double, self.percent_single, self.percent_flight], num_bins=10, colors=['#006BA4', '#FF800E', '#ABABAB'],
+        plot_histograms(datas=[self.percent_double, self.percent_single, self.percent_flight], num_bins=6, colors=['#006BA4', '#FF800E', '#ABABAB'],
                         labels=["double support", "single support", "flight"], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='percent of trial (%)', outdir=self.out_dir, outname='contact_histo.png', plot_log_scale=True)
     def make_err_v_freq_plots(self):
