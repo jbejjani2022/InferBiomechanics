@@ -12,7 +12,7 @@ class AnalyticalBaseline(nn.Module):
     def __init__(self):
         super(AnalyticalBaseline, self).__init__()
 
-    def forward(self, input: Dict[str, torch.Tensor], skels_and_contact: List[Tuple[nimble.dynamics.Skeleton, List[nimble.dynamics.BodyNode]]]) -> dict[str, torch.Tensor]:
+    def forward(self, input: Dict[str, torch.Tensor], skels_and_contact: List[Tuple[nimble.dynamics.Skeleton, List[nimble.dynamics.BodyNode]]]) -> Dict[str, torch.Tensor]:
         # input[InputDataKeys.POS],
         # input[InputDataKeys.VEL],
         # input[InputDataKeys.ACC],
