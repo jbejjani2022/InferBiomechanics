@@ -21,7 +21,7 @@ class MakePlotsCommand(AbstractCommand):
         subparser = subparsers.add_parser('make-plots', help='Make summary plots and metrics on entire dataset.')
         subparser.add_argument('--data-path', type=str, help='Root path to all data files.')
         subparser.add_argument('--class-path', type=str, help='Root path dir containing folders for motion classification.')
-        subparser.add_argument('--class-datasets', type=str, default=["none"], help='List of dataset names for which their is classification data.')
+        subparser.add_argument('--class-datasets', type=List[str], default=["none"], help='List of dataset names for which their is classification data.')
         subparser.add_argument('--out-path', type=str, default='../figures', help='Path to output plots to.')
         subparser.add_argument('--downsample-size', type=int, default=10,
                                help='Every Xth frame will be used for scatter plots and correlation calculations. '
@@ -55,6 +55,7 @@ class MakePlotsCommand(AbstractCommand):
             dataset.plot_demographics_by_sex_histograms()
             dataset.plot_biomechanics_metrics_histograms()
             dataset.make_contact_pie_chart()
+            dataset.plot_activity_classification()
             dataset.calculate_sex_breakdown()
         if dataset.output_errvfreq:
             dataset.make_err_v_freq_plots()
@@ -254,6 +255,9 @@ class Dataset:
             self.percent_single: List[float] = []
             self.percent_flight: List[float] = []
             self.contact_counts: ndarray[int, int, int] = np.array([0, 0, 0])  # we will increment counts in order of double, single, flight
+            self.coarse_activity_type_dict = {'unknown': 0.0, 'other': 0.0, '': 0.0, 'bad': 0.0, 'walking': 0.0,
+                                              'running': 0.0, 'sit-to-stand': 0.0, 'stairs': 0.0, 'jump': 0.0,
+                                              'squat': 0.0, 'lunge': 0.0, 'standing': 0.0, 'transition': 0.0}
 
         if self.output_scatterplots:
             # Init scatter plots matrices
@@ -402,9 +406,9 @@ class Dataset:
                     # Create Trial instance and store the motion classification if it exists
                     if len(class_dict) > 0:
                         motion_class = class_dict[subject_on_disk.getTrialName(trial)]
-                        if motion_class is None: motion_class = "none"
+                        if motion_class is None: motion_class = "unknown"
                     else:
-                        motion_class = "none"
+                        motion_class = "unknown"
                     trial_data = Trial(frames, motion_class)
                     num_valid_frames = trial_data.num_valid_frames
 
@@ -449,6 +453,11 @@ class Dataset:
                         self.percent_flight.append((flight_count / trial_data.contact.shape[0]) * 100)
                         self.percent_double.append((double_count / trial_data.contact.shape[0]) * 100)
                         self.percent_single.append((single_count / trial_data.contact.shape[0]) * 100)
+
+                        # Activity classification plot
+                        print(f"motion class: {motion_class}")
+                        trial_time = init_trial_length * subject_on_disk.getTrialTimestep(trial) / 60  # convert to min
+                        self.coarse_activity_type_dict[trial_data.motion_class.split('_')[0]] = self.coarse_activity_type_dict[trial_data.motion_class.split('_')[0]] + trial_time
 
                     if self.output_scatterplots:
                         assert (self.num_dofs == trial_data.num_joints),  f"self.num_dofs: {self.num_dofs}; trial_data.num_joints: {trial_data.num_joints}"  # check what we assume from std skel matches data
@@ -703,6 +712,62 @@ class Dataset:
 
         plt.savefig(os.path.join(self.out_dir, "contact_pie_chart.png"))
 
+    def plot_activity_classification(self):
+        """
+        Bar chart of durations for each coarse activity classification.
+        Using code from Tom!
+        """
+        # filtered_coarse_activity_type_dict = {key: value for key, value in self.coarse_activity_type_dict.items() if
+        #                                       value != 0}
+
+        plt.figure()
+        # plt.bar(filtered_coarse_activity_type_dict.keys(), filtered_coarse_activity_type_dict.values(), color='#006BA4')
+        plt.bar(self.coarse_activity_type_dict.keys(), self.coarse_activity_type_dict.values(), color='#006BA4')
+        plt.title('activity classification', fontsize=35)
+        plt.xlabel('activity type', fontsize=25)
+        plt.xticks(fontsize=25)
+        plt.yticks(fontsize=25)
+        plt.yticks([])  # remove y ticks
+        plt.xticks(rotation=45) # change orientation of labels
+
+        # Remove upper and right spine
+        plt.gca().spines['right'].set_visible(False)
+        plt.gca().spines['top'].set_visible(False)
+        plt.gca().spines['left'].set_visible(False)
+        # Remove ticks
+        plt.tick_params(axis='both', which='both', length=0)
+        # Remove tick labels
+        plt.tick_params(axis='both', which='both', labelleft=False)
+
+        plt.yscale('log')
+        # Add a horizontal red line for 2, 5, 10 and 20 minutes
+        plt.axhline(y=2, color='#FF800E', linestyle='--')
+        plt.axhline(y=5, color='#FF800E', linestyle='--')
+        plt.axhline(y=10, color='#FF800E', linestyle='--')
+        plt.axhline(y=20, color='#FF800E', linestyle='--')
+        plt.axhline(y=60, color='#FF800E', linestyle='--')
+        plt.axhline(y=120, color='#FF800E', linestyle='--')
+        plt.axhline(y=300, color='#FF800E', linestyle='--')
+        # add small text for each line indicating the 2,5,10 and 20 minutes
+        plt.text(9.5, 2.1, '2min', fontsize=18, color='#FF800E')
+        plt.text(9.5, 5.1, '5min', fontsize=18, color='#FF800E')
+        plt.text(9.5, 10.1, '10min', fontsize=18, color='#FF800E')
+        plt.text(9.5, 20.1, '20min', fontsize=18, color='#FF800E')
+        plt.text(9.5, 60.5, '1h', fontsize=18, color='#FF800E')
+        plt.text(9.5, 122, '2h', fontsize=18, color='#FF800E')
+        plt.text(9.5, 305, '5h', fontsize=18, color='#FF800E')
+
+        # make figure much wider
+        fig = plt.gcf()
+        fig.set_size_inches(18.5, 10.5)
+
+        # make sure all labels are visible but limit white space
+        plt.tight_layout()
+
+        # save the figure
+        plt.savefig(os.path.join(self.out_dir, "coarse_activity_type_distribution.png"))
+
+
     def make_err_v_freq_plots(self):
         """
         For accelerations, GRFs, joint torques
@@ -758,7 +823,7 @@ class Trial:
     A frame is valid if it has both kinematics and dynamics processing passes completed.
     """
 
-    def __init__(self, frames: List[nimble.biomechanics.Frame], motion_class: str = "none"):
+    def __init__(self, frames: List[nimble.biomechanics.Frame], motion_class: str = "unknown"):
 
         # Store the activity classification
         self.motion_class = motion_class
