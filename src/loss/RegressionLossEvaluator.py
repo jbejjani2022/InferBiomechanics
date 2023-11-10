@@ -52,7 +52,7 @@ class RegressionLossEvaluator:
             raise ValueError('Output and label tensors must be 3-dimensional')
         if output_tensor.shape[0] * output_tensor.shape[1] * output_tensor.shape[2] == 0:
             raise ValueError('Output and label tensors must not be empty')
-        force_diff = (output_tensor - label_tensor)[:,-1:,:]
+        force_diff = (output_tensor - label_tensor)
         force_loss = torch.mean(force_diff ** 2, dim=(0,1))
         return force_loss
 
