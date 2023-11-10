@@ -12,7 +12,7 @@ class AnalyticalBaseline(nn.Module):
     def __init__(self):
         super(AnalyticalBaseline, self).__init__()
 
-    def forward(self, input: Dict[str, torch.Tensor], skels_and_contact: List[Tuple[nimble.dynamics.Skeleton, List[nimble.dynamics.BodyNode]]]) -> dict[str, torch.Tensor]:
+    def forward(self, input: Dict[str, torch.Tensor], skels_and_contact: List[Tuple[nimble.dynamics.Skeleton, List[nimble.dynamics.BodyNode]]]) -> Dict[str, torch.Tensor]:
         # input[InputDataKeys.POS],
         # input[InputDataKeys.VEL],
         # input[InputDataKeys.ACC],
@@ -76,7 +76,14 @@ class AnalyticalBaseline(nn.Module):
                     T_rw = T_wr.inverse()
 
                     # Compute the contact forces
+                    # if int(sum(contact)) == len(contact_bodies):  # double-support, distribute forces with heuristic
+                    #     InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME[batch, timestep, pelvis ix]
+                    #     InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME[batch, timestep, right heel ix]
+                    #     InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME[batch, timestep, left heel ix]
+                    #     # get ratio in each coordinate direction for each foot
+                    # else:
                     world_contact_forces = [contact[i] * (com_acc / sum(contact)) for i in range(len(contact_bodies))]
+
                     root_contact_forces = [T_rw.rotation() @ contact_force for contact_force in world_contact_forces]
                     contact_moments = [np.zeros(3) for _ in contact_bodies]
                     world_cops = [body.getCOM() for body in contact_bodies]
