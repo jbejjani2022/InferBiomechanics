@@ -2,6 +2,7 @@ import argparse
 import os
 import torch
 from models.FeedForwardRegressionBaseline import FeedForwardBaseline
+from models.Groundlink import Groundlink
 from models.AnalyticalBaseline import AnalyticalBaseline
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset
 from typing import List
@@ -46,7 +47,9 @@ class AbstractCommand:
                   num_joints: int,
                   model_type: str = 'feedforward',
                   history_len: int = 5,
-                  device: str = 'cpu'):
+                  root_history_len: int = 10,
+                  device: str = 'cpu',
+                  checkpoint_dir="../checkpoints"):
         if model_type == 'feedforward':
             # Define the model
             model = FeedForwardBaseline(
@@ -54,7 +57,10 @@ class AbstractCommand:
                 num_dofs,
                 num_joints,
                 history_len,
+                root_history_len,
                 device=device)
+        elif model_type == 'groundlink':
+            model = Groundlink(num_dofs, num_joints, root_history_len)
         else:
             assert(model_type == 'analytical')
             model = AnalyticalBaseline()
