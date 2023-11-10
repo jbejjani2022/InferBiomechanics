@@ -72,7 +72,7 @@ class TrainCommand(AbstractCommand):
                                help='The batch size to use when training the model.')
         subparser.add_argument('--short', action='store_true',
                                help='Use very short datasets to test without loading a bunch of data.')
-        subparser.add_argument('--data-loading-workers', type=int, default=10,
+        subparser.add_argument('--data-loading-workers', type=int, default=3,
                                help='Number of separate processes to spawn to load data in parallel.')
         subparser.add_argument('--predict-grf-components', type=int, nargs='+', default=[i for i in range(6)],
                                help='Which grf components to train.')
@@ -148,8 +148,7 @@ class TrainCommand(AbstractCommand):
         mp.set_start_method('spawn')  # 'spawn' or 'fork' or 'forkserver'
 
         # Create an instance of the model
-        model = self.get_model(args, train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, root_history_len, device,
-                               checkpoint_dir=checkpoint_dir)
+        model = self.get_model(args, train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, root_history_len, device)
 
         # Define the optimizer
         if opt_type == 'adagrad':
@@ -167,6 +166,8 @@ class TrainCommand(AbstractCommand):
         else:
             logging.error('Invalid optimizer type: ' + opt_type)
             assert (False)
+
+        self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir, optimizer=optimizer)
 
         for epoch in range(epochs):
             # Iterate over the entire training dataset

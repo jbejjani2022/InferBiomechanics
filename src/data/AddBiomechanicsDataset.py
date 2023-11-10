@@ -32,7 +32,8 @@ class OutputDataKeys:
     TAU = 'tau'
 
     # These are enough to compute ID
-    GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME = 'groundContactWrenchesInRootFrame'
+    
+    = 'groundContactWrenchesInRootFrame'
     RESIDUAL_WRENCH_IN_ROOT_FRAME = 'residualWrenchInRootFrame'
 
     # These are various other things we might want to predict
@@ -144,13 +145,13 @@ class AddBiomechanicsDataset(Dataset):
 
         # Read the frames from disk
         subject = self.subjects[subject_index]
-        frames: List[nimble.biomechanics.Frame] = subject.readFrames(trial,
-                                                                     window_start,
-                                                                     self.window_size // self.stride,
-                                                                     stride=self.stride,
-                                                                     includeSensorData=False,
-                                                                     includeProcessingPasses=True)
-        assert(len(frames) == self.window_size // self.stride)
+        frames: nimble.biomechanics.FrameList = subject.readFrames(trial,
+                                                                   window_start,
+                                                                   self.window_size // self.stride,
+                                                                   stride=self.stride,
+                                                                   includeSensorData=False,
+                                                                   includeProcessingPasses=True)
+        assert (len(frames) == self.window_size // self.stride)
 
         first_passes: List[nimble.biomechanics.FramePass] = [frame.processingPasses[0] for frame in frames]
         output_passes: List[nimble.biomechanics.FramePass] = [frame.processingPasses[-1] for frame in frames]
@@ -197,14 +198,14 @@ class AddBiomechanicsDataset(Dataset):
             label_dict[OutputDataKeys.TAU] = torch.row_stack([torch.tensor(p.tau, dtype=self.dtype).detach() for p in output_passes[start_index:]]) 
             label_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = torch.row_stack([torch.tensor(p.residualWrenchInRootFrame, dtype=self.dtype).detach() for p in output_passes[start_index:]])
             label_dict[OutputDataKeys.COM_ACC_IN_ROOT_FRAME] = torch.row_stack([torch.tensor(p.comAccInRootFrame, dtype=self.dtype).detach() for p in output_passes[start_index:]])
-            label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = torch.row_stack([torch.zeros(
-                (6 * len(self.contact_bodies)), dtype=self.dtype) for _ in output_passes[start_index:]])
-            label_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = torch.row_stack([torch.zeros(
-                (3 * len(self.contact_bodies)), dtype=self.dtype) for _ in output_passes[start_index:]])
-            label_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = torch.row_stack([torch.zeros(
-                (3 * len(self.contact_bodies)), dtype=self.dtype) for _ in output_passes[start_index:]])
-            label_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] = torch.row_stack([torch.zeros(
-                (3 * len(self.contact_bodies)), dtype=self.dtype) for _ in output_passes[start_index:]])
+            label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = torch.zeros(
+                ((6 * len(self.contact_bodies), len(output_passes) if start_index != -1 else 1), dtype=self.dtype)
+            label_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = torch.zeros(
+                ((3 * len(self.contact_bodies), len(output_passes) if start_index != -1 else 1)), dtype=self.dtype)
+            label_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = torch.zeros(
+                ((3 * len(self.contact_bodies), len(output_passes) if start_index != -1 else 1)), dtype=self.dtype)
+            label_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] = torch.zeros(
+                ((3 * len(self.contact_bodies), len(output_passes) if start_index != -1 else 1)), dtype=self.dtype)
             contact_indices: List[int] = [
                 subject.getGroundForceBodies().index(body) if body in subject.getGroundForceBodies() else -1 for
                 body in self.contact_bodies]
@@ -264,6 +265,6 @@ class AddBiomechanicsDataset(Dataset):
         self.__dict__.update(state)
         # Create the non picklable SubjectOnDisk objects. Skip loading the skeletons and contact bodies
         self.subjects = []
-        print('Unpickling AddBiomechanicsDataset copy')
+        print('Unpickling AddBiomechanicsDataset copy in reader worker thread')
         for i, subject_path in enumerate(self.subject_paths):
             self.subjects.append(nimble.biomechanics.SubjectOnDisk(subject_path))

@@ -59,10 +59,8 @@ class AbstractCommand:
                 history_len,
                 root_history_len,
                 device=device)
-            self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir)
         elif model_type == 'groundlink':
             model = Groundlink(num_dofs, num_joints, root_history_len)
-            self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir)
         else:
             assert(model_type == 'analytical')
             model = AnalyticalBaseline()
