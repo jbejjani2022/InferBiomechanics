@@ -69,8 +69,10 @@ class AddBiomechanicsDataset(Dataset):
                  dtype: torch.dtype = torch.float32,
                  testing_with_short_dataset: bool = False,
                  stride: int = 1,
+                 output_data_format: str = 'last_frame',
                  skip_loading_skeletons: bool = False):
         self.stride = stride
+        self.output_data_format = output_data_format
         self.subject_paths = []
         self.subjects = []
         self.window_size = window_size
@@ -151,7 +153,7 @@ class AddBiomechanicsDataset(Dataset):
         assert(len(frames) == self.window_size // self.stride)
 
         first_passes: List[nimble.biomechanics.FramePass] = [frame.processingPasses[0] for frame in frames]
-        last_pass: nimble.biomechanics.FramePass = frames[-1].processingPasses[-1]
+        output_passes: List[nimble.biomechanics.FramePass] = [frame.processingPasses[-1] for frame in frames]
 
         input_dict: Dict[str, torch.Tensor] = {}
         label_dict: Dict[str, torch.Tensor] = {}
@@ -188,40 +190,42 @@ class AddBiomechanicsDataset(Dataset):
                 torch.tensor(p.rootEulerHistoryInRootFrame, dtype=self.dtype).detach() for p in first_passes
             ])
 
-            # The output dictionary contains a single frame, the last frame in the window
+            # The output dictionary contains a single frame, the last frame in the window if output_data_format is 2d
+            # else it contains outputs for all the frames in first_passes
             mass = subject.getMassKg()
-            label_dict[OutputDataKeys.TAU] = torch.tensor(last_pass.tau, dtype=self.dtype).detach()
-            label_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = torch.tensor(last_pass.residualWrenchInRootFrame, dtype=self.dtype).detach()
-            label_dict[OutputDataKeys.COM_ACC_IN_ROOT_FRAME] = torch.tensor(last_pass.comAccInRootFrame, dtype=self.dtype).detach()
-            label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = torch.zeros(
-                (6 * len(self.contact_bodies)), dtype=self.dtype)
-            label_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = torch.zeros(
-                (3 * len(self.contact_bodies)), dtype=self.dtype)
-            label_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = torch.zeros(
-                (3 * len(self.contact_bodies)), dtype=self.dtype)
-            label_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] = torch.zeros(
-                (3 * len(self.contact_bodies)), dtype=self.dtype)
+            start_index = 0 if self.output_data_format == 'all_frames' else -1
+            label_dict[OutputDataKeys.TAU] = torch.row_stack([torch.tensor(p.tau, dtype=self.dtype).detach() for p in output_passes[start_index:]]) 
+            label_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = torch.row_stack([torch.tensor(p.residualWrenchInRootFrame, dtype=self.dtype).detach() for p in output_passes[start_index:]])
+            label_dict[OutputDataKeys.COM_ACC_IN_ROOT_FRAME] = torch.row_stack([torch.tensor(p.comAccInRootFrame, dtype=self.dtype).detach() for p in output_passes[start_index:]])
+            label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = torch.row_stack([torch.zeros(
+                (6 * len(self.contact_bodies)), dtype=self.dtype) for _ in output_passes[start_index:]])
+            label_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = torch.row_stack([torch.zeros(
+                (3 * len(self.contact_bodies)), dtype=self.dtype) for _ in output_passes[start_index:]])
+            label_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = torch.row_stack([torch.zeros(
+                (3 * len(self.contact_bodies)), dtype=self.dtype) for _ in output_passes[start_index:]])
+            label_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] = torch.row_stack([torch.zeros(
+                (3 * len(self.contact_bodies)), dtype=self.dtype) for _ in output_passes[start_index:]])
             contact_indices: List[int] = [
                 subject.getGroundForceBodies().index(body) if body in subject.getGroundForceBodies() else -1 for
                 body in self.contact_bodies]
-            ground_contact_wrenches_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactWrenchesInRootFrame, dtype=self.dtype)
-            ground_contact_forces_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactForceInRootFrame, dtype=self.dtype)
-            ground_contact_cop_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactCenterOfPressureInRootFrame, dtype=self.dtype)
-            ground_contact_torque_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactTorqueInRootFrame, dtype=self.dtype)
+            ground_contact_wrenches_in_root_frame: torch.Tensor = torch.row_stack([torch.tensor(p.groundContactWrenchesInRootFrame, dtype=self.dtype) for p in output_passes[start_index:]])
+            ground_contact_forces_in_root_frame: torch.Tensor = torch.row_stack([torch.tensor(p.groundContactForceInRootFrame, dtype=self.dtype) for p in output_passes[start_index:]])
+            ground_contact_cop_in_root_frame: torch.Tensor = torch.row_stack([torch.tensor(p.groundContactCenterOfPressureInRootFrame, dtype=self.dtype) for p in output_passes[start_index:]])
+            ground_contact_torque_in_root_frame: torch.Tensor = torch.row_stack([torch.tensor(p.groundContactTorqueInRootFrame, dtype=self.dtype) for p in output_passes[start_index:]])
             for i in range(len(self.contact_bodies)):
                 if contact_indices[i] >= 0:
                     label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][
-                    6 * i:6 * i + 6] = ground_contact_wrenches_in_root_frame[
-                                       6 * contact_indices[i]:6 * contact_indices[i] + 6] / mass
+                    :, 6 * i:6 * i + 6] = ground_contact_wrenches_in_root_frame[
+                                       :, 6 * contact_indices[i]:6 * contact_indices[i] + 6] / mass
                     label_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME][
-                    3 * i:3 * i + 3] = ground_contact_cop_in_root_frame[
-                                       3 * contact_indices[i]:3 * contact_indices[i] + 3]
+                    :, 3 * i:3 * i + 3] = ground_contact_cop_in_root_frame[
+                                       :, 3 * contact_indices[i]:3 * contact_indices[i] + 3]
                     label_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME][
-                    3 * i:3 * i + 3] = ground_contact_torque_in_root_frame[
-                                       3 * contact_indices[i]:3 * contact_indices[i] + 3] / mass
+                    :, 3 * i:3 * i + 3] = ground_contact_torque_in_root_frame[
+                                       :, 3 * contact_indices[i]:3 * contact_indices[i] + 3] / mass
                     label_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME][
-                    3 * i:3 * i + 3] = ground_contact_forces_in_root_frame[
-                                       3 * contact_indices[i]:3 * contact_indices[i] + 3] / mass
+                    :,3 * i:3 * i + 3] = ground_contact_forces_in_root_frame[
+                                       :, 3 * contact_indices[i]:3 * contact_indices[i] + 3] / mass
 
         # Convert the frames to a dictionary of matrices, where columns are timesteps and rows are degrees of freedom / dimensions
         # (the DataLoader will then convert this to a batched tensor)
