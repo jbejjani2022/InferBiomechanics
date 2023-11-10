@@ -103,6 +103,10 @@ class TrainCommand(AbstractCommand):
         dataset_home: str = args.dataset_home
         log_to_wandb: bool = not args.no_wandb
         data_loading_workers: int = args.data_loading_workers
+        stride: int = args.stride
+        batchnorm: bool = args.batchnorm
+        dropout: bool = args.dropout
+        dropout_prob: float = args.dropout_prob
 
         geometry = self.ensure_geometry(args.geometry_folder)
 
@@ -148,7 +152,12 @@ class TrainCommand(AbstractCommand):
         mp.set_start_method('spawn')  # 'spawn' or 'fork' or 'forkserver'
 
         # Create an instance of the model
-        model = self.get_model(args, train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, root_history_len, device)
+        model = self.get_model(train_dataset.num_dofs,
+                               train_dataset.num_joints,
+                               model_type,
+                               history_len=history_len,
+                               root_history_len=root_history_len,
+                               device=device)
 
         # Define the optimizer
         if opt_type == 'adagrad':

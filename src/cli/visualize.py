@@ -199,7 +199,7 @@ class VisualizeCommand(AbstractCommand):
                                                 cop + force],
                                                [1, 0, 0, 1])
 
-                    predicted_cop = predicted_cops[force_index] # contact_bodies[f].getWorldTransform().translation() #
+                    predicted_cop = contact_bodies[f].getWorldTransform().translation() # predicted_cops[force_index] #
                     predicted_force = predicted_forces[force_index]
                     gui.nativeAPI().createLine('predicted_force_' + str(f),
                                                [predicted_cop,
