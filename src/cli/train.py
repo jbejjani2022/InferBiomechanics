@@ -165,7 +165,6 @@ class TrainCommand(AbstractCommand):
                                batchnorm=batchnorm,
                                dropout=dropout,
                                dropout_prob=dropout_prob,
-                               activation=activation,
                                root_history_len=root_history_len,
                                output_data_format=output_data_format,
                                device=device)
