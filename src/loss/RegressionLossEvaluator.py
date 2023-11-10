@@ -9,6 +9,29 @@ import os
 import argparse
 
 
+components = {
+    0: "left-x",
+    1: "left-y",
+    2: "left-z",
+    3: "right-x",
+    4: "right-y",
+    5: "right-z"
+}
+wrench_components = {
+    0: "left-moment-x",
+    1: "left-moment-y",
+    2: "left-moment-z",
+    3: "left-force-x",
+    4: "left-force-y",
+    5: "left-force-z",
+    6: "right-moment-x",
+    7: "right-moment-y",
+    8: "right-moment-z",
+    9: "right-force-x",
+    10: "right-force-y",
+    11: "right-force-z"
+}
+
 class RegressionLossEvaluator:
     dataset: AddBiomechanicsDataset
 
@@ -267,13 +290,13 @@ class RegressionLossEvaluator:
                               tau_reported_metric)
 
         # 3.2. If requested, plot the results
-        # if analyze:
-        #     self.plot_ferror = ((force_diff) ** 2)[:, -1, :].reshape(-1, 6).detach().numpy()
-        #     for i in args.predict_grf_components:
-        #         plt.clf()
-        #         plt.plot(self.plot_ferror[:, i])
-        #         plt.savefig(os.path.join(plot_path_root,
-        #                                  f"{os.path.basename(self.dataset.subject_paths[batch_subject_indices[0]])}_{self.dataset.subjects[batch_subject_indices[0]].getTrialName(batch_trial_indices[0])}_grferror{components[i]}.png"))
+        if analyze:
+            self.plot_ferror = ((outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] - labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME]) ** 2)[:, -1, :].reshape(-1, 6).detach().numpy()
+            for i in args.predict_grf_components:
+                plt.clf()
+                plt.plot(self.plot_ferror[:, i])
+                plt.savefig(os.path.join(plot_path_root,
+                                         f"{os.path.basename(self.dataset.subject_paths[batch_subject_indices[0]])}_{self.dataset.subjects[batch_subject_indices[0]].getTrialName(batch_trial_indices[0])}_grferror{components[i]}.png"))
         return loss
 
     def log_to_wandb(self,
@@ -293,28 +316,7 @@ class RegressionLossEvaluator:
                      com_acc_reported_metric: Optional[float],
                      wrench_reported_metric: Optional[float],
                      tau_reported_metric: Optional[float]):
-        components = {
-            0: "left-x",
-            1: "left-y",
-            2: "left-z",
-            3: "right-x",
-            4: "right-y",
-            5: "right-z"
-        }
-        wrench_components = {
-            0: "left-moment-x",
-            1: "left-moment-y",
-            2: "left-moment-z",
-            3: "left-force-x",
-            4: "left-force-y",
-            5: "left-force-z",
-            6: "right-moment-x",
-            7: "right-moment-y",
-            8: "right-moment-z",
-            9: "right-force-x",
-            10: "right-force-y",
-            11: "right-force-z"
-        }
+
         report: Dict[str, float] = {
             **{f'{self.split}/force_rmse/{components[i]}': force_loss[i].item() ** 0.5 for i in
                args.predict_grf_components},
