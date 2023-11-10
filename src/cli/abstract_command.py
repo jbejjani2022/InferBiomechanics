@@ -48,6 +48,7 @@ class AbstractCommand:
                   history_len: int = 5,
                   stride: int = 1,
                   hidden_dims: List[int] = [512],
+                  activation: str = 'relu',
                   batchnorm: bool = False,
                   dropout: bool = False,
                   dropout_prob: float = 0.0,

@@ -95,6 +95,7 @@ class TrainCommand(AbstractCommand):
         history_len: int = args.history_len
         root_history_len: int = 10
         hidden_dims: List[int] = args.hidden_dims
+        activation: str = args.activation
         learning_rate: float = args.learning_rate
         epochs: int = args.epochs
         batch_size: int = args.batch_size
@@ -156,7 +157,9 @@ class TrainCommand(AbstractCommand):
                                train_dataset.num_joints,
                                model_type,
                                history_len=history_len,
+                               stride=stride,
                                hidden_dims=hidden_dims,
+                               activation=activation,
                                batchnorm=batchnorm,
                                dropout=dropout,
                                dropout_prob=dropout_prob,

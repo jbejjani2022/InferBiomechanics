@@ -23,8 +23,13 @@ class AnalyzeCommand(AbstractCommand):
         subparser.add_argument('--model-type', type=str, default='feedforward', help='The model to train.')
         subparser.add_argument('--checkpoint-dir', type=str, default='../checkpoints', help='The path to a model checkpoint to save during training. Also, starts from the latest checkpoint in this directory.')
         subparser.add_argument('--geometry-folder', type=str, default=None, help='Path to the Geometry folder with bone mesh data.')
-        subparser.add_argument('--history-len', type=int, default=5, help='The number of timesteps of context to show when constructing the inputs.')
-        subparser.add_argument('--hidden-size', type=int, default=512, help='The hidden size to use when constructing the model.')
+        subparser.add_argument('--history-len', type=int, default=50,
+                               help='The number of timesteps of context to show when constructing the inputs.')
+        subparser.add_argument('--stride', type=int, default=5,
+                               help='The number of timesteps of context to show when constructing the inputs.')
+        subparser.add_argument('--hidden-dims', type=int, nargs='+', default=[512],
+                               help='Hidden dims across different layers.')
+        subparser.add_argument('--activation', type=str, default='relu', help='Which activation func?')
         subparser.add_argument('--device', type=str, default='cpu', help='Where to run the code, either cpu or gpu.')
         subparser.add_argument('--short', type=bool, default=False, help='Use very short datasets to test without loading a bunch of data.')
         subparser.add_argument('--data-loading-workers', type=int, default=3,
@@ -44,10 +49,13 @@ class AnalyzeCommand(AbstractCommand):
         model_type: str = args.model_type
         checkpoint_dir: str = os.path.join(os.path.abspath(args.checkpoint_dir), args.model_type)
         history_len: int = args.history_len
-        hidden_size: int = args.hidden_size
+        hidden_dims: List[int] = args.hidden_dims
         device: str = args.device
         short: bool = args.short
         data_loading_workers: int = args.data_loading_workers
+        stride: int = args.stride
+        root_history_len: int = 10
+        activation: str = args.activation
 
         train_plot_path_root: str = os.path.join(checkpoint_dir, "analysis/plots/train")
         dev_plot_path_root: str = os.path.join(checkpoint_dir, "analysis/plots/dev")
@@ -74,14 +82,25 @@ class AnalyzeCommand(AbstractCommand):
                                              testing_with_short_dataset=short)
 
         # Create an instance of the model
-        model = self.get_model(args, train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, device)
+        model = self.get_model(train_dataset.num_dofs,
+                               train_dataset.num_joints,
+                               model_type,
+                               history_len=history_len,
+                               hidden_dims=hidden_dims,
+                               activation=activation,
+                               stride=stride,
+                               batchnorm=False,
+                               dropout=False,
+                               dropout_prob=0.0,
+                               root_history_len=root_history_len,
+                               device=device)
 
         if model_type != 'analytical':
             self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir)
 
         components = {0: "left-x", 1: "left-y", 2: "left-z", 3: "right-x", 4: "right-y", 5: "right-z"}
         train_dataloader = DataLoader(train_dataset,
-                                      batch_size=len(train_dataset.windows),
+                                      batch_size=1,
                                       shuffle=False,
                                       num_workers=data_loading_workers)
 
@@ -94,6 +113,10 @@ class AnalyzeCommand(AbstractCommand):
             batch_trial_indices: List[int]
             inputs, labels, batch_subject_indices, batch_trial_indices = batch
 
+            subject_index = batch_subject_indices[0]
+            trial_index = batch_trial_indices[0]
+            subject_path: str = train_dataset.subject_paths[subject_index]
+
             # Forward pass
             outputs = model(inputs, [(train_dataset.skeletons[i], train_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices])
 
@@ -102,7 +125,7 @@ class AnalyzeCommand(AbstractCommand):
             component_wise_loss_percentiles = np.percentile(loss_evaluator.plot_ferror, 75, axis=0)
             stats = {
                 "sub_name": f"{os.path.basename(subject_path)}",
-                "trial_name": f"{train_dataset.subjects[batch_subject_indices[0]].getTrialName(trial)}",
+                "trial_name": f"{train_dataset.subjects[batch_subject_indices[0]].getTrialName(trial_index)}",
                 **{f'force_loss_{components[i]}': component_wise_loss_percentiles[i] for i in args.predict_grf_components}
             }
         loss_evaluator.print_report()

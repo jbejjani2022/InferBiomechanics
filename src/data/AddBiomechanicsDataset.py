@@ -202,13 +202,13 @@ class AddBiomechanicsDataset(Dataset):
                 torch.tensor(p.comAccInRootFrame, dtype=self.dtype).detach() for p in output_passes[start_index:]
             ])
             label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = torch.zeros(
-                (6 * len(self.contact_bodies), len(output_passes) if start_index != -1 else 1), dtype=self.dtype)
+                (len(output_passes) if start_index != -1 else 1, 6 * len(self.contact_bodies)), dtype=self.dtype)
             label_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = torch.zeros(
-                (3 * len(self.contact_bodies), len(output_passes) if start_index != -1 else 1), dtype=self.dtype)
+                (len(output_passes) if start_index != -1 else 1, 3 * len(self.contact_bodies)), dtype=self.dtype)
             label_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = torch.zeros(
-                (3 * len(self.contact_bodies), len(output_passes) if start_index != -1 else 1), dtype=self.dtype)
+                (len(output_passes) if start_index != -1 else 1, 3 * len(self.contact_bodies)), dtype=self.dtype)
             label_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] = torch.zeros(
-                (3 * len(self.contact_bodies), len(output_passes) if start_index != -1 else 1), dtype=self.dtype)
+                (len(output_passes) if start_index != -1 else 1, 3 * len(self.contact_bodies)), dtype=self.dtype)
             contact_indices: List[int] = [
                 subject.getGroundForceBodies().index(body) if body in subject.getGroundForceBodies() else -1 for
                 body in self.contact_bodies]
