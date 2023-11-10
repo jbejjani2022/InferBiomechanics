@@ -47,22 +47,31 @@ class AbstractCommand:
                   model_type: str = 'feedforward',
                   history_len: int = 5,
                   stride: int = 1,
+                  hidden_dims: List[int] = [512],
                   batchnorm: bool = False,
                   dropout: bool = False,
                   dropout_prob: float = 0.0,
                   root_history_len: int = 10,
-                  device: str = 'cpu',
-                  checkpoint_dir="../checkpoints"):
+                  device: str = 'cpu'):
         if model_type == 'feedforward':
-            # Define the model
             model = FeedForwardBaseline(
                 num_dofs,
                 num_joints,
                 history_len,
-                root_history_len,
-                device=device)
+                stride=stride,
+                hidden_dims=hidden_dims,
+                batchnorm=batchnorm,
+                dropout=dropout,
+                dropout_prob=dropout_prob,
+                root_history_len=root_history_len,
+                device=device
+            )
         elif model_type == 'groundlink':
-            model = Groundlink(num_dofs, num_joints, root_history_len)
+            model = Groundlink(
+                num_dofs,
+                num_joints,
+                root_history_len
+            )
         else:
             assert(model_type == 'analytical')
             model = AnalyticalBaseline()
