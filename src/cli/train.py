@@ -116,13 +116,17 @@ class TrainCommand(AbstractCommand):
             logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
         if log_to_wandb:
+            # Grab all cmd args and add current git hash
+            config = args.__dict__
+            config["git_hash"] = get_git_hash
+
             logging.info('Initializing wandb...')
             wandb.init(
                 # set the wandb project where this run will be logged
                 project="shpd1",
 
                 # track hyperparameters and run metadata
-                config=args.__dict__
+                config=config
             )
 
         # Create an instance of the dataset
