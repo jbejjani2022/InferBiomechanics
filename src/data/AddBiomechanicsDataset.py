@@ -142,13 +142,13 @@ class AddBiomechanicsDataset(Dataset):
 
         # Read the frames from disk
         subject = self.subjects[subject_index]
-        frames: List[nimble.biomechanics.Frame] = subject.readFrames(trial,
-                                                                     window_start,
-                                                                     self.window_size // self.stride,
-                                                                     stride=self.stride,
-                                                                     includeSensorData=False,
-                                                                     includeProcessingPasses=True)
-        assert(len(frames) == self.window_size // self.stride)
+        frames: nimble.biomechanics.FrameList = subject.readFrames(trial,
+                                                                   window_start,
+                                                                   self.window_size // self.stride,
+                                                                   stride=self.stride,
+                                                                   includeSensorData=False,
+                                                                   includeProcessingPasses=True)
+        assert (len(frames) == self.window_size // self.stride)
 
         first_passes: List[nimble.biomechanics.FramePass] = [frame.processingPasses[0] for frame in frames]
         last_pass: nimble.biomechanics.FramePass = frames[-1].processingPasses[-1]
@@ -191,8 +191,10 @@ class AddBiomechanicsDataset(Dataset):
             # The output dictionary contains a single frame, the last frame in the window
             mass = subject.getMassKg()
             label_dict[OutputDataKeys.TAU] = torch.tensor(last_pass.tau, dtype=self.dtype).detach()
-            label_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = torch.tensor(last_pass.residualWrenchInRootFrame, dtype=self.dtype).detach()
-            label_dict[OutputDataKeys.COM_ACC_IN_ROOT_FRAME] = torch.tensor(last_pass.comAccInRootFrame, dtype=self.dtype).detach()
+            label_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = torch.tensor(last_pass.residualWrenchInRootFrame,
+                                                                                    dtype=self.dtype).detach()
+            label_dict[OutputDataKeys.COM_ACC_IN_ROOT_FRAME] = torch.tensor(last_pass.comAccInRootFrame,
+                                                                            dtype=self.dtype).detach()
             label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = torch.zeros(
                 (6 * len(self.contact_bodies)), dtype=self.dtype)
             label_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = torch.zeros(
@@ -204,10 +206,14 @@ class AddBiomechanicsDataset(Dataset):
             contact_indices: List[int] = [
                 subject.getGroundForceBodies().index(body) if body in subject.getGroundForceBodies() else -1 for
                 body in self.contact_bodies]
-            ground_contact_wrenches_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactWrenchesInRootFrame, dtype=self.dtype)
-            ground_contact_forces_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactForceInRootFrame, dtype=self.dtype)
-            ground_contact_cop_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactCenterOfPressureInRootFrame, dtype=self.dtype)
-            ground_contact_torque_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactTorqueInRootFrame, dtype=self.dtype)
+            ground_contact_wrenches_in_root_frame: torch.Tensor = torch.tensor(
+                last_pass.groundContactWrenchesInRootFrame, dtype=self.dtype)
+            ground_contact_forces_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactForceInRootFrame,
+                                                                             dtype=self.dtype)
+            ground_contact_cop_in_root_frame: torch.Tensor = torch.tensor(
+                last_pass.groundContactCenterOfPressureInRootFrame, dtype=self.dtype)
+            ground_contact_torque_in_root_frame: torch.Tensor = torch.tensor(last_pass.groundContactTorqueInRootFrame,
+                                                                             dtype=self.dtype)
             for i in range(len(self.contact_bodies)):
                 if contact_indices[i] >= 0:
                     label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][
@@ -260,6 +266,6 @@ class AddBiomechanicsDataset(Dataset):
         self.__dict__.update(state)
         # Create the non picklable SubjectOnDisk objects. Skip loading the skeletons and contact bodies
         self.subjects = []
-        print('Unpickling AddBiomechanicsDataset copy')
+        print('Unpickling AddBiomechanicsDataset copy in reader worker thread')
         for i, subject_path in enumerate(self.subject_paths):
             self.subjects.append(nimble.biomechanics.SubjectOnDisk(subject_path))

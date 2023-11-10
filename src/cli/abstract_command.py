@@ -46,8 +46,7 @@ class AbstractCommand:
                   num_joints: int,
                   model_type: str = 'feedforward',
                   history_len: int = 5,
-                  device: str = 'cpu',
-                  checkpoint_dir="../checkpoints"):
+                  device: str = 'cpu'):
         if model_type == 'feedforward':
             # Define the model
             model = FeedForwardBaseline(
@@ -56,7 +55,6 @@ class AbstractCommand:
                 num_joints,
                 history_len,
                 device=device)
-            self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir)
         else:
             assert(model_type == 'analytical')
             model = AnalyticalBaseline()

@@ -51,7 +51,7 @@ class CreateSplitsCommand(AbstractCommand):
                 file_name = file.split('/')[-1]
                 desired_name = dataset_name + '_' + file_name
                 print(desired_name)
-                if i > 3:
+                if i >= 3 or len(dataset_files[dataset_name]) < 3:
                     if not os.path.exists(os.path.join(train_dir, desired_name)):
                         shutil.copy(file, os.path.join(train_dir, desired_name))
                 else:
