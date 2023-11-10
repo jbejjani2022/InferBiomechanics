@@ -24,6 +24,8 @@ class VisualizeCommand(AbstractCommand):
         subparser.add_argument('--dataset-home', type=str, default='../data',
                                help='The path to the AddBiomechanics dataset.')
         subparser.add_argument('--model-type', type=str, default='feedforward', help='The model to train.')
+        subparser.add_argument('--output-data-format', type=str, default='all_frames', choices=['all_frames', 'last_frame'], 
+                               help='Output for all frames in a window or only the last frame.')
         subparser.add_argument('--device', type=str, default='cpu', help='Where to run the code, either cpu or gpu.')
         subparser.add_argument('--checkpoint-dir', type=str, default='../checkpoints',
                                help='The path to a model checkpoint to save during training. Also, starts from the '
@@ -66,6 +68,7 @@ class VisualizeCommand(AbstractCommand):
         device: str = args.device
         short: bool = args.short
         stride: int = args.stride
+        output_data_format: str = args.output_data_format
 
         geometry = self.ensure_geometry(args.geometry_folder)
 
@@ -77,13 +80,15 @@ class VisualizeCommand(AbstractCommand):
             device=torch.device(device),
             geometry_folder=geometry,
             testing_with_short_dataset=short,
+            output_data_format=output_data_format,
             stride=stride)
         # print('## Loading DEV set:')
         # dev_dataset = AddBiomechanicsDataset(
         #     os.path.abspath('../data/dev'), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
 
         # Create an instance of the model
-        model = self.get_model(args, train_dataset.num_dofs, train_dataset.num_joints, model_type, history_len, device)
+        model = self.get_model(num_dofs=train_dataset.num_dofs, num_joints=train_dataset.num_joints, model_type=model_type, 
+                               history_len=history_len, stride=stride, output_data_format=output_data_format, device=device)
         self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir)
         model.eval()
 
@@ -144,7 +149,7 @@ class VisualizeCommand(AbstractCommand):
 
                 # Forward pass
                 skel_and_contact_bodies = [(train_dataset.skeletons[i], train_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices]
-                outputs = model(inputs, skel_and_contact_bodies)
+                outputs = model(inputs)
                 skel = skel_and_contact_bodies[0][0]
                 contact_bodies = skel_and_contact_bodies[0][1]
 
