@@ -409,8 +409,11 @@ class Dataset:
 
                     # Create Trial instance and store the motion classification if it exists
                     if len(class_dict) > 0:
-                        motion_class = class_dict[subject_on_disk.getTrialName(trial)]
-                        if motion_class is None: motion_class = "unknown"  # means classification does not exist for this trial
+                        trial_name = subject_on_disk.getTrialName(trial)
+                        if trial_name in class_dict:
+                            motion_class = class_dict[trial_name]
+                            if motion_class is None: motion_class = "unknown"  # means classification does not exist for this trial
+                        else: motion_class = "unknown"  # trial name not in dict
                     else:  # means no classification done yet for this subject
                         motion_class = "unknown"
                     trial_data = Trial(frames, motion_class)
@@ -574,7 +577,7 @@ class Dataset:
         """
         # Check inputs
         assert (len(self.freqs) > 1)
-        assert (len(errors) > 1)
+        #assert (len(errors) > 1)
 
         plt.figure()
 
