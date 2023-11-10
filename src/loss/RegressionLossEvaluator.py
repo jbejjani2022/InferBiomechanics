@@ -9,6 +9,29 @@ import os
 import argparse
 
 
+components = {
+    0: "left-x",
+    1: "left-y",
+    2: "left-z",
+    3: "right-x",
+    4: "right-y",
+    5: "right-z"
+}
+wrench_components = {
+    0: "left-moment-x",
+    1: "left-moment-y",
+    2: "left-moment-z",
+    3: "left-force-x",
+    4: "left-force-y",
+    5: "left-force-z",
+    6: "right-moment-x",
+    7: "right-moment-y",
+    8: "right-moment-z",
+    9: "right-force-x",
+    10: "right-force-y",
+    11: "right-force-z"
+}
+
 class RegressionLossEvaluator:
     dataset: AddBiomechanicsDataset
 
@@ -52,7 +75,7 @@ class RegressionLossEvaluator:
             raise ValueError('Output and label tensors must be 3-dimensional')
         if output_tensor.shape[0] * output_tensor.shape[1] * output_tensor.shape[2] == 0:
             raise ValueError('Output and label tensors must not be empty')
-        force_diff = output_tensor - label_tensor
+        force_diff = (output_tensor - label_tensor)
         force_loss = torch.mean(force_diff ** 2, dim=(0,1))
         return force_loss
 
@@ -107,7 +130,7 @@ class RegressionLossEvaluator:
         reshaped_tensor = diffs.view(diffs.shape[0], diffs.shape[1], -1, vec_size)
 
         # Compute the norm over the last dimension
-        norms = torch.norm(reshaped_tensor, dim=3)
+        norms = torch.norm(reshaped_tensor[:,-1:,:,:], dim=3)
 
         # Compute the mean norm over all the dimensions
         mean_norm = torch.mean(norms)
@@ -223,26 +246,23 @@ class RegressionLossEvaluator:
                 num_batches = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].shape[0]
                 tau_reported_metric = 0.0
                 num_batches = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].shape[0]
-                num_timesteps = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].shape[1]
                 for batch in range(num_batches):
-                    for timestep in range(num_timesteps):
-                        skel = self.dataset.skeletons[batch_subject_indices[batch]]
-                        skel.setPositions(inputs[InputDataKeys.POS][batch, timestep, :].cpu().numpy())
-                        skel.setVelocities(inputs[InputDataKeys.VEL][batch, timestep, :].cpu().numpy())
-                        acc = inputs[InputDataKeys.ACC][batch, timestep, :].cpu().numpy()
-                        contact_bodies = self.dataset.skeletons_contact_bodies[batch_subject_indices[batch]]
-                        contact_wrench_guesses = outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][batch,
-                                                 timestep, :].cpu().numpy() * skel.getMass()
-                        contact_wrench_guesses_list = [contact_wrench_guesses[i * 6:i * 6 + 6] for i in
-                                                       range(len(contact_bodies))]
-                        tau = skel.getInverseDynamicsFromPredictions(acc, contact_bodies, contact_wrench_guesses_list,
-                                                                     np.zeros(6))
-                        tau_error = tau - labels[OutputDataKeys.TAU][batch, timestep, :].cpu().numpy()
-                        # Exclude root residual from error
-                        tau_reported_metric += np.linalg.norm(tau_error[6:])
-                tau_reported_metric /= (num_batches * num_timesteps)
+                    skel = self.dataset.skeletons[batch_subject_indices[batch]]
+                    skel.setPositions(inputs[InputDataKeys.POS][batch, -1, :].cpu().numpy())
+                    skel.setVelocities(inputs[InputDataKeys.VEL][batch, -1, :].cpu().numpy())
+                    acc = inputs[InputDataKeys.ACC][batch, -1, :].cpu().numpy()
+                    contact_bodies = self.dataset.skeletons_contact_bodies[batch_subject_indices[batch]]
+                    contact_wrench_guesses = outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][batch,
+                                                -1, :].cpu().numpy() * skel.getMass()
+                    contact_wrench_guesses_list = [contact_wrench_guesses[i * 6:i * 6 + 6] for i in
+                                                    range(len(contact_bodies))]
+                    tau = skel.getInverseDynamicsFromPredictions(acc, contact_bodies, contact_wrench_guesses_list,
+                                                                    np.zeros(6))
+                    tau_error = tau - labels[OutputDataKeys.TAU][batch, -1, :].cpu().numpy()
+                    # Exclude root residual from error
+                    tau_reported_metric += np.linalg.norm(tau_error[6:])
+                tau_reported_metric /= (num_batches)
                 self.tau_reported_metrics.append(tau_reported_metric)
-
             # 2.4. Keep track of the reported metrics for reporting averages across the entire dev set
             self.force_reported_metrics.append(force_reported_metric)
             self.moment_reported_metrics.append(moment_reported_metric)
@@ -270,13 +290,13 @@ class RegressionLossEvaluator:
                               tau_reported_metric)
 
         # 3.2. If requested, plot the results
-        # if analyze:
-        #     self.plot_ferror = ((force_diff) ** 2)[:, -1, :].reshape(-1, 6).detach().numpy()
-        #     for i in args.predict_grf_components:
-        #         plt.clf()
-        #         plt.plot(self.plot_ferror[:, i])
-        #         plt.savefig(os.path.join(plot_path_root,
-        #                                  f"{os.path.basename(self.dataset.subject_paths[batch_subject_indices[0]])}_{self.dataset.subjects[batch_subject_indices[0]].getTrialName(batch_trial_indices[0])}_grferror{components[i]}.png"))
+        if analyze:
+            self.plot_ferror = ((outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] - labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME]) ** 2)[:, -1, :].reshape(-1, 6).detach().numpy()
+            for i in args.predict_grf_components:
+                plt.clf()
+                plt.plot(self.plot_ferror[:, i])
+                plt.savefig(os.path.join(plot_path_root,
+                                         f"{os.path.basename(self.dataset.subject_paths[batch_subject_indices[0]])}_{self.dataset.subjects[batch_subject_indices[0]].getTrialName(batch_trial_indices[0])}_grferror{components[i]}.png"))
         return loss
 
     def log_to_wandb(self,
@@ -296,28 +316,7 @@ class RegressionLossEvaluator:
                      com_acc_reported_metric: Optional[float],
                      wrench_reported_metric: Optional[float],
                      tau_reported_metric: Optional[float]):
-        components = {
-            0: "left-x",
-            1: "left-y",
-            2: "left-z",
-            3: "right-x",
-            4: "right-y",
-            5: "right-z"
-        }
-        wrench_components = {
-            0: "left-moment-x",
-            1: "left-moment-y",
-            2: "left-moment-z",
-            3: "left-force-x",
-            4: "left-force-y",
-            5: "left-force-z",
-            6: "right-moment-x",
-            7: "right-moment-y",
-            8: "right-moment-z",
-            9: "right-force-x",
-            10: "right-force-y",
-            11: "right-force-z"
-        }
+
         report: Dict[str, float] = {
             **{f'{self.split}/force_rmse/{components[i]}': force_loss[i].item() ** 0.5 for i in
                args.predict_grf_components},

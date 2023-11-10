@@ -21,6 +21,8 @@ class AnalyzeCommand(AbstractCommand):
         subparser = subparsers.add_parser('analyze', help='Evaluate the performance of a model on dataset.')
         subparser.add_argument('--dataset-home', type=str, default='../data', help='The path to the AddBiomechanics dataset.')
         subparser.add_argument('--model-type', type=str, default='feedforward', help='The model to train.')
+        subparser.add_argument('--output-data-format', type=str, default='all_frames', choices=['all_frames', 'last_frame'], 
+                               help='Output for all frames in a window or only the last frame.')
         subparser.add_argument('--checkpoint-dir', type=str, default='../checkpoints', help='The path to a model checkpoint to save during training. Also, starts from the latest checkpoint in this directory.')
         subparser.add_argument('--geometry-folder', type=str, default=None, help='Path to the Geometry folder with bone mesh data.')
         subparser.add_argument('--history-len', type=int, default=50,
@@ -56,6 +58,7 @@ class AnalyzeCommand(AbstractCommand):
         stride: int = args.stride
         root_history_len: int = 10
         activation: str = args.activation
+        output_data_format: str = args.output_data_format
 
         train_plot_path_root: str = os.path.join(checkpoint_dir, "analysis/plots/train")
         dev_plot_path_root: str = os.path.join(checkpoint_dir, "analysis/plots/dev")
@@ -72,13 +75,17 @@ class AnalyzeCommand(AbstractCommand):
         logging.info('## Loading datasets with skeletons:')
         train_dataset = AddBiomechanicsDataset(train_dataset_path,
                                                history_len,
+                                               stride=stride,
                                                device=torch.device(device),
                                                geometry_folder=geometry,
+                                               output_data_format=output_data_format,
                                                testing_with_short_dataset=short)
         dev_dataset = AddBiomechanicsDataset(dev_dataset_path,
                                              history_len,
+                                             stride=stride,
                                              device=torch.device(device),
                                              geometry_folder=geometry,
+                                             output_data_format=output_data_format,
                                              testing_with_short_dataset=short)
 
         # Create an instance of the model
@@ -93,6 +100,7 @@ class AnalyzeCommand(AbstractCommand):
                                dropout=False,
                                dropout_prob=0.0,
                                root_history_len=root_history_len,
+                               output_data_format=output_data_format,
                                device=device)
 
         if model_type != 'analytical':
@@ -118,7 +126,7 @@ class AnalyzeCommand(AbstractCommand):
             subject_path: str = train_dataset.subject_paths[subject_index]
 
             # Forward pass
-            outputs = model(inputs, [(train_dataset.skeletons[i], train_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices])
+            outputs = model(inputs)
 
             # Compute the loss
             loss_evaluator(inputs, outputs, labels, batch_subject_indices, batch_trial_indices, args, compute_report=True, analyze=True, plot_path_root=train_plot_path_root)
@@ -150,16 +158,16 @@ class AnalyzeCommand(AbstractCommand):
                     batch_subject_indices: List[int]
                     batch_trial_indices: List[int]
                     inputs, labels, batch_subject_indices, batch_trial_indices = batch
-                    outputs = model(inputs, [(dev_dataset.skeletons[i], dev_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices])
+                    outputs = model(inputs)
                     dev_loss_evaluator(inputs, outputs, labels, batch_subject_indices, batch_trial_indices, args, compute_report=True, analyze=True, plot_path_root=dev_plot_path_root)
             
             component_wise_loss_percentiles = np.percentile(dev_loss_evaluator.plot_ferror, 75, axis=0)
             stats = {
                 "sub_name": f"{os.path.basename(subject_path)}",
-                "trial_name": f"{dev_dataset.subjects[batch_subject_indices[0]].getTrialName(trial)}",
+                "trial_name": f"{dev_dataset.subjects[batch_subject_indices[0]].getTrialName(trial_index)}",
                 **{f'force_loss_{components[i]}': component_wise_loss_percentiles[i] for i in args.predict_grf_components}
             }
-            with open(os.path.join(checkpoint_dir, 'train_analysis.csv'), 'a') as csvfile: 
+            with open(os.path.join(checkpoint_dir, 'dev_analysis.csv'), 'a') as csvfile: 
                 writer = csv.DictWriter(csvfile, fieldnames=stats.keys())
                 writer.writerow(stats)
             dev_loss_evaluator.print_report()
