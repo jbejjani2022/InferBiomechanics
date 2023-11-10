@@ -17,11 +17,12 @@ class Transpose(nn.Module):
 		return input.transpose(self._dim1, self._dim2)
 
 class Groundlink(nn.Module):
-	def __init__(self, num_dofs: int, num_joints: int, root_history_len:int, cnn_kernel=7, cnn_dropout=0.0, fc_depth=3, fc_dropout=0.2):
+	def __init__(self, num_dofs: int, num_joints: int, root_history_len:int, output_data_format: str = "all_frames", cnn_kernel=7, cnn_dropout=0.0, fc_depth=3, fc_dropout=0.2):
 		super().__init__()
 		self.num_dofs = num_dofs
 		self.num_joints = num_joints
 		self.root_history_len = root_history_len
+		self.output_data_format = output_data_format
 		input_size = (num_dofs * 3 + 12 + num_joints * 3 + root_history_len * 6)
 		cnn_features = [input_size, 128, 128, 256, 256]
 		# features_out = 3
@@ -59,7 +60,7 @@ class Groundlink(nn.Module):
 				torch.nn.Linear(cnn_features[-1], features_out, bias=False),						# N x F x 2*Co
 				# torch.nn.Softplus(),													# N x F x 2*Co
 			]
-			return pre_layers + cnn_layers + fc_layers
+			return pre_layers, cnn_layers, fc_layers
 		
 		# self.per_output_nets = nn.ModuleList()
 		# for _ in range(features_out):
@@ -69,8 +70,11 @@ class Groundlink(nn.Module):
 
 		# self.fmodel, self.params, self.buffers = combine_state_for_ensemble(self.per_output_nets)
 		# [p.requires_grad_() for p in self.params]
-		self.net = self.initialize(nn.Sequential(*get_layers()))
-		logging.info(f"{self.net=}")
+		pre, cnn, fc = get_layers()
+		self.pre_net = self.initialize(nn.Sequential(*pre))
+		self.cnn = self.initialize(nn.Sequential(*cnn))
+		self.fc = self.initialize(nn.Sequential(*fc))
+		logging.info(f"{self.pre_net=}, {self.cnn=}, {self.fc=}")
 
 	def initialize(self, net):
 		GAINS = {
@@ -136,7 +140,12 @@ class Groundlink(nn.Module):
 		# x = vmap(self.fmodel, in_dims=(0, 0, None), randomness='different')(self.params, self.buffers, inputs)
 		# x = torch.swapaxes(x, 0, -1).squeeze(0)
 		# x = self.per_output_nets[0](inputs)
-		x = self.net(inputs)
+		x = self.pre_net(inputs)
+		x = self.cnn(x)
+		if self.output_data_format == 'all_frames':
+			x = self.fc(x)
+		else:
+			x = self.fc(x[:, :, -1:])
 		# 4. Break the output back up into separate tensors for each output variable. Predicts just a single frame of
 		# output, given the input context.
 		return {

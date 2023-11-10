@@ -53,12 +53,15 @@ class AbstractCommand:
                   dropout: bool = False,
                   dropout_prob: float = 0.0,
                   root_history_len: int = 10,
+                  output_data_format: str = 'all_frames',
                   device: str = 'cpu'):
         if model_type == 'feedforward':
             model = FeedForwardBaseline(
                 num_dofs,
                 num_joints,
                 history_len,
+                output_data_format,
+                activation,
                 stride=stride,
                 hidden_dims=hidden_dims,
                 batchnorm=batchnorm,
@@ -71,7 +74,8 @@ class AbstractCommand:
             model = Groundlink(
                 num_dofs,
                 num_joints,
-                root_history_len
+                root_history_len,
+                output_data_format
             )
         else:
             assert(model_type == 'analytical')
