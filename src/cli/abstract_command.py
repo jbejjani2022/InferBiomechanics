@@ -42,18 +42,20 @@ class AbstractCommand:
         return geometry
     
     def get_model(self,
-                  args: argparse.Namespace,
                   num_dofs: int,
                   num_joints: int,
                   model_type: str = 'feedforward',
                   history_len: int = 5,
+                  stride: int = 1,
+                  batchnorm: bool = False,
+                  dropout: bool = False,
+                  dropout_prob: float = 0.0,
                   root_history_len: int = 10,
                   device: str = 'cpu',
                   checkpoint_dir="../checkpoints"):
         if model_type == 'feedforward':
             # Define the model
             model = FeedForwardBaseline(
-                args,
                 num_dofs,
                 num_joints,
                 history_len,
