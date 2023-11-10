@@ -19,8 +19,8 @@ class FeedForwardBaseline(nn.Module):
                  num_dofs: int,
                  num_joints: int,
                  history_len: int,
-                 device: str = 'cpu',
-                 root_history_len: int = 10):
+                 root_history_len: int,
+                 device: str = 'cpu'):
         super(FeedForwardBaseline, self).__init__()
         self.args = args
         self.num_dofs = num_dofs
@@ -51,14 +51,19 @@ class FeedForwardBaseline(nn.Module):
         logging.info(f"{self.net=}")
         
     def forward(self, input: Dict[str, torch.Tensor], skels_and_contact: List[Tuple[nimble.dynamics.Skeleton, List[nimble.dynamics.BodyNode]]]) -> Dict[str, torch.Tensor]:
-        # Get the position, velocity, and acceleration tensors
-
-        # assert(input[InputDataKeys.POS].shape[-1] == self.num_dofs)
-        # assert(input[InputDataKeys.VEL].shape[-1] == self.num_dofs)
-        # assert(input[InputDataKeys.ACC].shape[-1] == self.num_dofs)
-        # assert(input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1] == self.num_joints * 3)
-        # assert(input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3)
-        # assert(input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3)
+        # 1. Check input shape matches our assumptions.
+        #assert len(input[InputDataKeys.POS].shape) == 3
+        assert input[InputDataKeys.POS].shape[-1] == self.num_dofs
+        #assert len(input[InputDataKeys.VEL].shape) == 3
+        assert input[InputDataKeys.VEL].shape[-1] == self.num_dofs
+        #assert len(input[InputDataKeys.ACC].shape) == 3
+        assert input[InputDataKeys.ACC].shape[-1] == self.num_dofs
+        #assert len(input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape) == 3
+        assert input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1] == self.num_joints * 3
+        #assert len(input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape) == 3
+        assert input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3
+        #assert len(input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape) == 3
+        assert input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3
 
         inputs = torch.concat([
             input[InputDataKeys.POS],
@@ -77,8 +82,8 @@ class FeedForwardBaseline(nn.Module):
         x = self.net(inputs)
 
         return {
-            OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME: x[:, 0:6],
-            OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME: x[:, 6:12],
-            OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME: x[:, 12:18],
-            OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME: x[:, 18:30]
+            OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME: x[:, None, 0:6],
+            OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME: x[:, None, 6:12],
+            OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME: x[:, None, 12:18],
+            OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME: x[:, None, 18:30]
         }
