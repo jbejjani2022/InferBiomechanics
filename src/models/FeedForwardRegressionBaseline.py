@@ -25,6 +25,7 @@ class FeedForwardBaseline(nn.Module):
                  stride: int,
                  root_history_len: int,
                  hidden_dims: List[int] = [512],
+                 activation: str = 'relu',
                  batchnorm: bool = False,
                  dropout: bool = False,
                  dropout_prob: float = 0.0,
@@ -53,7 +54,7 @@ class FeedForwardBaseline(nn.Module):
                 self.net.append(nn.BatchNorm1d(h0))
             self.net.append(nn.Linear(h0, h1, dtype=torch.float32, device=device))
             if i < len(dims)-2:
-                self.net.append(ACTIVATION_FUNCS[self.args.activation])
+                self.net.append(ACTIVATION_FUNCS[activation])
         
         self.net = nn.Sequential(*self.net)
         logging.info(f"{self.net=}")
