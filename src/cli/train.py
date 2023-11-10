@@ -47,6 +47,7 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--no-wandb', action='store_true', default=False,
                                help='Log this run to Weights and Biases.')
         subparser.add_argument('--model-type', type=str, default='feedforward', choices=['analytical', 'feedforward', 'groundlink'], help='The model to train.')
+        subparser.add_argument('--output-data-format', type=str, default='all_frames', choices=['all_frames', 'last_frame'], help='Output for all frames in a window or only the last frame.')
         subparser.add_argument('--device', type=str, default='cpu', help='Where to run the code, either cpu or gpu.')
         subparser.add_argument('--checkpoint-dir', type=str, default='../checkpoints',
                                help='The path to a model checkpoint to save during training. Also, starts from the '
@@ -89,7 +90,7 @@ class TrainCommand(AbstractCommand):
         if 'command' in args and args.command != 'train':
             return False
         model_type: str = args.model_type
-        output_data_format: str = 'all_frames' if args.model_type == 'groundlink' else 'last_frame'
+        output_data_format: str = args.output_data_format #'all_frames' if args.model_type == 'groundlink' else 'last_frame'
         opt_type: str = args.opt_type
         checkpoint_dir: str = os.path.join(os.path.abspath(args.checkpoint_dir), model_type)
         history_len: int = args.history_len
@@ -108,6 +109,7 @@ class TrainCommand(AbstractCommand):
         batchnorm: bool = args.batchnorm
         dropout: bool = args.dropout
         dropout_prob: float = args.dropout_prob
+        activation: str = args.activation
 
         geometry = self.ensure_geometry(args.geometry_folder)
 
@@ -140,12 +142,12 @@ class TrainCommand(AbstractCommand):
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, 'dev'))
         logging.info('## Loading datasets with skeletons:')
-        train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), stride=args.stride, output_data_format=output_data_format,
+        train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
         train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train')
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=data_loading_workers, persistent_workers=True)
 
-        dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(device), stride=args.stride, output_data_format=output_data_format,
+        dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                              geometry_folder=geometry, testing_with_short_dataset=short)
         dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split='dev')
         dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True)
@@ -164,6 +166,7 @@ class TrainCommand(AbstractCommand):
                                dropout=dropout,
                                dropout_prob=dropout_prob,
                                root_history_len=root_history_len,
+                               output_data_format=output_data_format,
                                device=device)
 
         # Define the optimizer
@@ -209,7 +212,7 @@ class TrainCommand(AbstractCommand):
                                         batch_subject_indices,
                                         batch_trial_indices,
                                         args,
-                                        compute_report=False)
+                                        compute_report=True)
                     loss_time = time.time() - loss_time
                     # logging.info(f"{data_time=}, {forward_time=}, {loss_time}")
                     if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
