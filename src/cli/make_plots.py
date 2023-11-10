@@ -21,7 +21,7 @@ class MakePlotsCommand(AbstractCommand):
         subparser = subparsers.add_parser('make-plots', help='Make summary plots and metrics on entire dataset.')
         subparser.add_argument('--data-path', type=str, help='Root path to all data files.')
         subparser.add_argument('--class-path', type=str, help='Root path dir containing folders for motion classification.')
-        subparser.add_argument('--class-datasets', type=List[str], default=["none"], help='List of dataset names for which their is classification data.')
+        subparser.add_argument('--class-datasets', type=str, nargs='+', default=["none"], help='List of dataset names for which their is classification data.')
         subparser.add_argument('--out-path', type=str, default='../figures', help='Path to output plots to.')
         subparser.add_argument('--downsample-size', type=int, default=10,
                                help='Every Xth frame will be used for scatter plots and correlation calculations. '
@@ -48,6 +48,7 @@ class MakePlotsCommand(AbstractCommand):
 
         #  Make the Dataset
         dataset = Dataset(args)
+        #dataset.use_estimated_mass = True
 
         # Create and save plots and print metrics based on settings
         if dataset.output_histograms:
@@ -255,7 +256,7 @@ class Dataset:
             self.percent_single: List[float] = []
             self.percent_flight: List[float] = []
             self.contact_counts: ndarray[int, int, int] = np.array([0, 0, 0])  # we will increment counts in order of double, single, flight
-            self.coarse_activity_type_dict = {'unknown': 0.0, 'other': 0.0, '': 0.0, 'bad': 0.0, 'walking': 0.0,
+            self.coarse_activity_type_dict = {'unknown': 0.0, 'other': 0.0, 'bad': 0.0, 'walking': 0.0,
                                               'running': 0.0, 'sit-to-stand': 0.0, 'stairs': 0.0, 'jump': 0.0,
                                               'squat': 0.0, 'lunge': 0.0, 'standing': 0.0, 'transition': 0.0}
 
@@ -330,7 +331,6 @@ class Dataset:
                                                                   num_plots=1, labels=[""])
 
         if self.output_errvfreq:
-            self.acc_errs_v_freq: List[List[float]] = []
             self.grf_errs_v_freq: List[List[float]] = []
             self.tau_errs_v_freq: List[List[float]] = []  # TODO: compute this
 
@@ -368,10 +368,14 @@ class Dataset:
 
             dataset_name = next((name for name in self.class_datasets if name in subj_path), "")
             if len(dataset_name) > 0:
-                class_dict = np.load(os.path.join(self.class_dir, dataset_name, subj_id, subj_id + ".npy"), allow_pickle=True)
-                # Create trial name to motion class lookup
-                class_dict = {trial['trial_name']: trial['motion_class'] for trial in class_dict}
-            else:
+                class_dict_path = os.path.join(self.class_dir, dataset_name, subj_id, subj_id + ".npy")
+                if os.path.exists(class_dict_path):
+                    class_dict = np.load(class_dict_path, allow_pickle=True)
+                    # Create trial name to motion class lookup
+                    class_dict = {trial['trial_name']: trial['motion_class'] for trial in class_dict}
+                else:  # does not exist for subject
+                    class_dict = {}
+            else:  # does not exist for dataset
                 class_dict = {}
 
             # Keep track of number of valid trials for this subject
@@ -406,8 +410,8 @@ class Dataset:
                     # Create Trial instance and store the motion classification if it exists
                     if len(class_dict) > 0:
                         motion_class = class_dict[subject_on_disk.getTrialName(trial)]
-                        if motion_class is None: motion_class = "unknown"
-                    else:
+                        if motion_class is None: motion_class = "unknown"  # means classification does not exist for this trial
+                    else:  # means no classification done yet for this subject
                         motion_class = "unknown"
                     trial_data = Trial(frames, motion_class)
                     num_valid_frames = trial_data.num_valid_frames
@@ -455,12 +459,11 @@ class Dataset:
                         self.percent_single.append((single_count / trial_data.contact.shape[0]) * 100)
 
                         # Activity classification plot
-                        print(f"motion class: {motion_class}")
-                        trial_time = init_trial_length * subject_on_disk.getTrialTimestep(trial) / 60  # convert to min
+                        trial_time = num_valid_frames * subject_on_disk.getTrialTimestep(trial) / 60  # convert to time (minutes)
                         self.coarse_activity_type_dict[trial_data.motion_class.split('_')[0]] = self.coarse_activity_type_dict[trial_data.motion_class.split('_')[0]] + trial_time
 
                     if self.output_scatterplots:
-                        assert (self.num_dofs == trial_data.num_joints),  f"self.num_dofs: {self.num_dofs}; trial_data.num_joints: {trial_data.num_joints}"  # check what we assume from std skel matches data
+                        assert (self.num_dofs == trial_data.num_dofs),  f"self.num_dofs: {self.num_dofs}; trial_data.num_dofs: {trial_data.num_dofs}"  # check what we assume from std skel matches data
                         # joint accelerations vs. vertical component of COM acc
                         self.jointacc_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
                                                                    color, "pearson")
@@ -529,11 +532,6 @@ class Dataset:
                                                                        color, "pearson")
 
                     if self.output_errvfreq:
-                        # COM acc error vs. frequency
-                        acc_err_v_freq = self.compute_err_v_freq(order=2, dt=subject_on_disk.getTrialTimestep(0),
-                                                          pred=trial_data.com_acc_kin,
-                                                          true=trial_data.com_acc_dyn)
-                        self.acc_errs_v_freq.append(acc_err_v_freq)
                         grf_err_v_freq = self.compute_err_v_freq(order=2, dt=subject_on_disk.getTrialTimestep(0),
                                                           pred=trial_data.com_acc_kin,
                                                           true=trial_data.total_grf / mass)
@@ -567,7 +565,7 @@ class Dataset:
             self.bmis = np.array(self.bmis)
             self.sexes = np.array(self.sexes)
 
-    def plot_err_v_freq(self, errors: List[List[List[float]]], outname: str, colors: List[str], labels: List[str], fontsize: int = 16, plot_std: bool = False):
+    def plot_err_v_freq(self, errors: List[List[List[float]]], outname: str, colors: List[str], labels: List[str] = [], fontsize: int = 16, plot_std: bool = False):
         """
         Plots the errors vs. frequency over a single or multiple trials,
         with errors computed from filtering at different cut off frequencies
@@ -591,7 +589,10 @@ class Dataset:
             # Check that averaging result has correct shape
             assert (len(err_avg) == len(self.freqs))
 
-            plt.plot(self.freqs, err_avg, color=colors[i], label=labels[i])
+            if len(labels) == 0:
+                plt.plot(self.freqs, err_avg, color=colors[i])
+            else:
+                plt.plot(self.freqs, err_avg, color=colors[i], label=labels[i])
             if plot_std:
                 err_std = np.std(var_errors, axis=0)
                 plt.fill_between(self.freqs, err_avg - err_std, err_avg + err_std, alpha=0.5)
@@ -717,13 +718,13 @@ class Dataset:
         Bar chart of durations for each coarse activity classification.
         Using code from Tom!
         """
+        # Remove activities from activity type dict that are less than 0.1% of the total time
         # filtered_coarse_activity_type_dict = {key: value for key, value in self.coarse_activity_type_dict.items() if
         #                                       value != 0}
 
         plt.figure()
         # plt.bar(filtered_coarse_activity_type_dict.keys(), filtered_coarse_activity_type_dict.values(), color='#006BA4')
         plt.bar(self.coarse_activity_type_dict.keys(), self.coarse_activity_type_dict.values(), color='#006BA4')
-        plt.title('activity classification', fontsize=35)
         plt.xlabel('activity type', fontsize=25)
         plt.xticks(fontsize=25)
         plt.yticks(fontsize=25)
@@ -741,21 +742,23 @@ class Dataset:
 
         plt.yscale('log')
         # Add a horizontal red line for 2, 5, 10 and 20 minutes
-        plt.axhline(y=2, color='#FF800E', linestyle='--')
-        plt.axhline(y=5, color='#FF800E', linestyle='--')
-        plt.axhline(y=10, color='#FF800E', linestyle='--')
-        plt.axhline(y=20, color='#FF800E', linestyle='--')
-        plt.axhline(y=60, color='#FF800E', linestyle='--')
-        plt.axhline(y=120, color='#FF800E', linestyle='--')
-        plt.axhline(y=300, color='#FF800E', linestyle='--')
+        line_color = '#CFCFCF'
+        text_color = 'black'
+        plt.axhline(y=2, color=line_color, linestyle='--', linewidth=4)
+        plt.axhline(y=5, color=line_color, linestyle='--', linewidth=4)
+        plt.axhline(y=10, color=line_color, linestyle='--', linewidth=4)
+        plt.axhline(y=20, color=line_color, linestyle='--', linewidth=4)
+        plt.axhline(y=60, color=line_color, linestyle='--', linewidth=4)
+        plt.axhline(y=120, color=line_color, linestyle='--', linewidth=4)
+        plt.axhline(y=300, color=line_color, linestyle='--', linewidth=4)
         # add small text for each line indicating the 2,5,10 and 20 minutes
-        plt.text(9.5, 2.1, '2min', fontsize=18, color='#FF800E')
-        plt.text(9.5, 5.1, '5min', fontsize=18, color='#FF800E')
-        plt.text(9.5, 10.1, '10min', fontsize=18, color='#FF800E')
-        plt.text(9.5, 20.1, '20min', fontsize=18, color='#FF800E')
-        plt.text(9.5, 60.5, '1h', fontsize=18, color='#FF800E')
-        plt.text(9.5, 122, '2h', fontsize=18, color='#FF800E')
-        plt.text(9.5, 305, '5h', fontsize=18, color='#FF800E')
+        plt.text(11.5, 2.1, '2 min', fontsize=25, color=text_color)
+        plt.text(11.5, 5.3, '5 min', fontsize=25, color=text_color)
+        plt.text(11.5, 10.3, '10 min', fontsize=25, color=text_color)
+        plt.text(11.5, 20.3, '20 min', fontsize=25, color=text_color)
+        plt.text(11.5, 61.5, '1 h', fontsize=25, color=text_color)
+        plt.text(11.5, 123.5, '2 h', fontsize=25, color=text_color)
+        plt.text(11.5, 306.5, '5 h', fontsize=25, color=text_color)
 
         # make figure much wider
         fig = plt.gcf()
@@ -774,8 +777,8 @@ class Dataset:
         """
         self.prepare_data_for_plotting()
 
-        self.plot_err_v_freq(errors=[self.acc_errs_v_freq, self.grf_errs_v_freq],
-                             outname='combined_err_vs_freq.png', colors=['#006BA4', '#FF800E'], labels=["COM acc", "total GRF"], plot_std=False)
+        self.plot_err_v_freq(errors=[self.grf_errs_v_freq],
+                             outname='err_vs_freq.png', colors=['#006BA4'], plot_std=False)
 
     def calculate_sex_breakdown(self):
         """
@@ -828,7 +831,8 @@ class Trial:
         # Store the activity classification
         self.motion_class = motion_class
 
-        self.num_joints = len(frames[0].processingPasses[0].pos)  # get the number of joints (dofs)
+        self.num_dofs = len(frames[0].processingPasses[0].pos)  # get the number of dofs
+        self.num_joints = int(len(frames[0].processingPasses[0].jointCentersInRootFrame) / 3) # get the number of joints; divide by 3 since 3 coor values per joint
 
         # # INIT ARRAYS FOR STORAGE # #
         # From kinematics processing pass
@@ -942,7 +946,7 @@ class Trial:
 
             self.joint_centers_kin = np.array(self.joint_centers_kin)
             # More transformations for joint center positions: use magnitude of position vec for each joint center
-            self.joint_centers_kin = self.joint_centers_kin.reshape(-1,12,3)  # TODO: don't hardcode the 12
+            self.joint_centers_kin = self.joint_centers_kin.reshape(-1, self.num_joints, 3)
             self.joint_centers_kin = np.linalg.norm(self.joint_centers_kin, axis=-1)
 
             # From dynamics processing pass
@@ -966,11 +970,11 @@ class Trial:
             self.contact = np.array(self.contact)
 
             # Check shapes
-            assert ((self.joint_pos_kin.shape[-1] == self.num_joints) and (self.joint_pos_dyn.shape[-1] == self.num_joints)), f"{len(frames)}, {num_valid_frames}, self.joint_pos_kin.shape[-1]: {self.joint_pos_kin.shape[-1]}; self.joint_pos_dyn.shape[-1]: {self.joint_pos_dyn.shape[-1]}"
-            assert ((self.joint_vel_kin.shape[-1] == self.num_joints) and (self.joint_vel_dyn.shape[-1] == self.num_joints))
-            assert ((self.joint_acc_kin.shape[-1] == self.num_joints) and (self.joint_acc_dyn.shape[-1] == self.num_joints))
-            assert (self.joint_centers_kin.shape[-1] == 12), f"size last dim: {self.joint_centers_kin.shape}"  # TODO: don't hardcode; fix num_joints name since really is DOFs
-            assert (self.joint_tau_dyn.shape[-1] == self.num_joints)
+            assert ((self.joint_pos_kin.shape[-1] == self.num_dofs) and (self.joint_pos_dyn.shape[-1] == self.num_dofs)), f"{len(frames)}, {num_valid_frames}, self.joint_pos_kin.shape[-1]: {self.joint_pos_kin.shape[-1]}; self.joint_pos_dyn.shape[-1]: {self.joint_pos_dyn.shape[-1]}"
+            assert ((self.joint_vel_kin.shape[-1] == self.num_dofs) and (self.joint_vel_dyn.shape[-1] == self.num_dofs))
+            assert ((self.joint_acc_kin.shape[-1] == self.num_dofs) and (self.joint_acc_dyn.shape[-1] == self.num_dofs))
+            assert (self.joint_centers_kin.shape[-1] == self.num_joints), f"size last dim: {self.joint_centers_kin.shape}"
+            assert (self.joint_tau_dyn.shape[-1] == self.num_dofs)
             assert ((self.com_pos_kin.shape[-1] == 3) and (self.com_pos_dyn.shape[-1] == 3))
             assert ((self.com_vel_kin.shape[-1] == 3) and (self.com_vel_dyn.shape[-1] == 3))
             assert ((self.com_acc_kin.shape[-1] == 3) and (self.com_acc_dyn.shape[-1] == 3))
@@ -990,10 +994,6 @@ class Trial:
             # Check the number of valid frames
             assert (self.num_valid_frames == self.joint_pos_kin.shape[0])  # first dim
             assert (self.num_valid_frames <= len(frames))
-
-            # Offset gravity in y direction for COM acc
-            self.com_acc_kin[:, 1] += 9.81
-            self.com_acc_dyn[:, 1] += 9.81
 
             # Compute total GRF from both contact bodies
             self.total_grf = self.grf[:, 0:3] + self.grf[:, 3:6]
