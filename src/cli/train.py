@@ -156,6 +156,10 @@ class TrainCommand(AbstractCommand):
                                train_dataset.num_joints,
                                model_type,
                                history_len=history_len,
+                               hidden_dims=hidden_dims,
+                               batchnorm=batchnorm,
+                               dropout=dropout,
+                               dropout_prob=dropout_prob,
                                root_history_len=root_history_len,
                                device=device)
 
