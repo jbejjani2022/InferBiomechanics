@@ -366,11 +366,6 @@ class Dataset:
             # Load the subject
             subject_on_disk = nimble.biomechanics.SubjectOnDisk(subj_path)
 
-            # Ensure only two contact bodies. TODO: skip this whole subject for now; integrate in per-trial checking later
-            if len(subject_on_disk.getGroundForceBodies()) > 2:
-                print(f"Skipping {subj_path}: too many contact bodies ({len(subject_on_disk.getGroundForceBodies())})")
-                continue
-
             # Get the subject info needed for trial processing
             num_trials = subject_on_disk.getNumTrials()
             if self.use_estimated_mass:
@@ -461,7 +456,7 @@ class Dataset:
                         omission_reasons = np.round( (trial_data.frame_omission_reasons / (len(frames)-num_valid_frames)) * 100 , 2)
                         print(f"REMOVING SOME FRAMES on trial {trial + 1}: "
                               f"num_valid_frames: {num_valid_frames} vs. total num frames: {len(frames)} vs. num_grf_frames: {num_grf_frames}")
-                        print(f"omission reasons: kin missing ({omission_reasons[0]}), dyn missing ({omission_reasons[1]}), grf labels ({omission_reasons[2]})")
+                        print(f"omission reasons: kin missing ({omission_reasons[0]}%), dyn missing ({omission_reasons[1]}%), grf labels ({omission_reasons[2]}%), not two contacts bodies ({omission_reasons[3]}%)")
 
                     # We broke out of this iteration of trial looping if skipping trials due to reasons above;
                     # otherwise, increment number of valid trials for each subject and for totals
@@ -505,76 +500,76 @@ class Dataset:
 
                         # Activity classification plot
                         trial_time = num_valid_frames * subject_on_disk.getTrialTimestep(trial) / 60  # convert to time (minutes)
-                        self.coarse_activity_type_dict[trial_data.motion_class.split('_')[0]] = self.coarse_activity_type_dict[trial_data.motion_class.split('_')[0]] + trial_time
+                        self.coarse_activity_type_dict[trial_data.coarse_motion_class] = self.coarse_activity_type_dict[trial_data.coarse_motion_class] + trial_time
 
                     if self.output_scatterplots:
                         assert (self.num_dofs == trial_data.num_dofs),  f"self.num_dofs: {self.num_dofs}; trial_data.num_dofs: {trial_data.num_dofs}"  # check what we assume from std skel matches data
                         # joint accelerations vs. vertical component of COM acc
                         self.jointacc_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
                         # joint accelerations vs. vertical component of total GRF
                         self.jointacc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
                         # joint accelerations vs. contact classification of first listed contact body
                         self.jointacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                         trial_data.motion_class, scatter_colors_dict, "biserial", scale_x=False)
+                                                                         trial_data.coarse_motion_class, scatter_colors_dict, "biserial", scale_x=False)
                         # joint accelerations vs. vertical component of GRF distribution on first listed contact body
                         self.jointacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                      trial_data.motion_class, scatter_colors_dict, "pearson", scale_x=False)
+                                                                      trial_data.coarse_motion_class, scatter_colors_dict, "pearson", scale_x=False)
 
                         # joint positions vs. vertical component of COM acc
                         self.jointpos_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
                         # joint positions vs. vertical component of total GRF
                         self.jointpos_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
                         # joint positions vs. contact classification of first listed contact body
                         self.jointpos_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                         trial_data.motion_class, scatter_colors_dict, "biserial", scale_x=False)
+                                                                         trial_data.coarse_motion_class, scatter_colors_dict, "biserial", scale_x=False)
                         # joint positions vs. vertical component of GRF distribution on first listed contact body
                         self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                      trial_data.motion_class, scatter_colors_dict, "pearson", scale_x=False)
+                                                                      trial_data.coarse_motion_class, scatter_colors_dict, "pearson", scale_x=False)
 
                         # joint torques vs. vertical component of COM acc
                         self.jointtau_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
                         # joint torques vs. vertical component of total GRF
                         self.jointtau_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
                         # joint torques vs. contact classification of first listed contact body
                         self.jointtau_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                         trial_data.motion_class, scatter_colors_dict, "biserial", scale_x=False)
+                                                                         trial_data.coarse_motion_class, scatter_colors_dict, "biserial", scale_x=False)
                         # joint torques vs. vertical component of GRF distribution on first listed contact body
                         self.jointtau_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                      trial_data.motion_class, scatter_colors_dict, "pearson", scale_x=False)
+                                                                      trial_data.coarse_motion_class, scatter_colors_dict, "pearson", scale_x=False)
 
                         # # COM acc vs tot GRF
                         self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[::self.downsample_size, 0], trial_data.com_acc_dyn[::self.downsample_size, 0].reshape(-1,1),
-                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
                         self.comacc_vs_totgrf_y_plots.update_plots(trial_data.total_grf[::self.downsample_size,1], trial_data.com_acc_dyn[::self.downsample_size,1].reshape(-1,1),
-                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
                         self.comacc_vs_totgrf_z_plots.update_plots(trial_data.total_grf[::self.downsample_size,2], trial_data.com_acc_dyn[::self.downsample_size,2].reshape(-1,1),
-                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
 
                         # COM acc y vs contact and dist y
                         self.comacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.com_acc_dyn[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.motion_class, scatter_colors_dict, "biserial", scale_x=False)
+                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "biserial", scale_x=False)
                         self.comacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.com_acc_dyn[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.motion_class, scatter_colors_dict, "pearson", scale_x=False)
+                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "pearson", scale_x=False)
 
                         # Joint center positions in root frame vs tot GRF in y direction
                         self.jointcenters_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_centers_kin[::self.downsample_size],
-                                                                       trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
 
                         # Linear and angular velocities and accelerations vs. tot GRF in y direction
                         self.root_lin_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_lin_vel_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
                         self.root_ang_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_ang_vel_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
                         self.root_lin_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_lin_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
                         self.root_ang_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_ang_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.motion_class, scatter_colors_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
 
                     if self.output_errvfreq:
                         grf_err_v_freq = self.compute_err_v_freq(order=2, dt=subject_on_disk.getTrialTimestep(0),
@@ -893,13 +888,14 @@ class Trial:
 
         # Store the activity classification
         self.motion_class = motion_class
+        self.coarse_motion_class = motion_class.split('_')[0]
 
         # Get the num of DOFs and joints
         self.num_dofs = len(frames[0].processingPasses[0].pos)  # get the number of dofs
         self.num_joints = int(len(frames[0].processingPasses[0].jointCentersInRootFrame) / 3) # get the number of joints; divide by 3 since 3 coor values per joint
 
         # Tally reasons of frame omissions
-        self.frame_omission_reasons: ndarray = np.array([0, 0, 0])  # kin_processed / dyn_processed / not_missing_grf
+        self.frame_omission_reasons: ndarray = np.array([0, 0, 0, 0])  # kin_processed / dyn_processed / not_missing_grf
 
         # # INIT ARRAYS FOR STORAGE # #
         # From kinematics processing pass
@@ -947,6 +943,9 @@ class Trial:
             if frame.missingGRFReason != nimble.biomechanics.MissingGRFReason.manualReview:  # manual review means flagged as bad
                 num_grf_frames += 1
 
+            # Check that there is only two contact bodies
+            two_contacts = 1 if len(frame.processingPasses[0].groundContactForce) == 6 else 0
+
             # Only use frames that are confidently not missing GRF
             not_missing_grf = 1 if frame.missingGRFReason == nimble.biomechanics.MissingGRFReason.notMissingGRF else 0
 
@@ -961,7 +960,7 @@ class Trial:
                     dyn_processed = 1
                     dyn_pass_ix = j  # store the processing pass index corresponding to the dynamics pass
 
-            if kin_processed and dyn_processed and not_missing_grf:  # store the data
+            if kin_processed and dyn_processed and not_missing_grf and two_contacts:  # store the data
                 num_valid_frames += 1
                 # From kinematics processing pass
                 self.joint_pos_kin.append(frame.processingPasses[kin_pass_ix].pos)
@@ -1006,6 +1005,8 @@ class Trial:
                     self.frame_omission_reasons[1] += 1
                 if not not_missing_grf:
                     self.frame_omission_reasons[2] += 1
+                if not two_contacts:
+                    self.frame_omission_reasons[3] += 1
 
         # Store the number of frames marked OK by manual review
         self.num_grf_frames = num_grf_frames
