@@ -285,9 +285,20 @@ class Dataset:
                       "lumbar_extension", "lumbar_bending", "lumbar_rotation"]
 
             # Set up plotting color schemes  # TODO: change color scheme, based on activity classification
-            color = "black"
-            walking_color = "blueviolet"
-            running_color = "green"
+            scatter_colors_dict = {
+                                    'unknown': '#377eb8',
+                                    'other': '#ff7f00',
+                                    'bad': '#4daf4a',
+                                    'walking': '#f781bf',
+                                    'running': '#a65628',
+                                    'sit-to-stand': '#984ea3',
+                                    'stairs': '#999999',
+                                    'jump': '#e41a1c',
+                                    'squat': '#A6CEE3',
+                                    'lunge': '#FFD92F',
+                                    'standing': '#B3DE69',
+                                    'transition': '#C377E0'
+                                    }
 
             self.jointacc_vs_comacc_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
                                                          num_plots=self.num_dofs, labels=dof_names)
@@ -500,70 +511,70 @@ class Dataset:
                         assert (self.num_dofs == trial_data.num_dofs),  f"self.num_dofs: {self.num_dofs}; trial_data.num_dofs: {trial_data.num_dofs}"  # check what we assume from std skel matches data
                         # joint accelerations vs. vertical component of COM acc
                         self.jointacc_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                   color, "pearson")
+                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
                         # joint accelerations vs. vertical component of total GRF
                         self.jointacc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                   color, "pearson")
+                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
                         # joint accelerations vs. contact classification of first listed contact body
                         self.jointacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                         color, "biserial", scale_x=False)
+                                                                         trial_data.motion_class, scatter_colors_dict, "biserial", scale_x=False)
                         # joint accelerations vs. vertical component of GRF distribution on first listed contact body
                         self.jointacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                      color, "pearson", scale_x=False)
+                                                                      trial_data.motion_class, scatter_colors_dict, "pearson", scale_x=False)
 
                         # joint positions vs. vertical component of COM acc
                         self.jointpos_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                   color, "pearson")
+                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
                         # joint positions vs. vertical component of total GRF
                         self.jointpos_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                   color, "pearson")
+                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
                         # joint positions vs. contact classification of first listed contact body
                         self.jointpos_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                         color, "biserial", scale_x=False)
+                                                                         trial_data.motion_class, scatter_colors_dict, "biserial", scale_x=False)
                         # joint positions vs. vertical component of GRF distribution on first listed contact body
                         self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                      color, "pearson", scale_x=False)
+                                                                      trial_data.motion_class, scatter_colors_dict, "pearson", scale_x=False)
 
                         # joint torques vs. vertical component of COM acc
                         self.jointtau_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                   color, "pearson")
+                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
                         # joint torques vs. vertical component of total GRF
                         self.jointtau_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                   color, "pearson")
+                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
                         # joint torques vs. contact classification of first listed contact body
                         self.jointtau_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                         color, "biserial", scale_x=False)
+                                                                         trial_data.motion_class, scatter_colors_dict, "biserial", scale_x=False)
                         # joint torques vs. vertical component of GRF distribution on first listed contact body
                         self.jointtau_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                      color, "pearson", scale_x=False)
+                                                                      trial_data.motion_class, scatter_colors_dict, "pearson", scale_x=False)
 
                         # # COM acc vs tot GRF
                         self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[::self.downsample_size, 0], trial_data.com_acc_dyn[::self.downsample_size, 0].reshape(-1,1),
-                                                                   color, "pearson")
+                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
                         self.comacc_vs_totgrf_y_plots.update_plots(trial_data.total_grf[::self.downsample_size,1], trial_data.com_acc_dyn[::self.downsample_size,1].reshape(-1,1),
-                                                                   color, "pearson")
+                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
                         self.comacc_vs_totgrf_z_plots.update_plots(trial_data.total_grf[::self.downsample_size,2], trial_data.com_acc_dyn[::self.downsample_size,2].reshape(-1,1),
-                                                                   color, "pearson")
+                                                                   trial_data.motion_class, scatter_colors_dict, "pearson")
 
                         # COM acc y vs contact and dist y
                         self.comacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.com_acc_dyn[::self.downsample_size,1].reshape(-1,1),
-                                                                       color, "biserial", scale_x=False)
+                                                                       trial_data.motion_class, scatter_colors_dict, "biserial", scale_x=False)
                         self.comacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.com_acc_dyn[::self.downsample_size,1].reshape(-1,1),
-                                                                       color, "pearson", scale_x=False)
+                                                                       trial_data.motion_class, scatter_colors_dict, "pearson", scale_x=False)
 
                         # Joint center positions in root frame vs tot GRF in y direction
                         self.jointcenters_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_centers_kin[::self.downsample_size],
-                                                                       color, "pearson")
+                                                                       trial_data.motion_class, scatter_colors_dict, "pearson")
 
                         # Linear and angular velocities and accelerations vs. tot GRF in y direction
                         self.root_lin_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_lin_vel_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       color, "pearson")
+                                                                       trial_data.motion_class, scatter_colors_dict, "pearson")
                         self.root_ang_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_ang_vel_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       color, "pearson")
+                                                                       trial_data.motion_class, scatter_colors_dict, "pearson")
                         self.root_lin_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_lin_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       color, "pearson")
+                                                                       trial_data.motion_class, scatter_colors_dict, "pearson")
                         self.root_ang_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_ang_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       color, "pearson")
+                                                                       trial_data.motion_class, scatter_colors_dict, "pearson")
 
                     if self.output_errvfreq:
                         grf_err_v_freq = self.compute_err_v_freq(order=2, dt=subject_on_disk.getTrialTimestep(0),
@@ -1094,7 +1105,7 @@ class ScatterPlotMatrix:
         self.fig, self.axs = plt.subplots(num_rows, num_cols, figsize=(24, 24), constrained_layout=True)
         self.corrs: ndarray = np.zeros(num_plots)  # aggregate correlation coefficients
 
-    def update_plots(self, x: ndarray, y: ndarray, color: str, corr_type: str, scale_x: bool = True, scale_y: bool = True):
+    def update_plots(self, x: ndarray, y: ndarray, motion_class: str, colors: dict, corr_type: str, scale_x: bool = True, scale_y: bool = True):
         for i in range(self.num_plots):
 
             # Standardize the vars
@@ -1129,7 +1140,7 @@ class ScatterPlotMatrix:
                 ax = self.axs
             else:
                 ax = self.axs[row, col]
-            ax.scatter(x_scaled, y_scaled, s=0.5, alpha=0.25, color=color)
+            ax.scatter(x_scaled, y_scaled, s=0.5, alpha=0.25, color=colors[motion_class])
             ax.set_box_aspect(1)  # for formatting
 
     def save_plot(self, plots_outdir: str, outname: str, num_trials: int):
