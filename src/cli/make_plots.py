@@ -20,6 +20,7 @@ class MakePlotsCommand(AbstractCommand):
     def register_subcommand(self, subparsers: argparse._SubParsersAction):
         subparser = subparsers.add_parser('make-plots', help='Make summary plots and metrics on entire dataset.')
         subparser.add_argument('--data-path', type=str, help='Root path to all data files.')
+        subparser.add_argument('--datasets', type=str, nargs='+', default=[""], help='List of individual dataset names in aggregated dataset')
         subparser.add_argument('--class-path', type=str, help='Root path dir containing folders for motion classification.')
         subparser.add_argument('--class-datasets', type=str, nargs='+', default=["none"], help='List of dataset names for which their is classification data.')
         subparser.add_argument('--out-path', type=str, default='../figures', help='Path to output plots to.')
@@ -67,8 +68,9 @@ class MakePlotsCommand(AbstractCommand):
         if dataset.output_trialmetrics:
             dataset.print_trial_metrics()
 
-        # Print how many total subjects and trials processed
+        # Print how many total subjects and trials processed, and hours of data per dataset
         dataset.print_totals()
+        dataset.print_dataset_hours()
 
 
 # # # HELPERS # # #
@@ -106,6 +108,7 @@ class Dataset:
 
         # Argparse args
         self.data_dir: str = args.data_path
+        self.dataset_names: List[str] = [name for name in args.datasets if name.strip() != ""]  # safeguard against possible empty entries
         self.class_dir: str = args.class_path
         self.class_datasets: List[str] = [name for name in args.class_datasets if name.strip() != ""]  # safeguard against possible empty entries
         self.out_dir: str = os.path.abspath(args.out_path)
@@ -140,6 +143,9 @@ class Dataset:
 
         # Only prepare data for plotting once
         self.has_prepared_data_for_plots = False
+
+        # Calculate total hours per dataset
+        self.dataset_hours_dict: dict = {}
 
     def extract_data_files(self, file_type: str) -> List[str]:
         """
@@ -241,6 +247,9 @@ class Dataset:
         if self.use_estimated_mass:
             self.estimated_masses = self.estimate_masses()
 
+        # Calculate total hours per dataset; store in a dict
+        self.dataset_hours_dict = {key: {'total': 0.0, 'grf': 0.0, 'opt': 0.0} for key in self.dataset_names}
+
         if self.output_histograms:
             # INIT STORAGE
             # Subject-specific
@@ -273,9 +282,8 @@ class Dataset:
                       "knee_angle_l", "ankle_angle_l", "subtalar_angle_l", "mtp_angle_l",
                       "lumbar_extension", "lumbar_bending", "lumbar_rotation"]
 
-            # Set up plotting color schemes
-            if self.output_scatterplots:  # TODO: change color scheme
-                color = "black"
+            # Set up plotting color schemes  # TODO: change color scheme, based on activity classification
+            color = "black"
             walking_color = "blueviolet"
             running_color = "green"
 
@@ -366,9 +374,9 @@ class Dataset:
             else:
                 raise ValueError("Could not parse subject ID.")
 
-            dataset_name = next((name for name in self.class_datasets if name in subj_path), "")
-            if len(dataset_name) > 0:
-                class_dict_path = os.path.join(self.class_dir, dataset_name, subj_id, subj_id + ".npy")
+            class_dataset_name = next((name for name in self.class_datasets if name in subj_path), "")
+            if len(class_dataset_name) > 0:
+                class_dict_path = os.path.join(self.class_dir, class_dataset_name, subj_id, subj_id + ".npy")
                 if os.path.exists(class_dict_path):
                     class_dict = np.load(class_dict_path, allow_pickle=True)
                     # Create trial name to motion class lookup
@@ -412,12 +420,18 @@ class Dataset:
                         trial_name = subject_on_disk.getTrialName(trial)
                         if trial_name in class_dict:
                             motion_class = class_dict[trial_name]
-                            if motion_class is None: motion_class = "unknown"  # means classification does not exist for this trial
-                        else: motion_class = "unknown"  # trial name not in dict
+                            if motion_class is None:
+                                motion_class = "unknown"  # means classification does not exist for this trial
+                                print(f"For trial {trial_name}: exists in dict but no motion class found, labeling motion class as unknown")
+                        else:
+                            motion_class = "unknown"  # trial name not in dict
+                            print(f"For trial {trial_name}: does not exist in dict, labeling motion class as unknown")
                     else:  # means no classification done yet for this subject
                         motion_class = "unknown"
+                        print(f"No dict for {subj_path}")
                     trial_data = Trial(frames, motion_class)
                     num_valid_frames = trial_data.num_valid_frames
+                    num_grf_frames = trial_data.num_grf_frames
 
                     # Additional checks based on results of processing frames for given trial:
                     if num_valid_frames == 0:
@@ -427,14 +441,24 @@ class Dataset:
                         print(f"SKIPPING TRIAL {trial + 1} due to no GRF at all in the valid frames")
                         continue
                     if num_valid_frames < len(frames):
+                        # Calculate percentages of frame omission reasons
+                        omission_reasons = np.round( (trial_data.frame_omission_reasons / len(frames-num_valid_frames)) * 100 , 2)
                         print(f"REMOVING SOME FRAMES on trial {trial + 1}: "
-                              f"num_valid_frames: {num_valid_frames} vs. total num frames: {len(frames)}")
+                              f"num_valid_frames: {num_valid_frames} vs. total num frames: {len(frames)} vs. num_grf_frames: {num_grf_frames}")
+                        print(f"omission reasons: kin missing ({omission_reasons[0]}), dyn missing ({omission_reasons[1]}), grf labels ({omission_reasons[2]})")
 
                     # We broke out of this iteration of trial looping if skipping trials due to reasons above;
                     # otherwise, increment number of valid trials for each subject and for totals
                     subj_num_valid_trials += 1
                     self.num_valid_trials += 1
                     self.total_num_valid_frames += num_valid_frames
+
+                    # Increment dataset hours dict
+                    dataset_name = next((name for name in self.dataset_names if name in subj_path), "")
+                    if len(dataset_name) > 0:
+                        self.dataset_hours_dict[dataset_name]['total'] += init_trial_length * subject_on_disk.getTrialTimestep(trial) / 60 / 60  # in hours
+                        self.dataset_hours_dict[dataset_name]['grf'] += num_grf_frames * subject_on_disk.getTrialTimestep(trial) / 60 / 60
+                        self.dataset_hours_dict[dataset_name]['opt'] += num_valid_frames * subject_on_disk.getTrialTimestep(trial) / 60 / 60
 
                     if self.output_histograms:
                         # Add to trial-specific storage:
@@ -540,6 +564,9 @@ class Dataset:
                                                           true=trial_data.total_grf / mass)
                         self.grf_errs_v_freq.append(grf_err_v_freq)
 
+                else:  # skipping trial due to failing at least one of initial checks:
+                    print(f"SKIPPING TRIAL due to: has_dynamics = {has_dynamics}; passes_satisfied = {passes_satisfied}; init_trial_length = {init_trial_length}")
+
             # Keep tally of number of valid trials per input subject file
             print(f"FINISHED {subj_path}: num valid trials: {subj_num_valid_trials} num trials: {num_trials}")
 
@@ -603,7 +630,7 @@ class Dataset:
         plt.xlabel('cutoff frequency (Hz)', fontsize=fontsize)
         plt.xticks(fontsize=fontsize)
         plt.yticks(fontsize=fontsize)
-        plt.legend(fontsize=fontsize)
+        if len(labels) != 0: plt.legend(fontsize=fontsize)
         plt.tight_layout()
         plt.savefig(os.path.join(self.out_dir, outname))
 
@@ -802,6 +829,12 @@ class Dataset:
         print(f"TOTAL NUM VALID TRIALS: {self.num_valid_trials}")
         print(f"TOTAL NUM VALID FRAMES: {self.total_num_valid_frames}")
 
+    def print_dataset_hours(self):
+        self.prepare_data_for_plotting()
+
+        print(f"DATASET HOURS: ")
+        print(self.dataset_hours_dict)
+
     def print_subject_metrics(self):
         """
         For small dataset testing (to make sure aggregating data correctly)
@@ -834,8 +867,12 @@ class Trial:
         # Store the activity classification
         self.motion_class = motion_class
 
+        # Get the num of DOFs and joints
         self.num_dofs = len(frames[0].processingPasses[0].pos)  # get the number of dofs
         self.num_joints = int(len(frames[0].processingPasses[0].jointCentersInRootFrame) / 3) # get the number of joints; divide by 3 since 3 coor values per joint
+
+        # Tally reasons of frame omissions
+        self.frame_omission_reasons: ndarray = np.array([0, 0, 0])  # kin_processed / dyn_processed / not_missing_grf
 
         # # INIT ARRAYS FOR STORAGE # #
         # From kinematics processing pass
@@ -876,7 +913,12 @@ class Trial:
 
         # Loop thru frames and extract data
         num_valid_frames = 0
+        num_grf_frames = 0
         for i, frame in enumerate(frames):
+
+            # Check for frames marked as fine by manual review
+            if frame.missingGRFReason != nimble.biomechanics.MissingGRFReason.manualReview:  # manual review means flagged as bad
+                num_grf_frames += 1
 
             # Only use frames that are confidently not missing GRF
             not_missing_grf = 1 if frame.missingGRFReason == nimble.biomechanics.MissingGRFReason.notMissingGRF else 0
@@ -929,6 +971,17 @@ class Trial:
                 self.cop.append(frame.processingPasses[dyn_pass_ix].groundContactCenterOfPressure)
                 self.grm.append(frame.processingPasses[dyn_pass_ix].groundContactTorque)
                 self.contact.append(frame.processingPasses[dyn_pass_ix].contact)
+
+            else:  # tally reason why frame was omitted
+                if not kin_processed:
+                    self.frame_omission_reasons[0] += 1
+                if not dyn_processed:
+                    self.frame_omission_reasons[1] += 1
+                if not not_missing_grf:
+                    self.frame_omission_reasons[2] += 1
+
+        # Store the number of frames marked OK by manual review
+        self.num_grf_frames = num_grf_frames
 
         # Store the number of valid frames
         self.num_valid_frames = num_valid_frames
