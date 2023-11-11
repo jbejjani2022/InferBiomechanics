@@ -257,7 +257,9 @@ class Dataset:
             self.sexes: List[int] = []  # TODO: change this back to string
             self.bmis: List[float] = []
             # Trial-specific
-            self.trial_lengths: List[int] = []  # num frames
+            self.trial_lengths_total: List[int] = []  # num frames
+            self.trial_lengths_grf: List[int] = []
+            self.trial_lengths_opt: List[int] = []
             self.forward_speeds: List[float] = []
             self.vertical_speeds: List[float] = []
             self.mediolat_speeds: List[float] = []
@@ -373,11 +375,14 @@ class Dataset:
                 subj_id = match.group(1)
             else:
                 raise ValueError("Could not parse subject ID.")
+            print(f"subj_id: {subj_id}")
 
             class_dataset_name = next((name for name in self.class_datasets if name in subj_path), "")
+            print(f"class_dataset_name: {class_dataset_name}")
             if len(class_dataset_name) > 0:
                 class_dict_path = os.path.join(self.class_dir, class_dataset_name, subj_id, subj_id + ".npy")
                 if os.path.exists(class_dict_path):
+                    print(f"found path: {class_dict_path}")
                     class_dict = np.load(class_dict_path, allow_pickle=True)
                     # Create trial name to motion class lookup
                     class_dict = {trial['trial_name']: trial['motion_class'] for trial in class_dict}
@@ -442,7 +447,7 @@ class Dataset:
                         continue
                     if num_valid_frames < len(frames):
                         # Calculate percentages of frame omission reasons
-                        omission_reasons = np.round( (trial_data.frame_omission_reasons / len(frames-num_valid_frames)) * 100 , 2)
+                        omission_reasons = np.round( (trial_data.frame_omission_reasons / (len(frames)-num_valid_frames)) * 100 , 2)
                         print(f"REMOVING SOME FRAMES on trial {trial + 1}: "
                               f"num_valid_frames: {num_valid_frames} vs. total num frames: {len(frames)} vs. num_grf_frames: {num_grf_frames}")
                         print(f"omission reasons: kin missing ({omission_reasons[0]}), dyn missing ({omission_reasons[1]}), grf labels ({omission_reasons[2]})")
@@ -464,7 +469,9 @@ class Dataset:
                         # Add to trial-specific storage:
 
                         # Trial lengths:
-                        self.trial_lengths.append(num_valid_frames)
+                        self.trial_lengths_total.append(init_trial_length)
+                        self.trial_lengths_grf.append(num_grf_frames)
+                        self.trial_lengths_opt.append(num_valid_frames)
 
                         # Speeds:
                         self.forward_speeds.append(np.average(np.abs(trial_data.com_vel_dyn[:, 0])))  # avg fwd speed over trial, absolute
@@ -675,18 +682,19 @@ class Dataset:
         """
         self.prepare_data_for_plotting()
 
-        ages_to_plot = self.ages[np.where(self.ages > 0)]  # exclude unknown
-        bmis_to_plot = self.bmis[np.where(self.bmis > 0)]
+        ages_filtered = self.ages[np.where(self.ages > 0)]  # exclude unknown
+        bmis_filtered = self.bmis[np.where(self.bmis > 0)]
 
-        plot_histograms(datas=[ages_to_plot], num_bins=6, colors=['#006BA4'], labels=[], edgecolor="black", alpha=1,
+        plot_histograms(datas=[self.ages], num_bins=6, colors=['#006BA4'], labels=[], edgecolor="black", alpha=1,
                         ylabel="no. of subjects", xlabel="age (years)", outdir=self.out_dir, outname="age_histo.png")
-        plot_histograms(datas=[bmis_to_plot], num_bins=6, colors=['#006BA4'], labels=[], edgecolor="black", alpha=1,
+        plot_histograms(datas=[self.bmis], num_bins=6, colors=['#006BA4'], labels=[], edgecolor="black", alpha=1,
                         ylabel="no. of subjects", xlabel="BMI (kg/$\\mathrm{m}^2$)", outdir=self.out_dir, outname="bmi_histo.png")
         # Calculate % of data with reported age and print out
-        print(f"{np.round((len(ages_to_plot) / self.num_valid_subjs), 2) * 100}% of subjects have age info.")
+        print(f"The following is from filtering to remove ages and BMIs less than zero:")
+        print(f"{np.round((len(ages_filtered) / self.num_valid_subjs), 2) * 100}% of subjects have age info.")
         # Calculate means
-        print(f"MEAN AGE: {np.mean(ages_to_plot)}")
-        print(f"MEAN BMI: {np.mean(bmis_to_plot)}")
+        print(f"MEAN AGE: {np.mean(ages_filtered)}")
+        print(f"MEAN BMI: {np.mean(bmis_filtered)}")
 
     def plot_demographics_by_sex_histograms(self):
         """
@@ -707,9 +715,9 @@ class Dataset:
 
         colors = ['#006BA4', '#FF800E', '#ABABAB']
 
-        plot_histograms(datas=[self.ages[valid_m_ix], self.ages[valid_f_ix], self.ages[valid_u_ix]], num_bins=3, colors=colors, labels=["male", "female", "unknown"],
+        plot_histograms(datas=[self.ages[m_ix], self.ages[f_ix], self.ages[u_ix]], num_bins=3, colors=colors, labels=["male", "female", "unknown"],
                         edgecolor="black", alpha=1, ylabel="no. of subjects", xlabel="age (years)", outdir=self.out_dir, outname="age_bysex_histo.png")
-        plot_histograms(datas=[self.bmis[valid_m_ix], self.bmis[valid_f_ix], self.bmis[valid_u_ix]], num_bins=3, colors=colors, labels=["male", "female", "unknown"],
+        plot_histograms(datas=[self.bmis[m_ix], self.bmis[f_ix], self.bmis[u_ix]], num_bins=3, colors=colors, labels=["male", "female", "unknown"],
                         edgecolor="black", alpha=1, ylabel="no. of subjects", xlabel="BMI (kg/$\\mathrm{m}^2$)", outdir=self.out_dir, outname="bmi_bysex_histo.png")
 
     def plot_biomechanics_metrics_histograms(self):
@@ -718,7 +726,7 @@ class Dataset:
         """
         self.prepare_data_for_plotting()
 
-        plot_histograms(datas=[self.trial_lengths], num_bins=20, colors=['#006BA4'], labels=[], edgecolor="black", alpha=1,
+        plot_histograms(datas=[self.trial_lengths_total, self.trial_lengths_grf, self.trial_lengths_opt], num_bins=8, colors=['#006BA4', '#FF800E', '#ABABAB'], labels=["total", "with GRF", "with opt"], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png', plot_log_scale=True)
         plot_histograms(datas=[self.forward_speeds, self.vertical_speeds, self.mediolat_speeds], num_bins=6, colors=['#006BA4', '#FF800E', '#ABABAB'], labels=["antero-posterior", "vertical", "mediolateral"], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='average absolute speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)  # TODO: separate btwn walking and running
@@ -832,8 +840,12 @@ class Dataset:
     def print_dataset_hours(self):
         self.prepare_data_for_plotting()
 
+        # Round the values
+        rounded_dict = {outer_key: {inner_key: round(value, 2) for inner_key, value in inner_dict.items()} for outer_key,
+                        inner_dict in self.dataset_hours_dict.items()}
+
         print(f"DATASET HOURS: ")
-        print(self.dataset_hours_dict)
+        print(rounded_dict)
 
     def print_subject_metrics(self):
         """
@@ -851,8 +863,12 @@ class Dataset:
         """
         self.prepare_data_for_plotting()
 
-        print(f"trial_lengths: {self.trial_lengths}")
-        print(f"speeds: {self.forward_speeds}")
+        print(f"trial_lengths_total: {self.trial_lengths_total}")
+        print(f"trial_lengths_grf: {self.trial_lengths_grf}")
+        print(f"trial_lengths_opt: {self.trial_lengths_opt}")
+        print(f"forward speeds: {self.forward_speeds}")
+        print(f"vertical speeds: {self.vertical_speeds}")
+        print(f"mediolat speeds: {self.mediolat_speeds}")
 
 
 class Trial:
