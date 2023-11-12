@@ -58,16 +58,16 @@ class TrainCommand(AbstractCommand):
                                help='The number of timesteps of context to show when constructing the inputs.')
         subparser.add_argument('--stride', type=int, default=5,
                                help='The number of timesteps of context to show when constructing the inputs.')
-        subparser.add_argument('--learning-rate', type=float, default=1e-2,
+        subparser.add_argument('--learning-rate', type=float, default=1e-4,
                                help='The learning rate for weight updates.')
         subparser.add_argument('--dropout', action='store_true', help='Apply dropout?')
         subparser.add_argument('--dropout-prob', type=float, default=0.5, help='Dropout prob')
-        subparser.add_argument('--hidden-dims', type=int, nargs='+', default=[512],
+        subparser.add_argument('--hidden-dims', type=int, nargs='+', default=[512, 512],
                                help='Hidden dims across different layers.')
         subparser.add_argument('--batchnorm', action='store_true', help='Apply batchnorm?')
-        subparser.add_argument('--activation', type=str, default='relu', help='Which activation func?')
+        subparser.add_argument('--activation', type=str, default='sigmoid', help='Which activation func?')
         subparser.add_argument('--epochs', type=int, default=10, help='The number of epochs to run training for.')
-        subparser.add_argument('--opt-type', type=str, default='adagrad',
+        subparser.add_argument('--opt-type', type=str, default='rmsprop',
                                help='The optimizer to use when adapting the weights of the model during training.')
         subparser.add_argument('--batch-size', type=int, default=32,
                                help='The batch size to use when training the model.')
