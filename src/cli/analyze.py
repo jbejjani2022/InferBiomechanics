@@ -136,40 +136,38 @@ class AnalyzeCommand(AbstractCommand):
                 "trial_name": f"{train_dataset.subjects[batch_subject_indices[0]].getTrialName(trial_index)}",
                 **{f'force_loss_{components[i]}': component_wise_loss_percentiles[i] for i in args.predict_grf_components}
             }
+            with open(os.path.join(checkpoint_dir, 'train_analysis.csv'), 'a') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=stats.keys())
+                writer.writerow(stats)
         loss_evaluator.print_report()
 
-        with open(os.path.join(checkpoint_dir, 'train_analysis.csv'), 'a') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=stats.keys())
-            writer.writerow(stats)
 
         # At the end of each epoch, evaluate the model on the dev set
         dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split='dev')
-        for trial_index in range(0, len(dev_dataset.trials)):
-            dataset_creation = time.time()
-            dev_dataset.prepare_data_for_subset([trial_index])
-            dev_dataloader = DataLoader(dev_dataset, batch_size=len(dev_dataset.windows), shuffle=False, num_workers=data_loading_workers)
-            dataset_creation = time.time() - dataset_creation
-            logging.info(f"Dev batch: {trial_index}/{len(dev_dataset.trials)}, {dataset_creation=}")
-        
-            with torch.no_grad():
-                for i, batch in enumerate(dev_dataloader):
-                    inputs: Dict[str, torch.Tensor]
-                    labels: Dict[str, torch.Tensor]
-                    batch_subject_indices: List[int]
-                    batch_trial_indices: List[int]
-                    inputs, labels, batch_subject_indices, batch_trial_indices = batch
-                    outputs = model(inputs)
-                    dev_loss_evaluator(inputs, outputs, labels, batch_subject_indices, batch_trial_indices, args, compute_report=True, analyze=True, plot_path_root=dev_plot_path_root)
-            
-            component_wise_loss_percentiles = np.percentile(dev_loss_evaluator.plot_ferror, 75, axis=0)
-            stats = {
-                "sub_name": f"{os.path.basename(subject_path)}",
-                "trial_name": f"{dev_dataset.subjects[batch_subject_indices[0]].getTrialName(trial_index)}",
-                **{f'force_loss_{components[i]}': component_wise_loss_percentiles[i] for i in args.predict_grf_components}
-            }
-            with open(os.path.join(checkpoint_dir, 'dev_analysis.csv'), 'a') as csvfile: 
-                writer = csv.DictWriter(csvfile, fieldnames=stats.keys())
-                writer.writerow(stats)
-            dev_loss_evaluator.print_report()
+        dev_dataloader = DataLoader(dev_dataset, batch_size=1, shuffle=False, num_workers=data_loading_workers)
+
+        with torch.no_grad():
+            for i, batch in enumerate(dev_dataloader):
+                inputs: Dict[str, torch.Tensor]
+                labels: Dict[str, torch.Tensor]
+                batch_subject_indices: List[int]
+                batch_trial_indices: List[int]
+                inputs, labels, batch_subject_indices, batch_trial_indices = batch
+                outputs = model(inputs)
+                dev_loss_evaluator(inputs, outputs, labels, batch_subject_indices, batch_trial_indices, args, compute_report=True, analyze=True, plot_path_root=dev_plot_path_root)
+                component_wise_loss_percentiles = np.percentile(dev_loss_evaluator.plot_ferror, 75, axis=0)
+                subject_index = batch_subject_indices[0]
+                trial_index = batch_trial_indices[0]
+                subject_path: str = train_dataset.subject_paths[subject_index]
+                stats = {
+                    "sub_name": f"{os.path.basename(subject_path)}",
+                    "trial_name": f"{dev_dataset.subjects[batch_subject_indices[0]].getTrialName(trial_index)}",
+                    **{f'force_loss_{components[i]}': component_wise_loss_percentiles[i] for i in args.predict_grf_components}
+                }
+                with open(os.path.join(checkpoint_dir, 'dev_analysis.csv'), 'a') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=stats.keys())
+                    writer.writerow(stats)
+        dev_loss_evaluator.print_report()
+
         return True
 

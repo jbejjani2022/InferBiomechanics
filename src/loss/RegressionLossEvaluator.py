@@ -343,8 +343,10 @@ class RegressionLossEvaluator:
         # print(report)
         wandb.log(report)
 
-    def print_report(self, args: argparse.Namespace, reset: bool = True, log_to_wandb: bool = False,
-                     compute_report: bool = False):
+    def print_report(self,
+                     args: Optional[argparse.Namespace] = None,
+                     reset: bool = True,
+                     log_to_wandb: bool = False):
 
         force_reported_metric: Optional[float] = np.mean(self.force_reported_metrics) if len(self.force_reported_metrics) > 0 else None
         moment_reported_metric: Optional[float] = np.mean(self.moment_reported_metrics) if len(self.moment_reported_metrics) > 0 else None
@@ -354,6 +356,7 @@ class RegressionLossEvaluator:
         com_acc_reported_metric: Optional[float] = np.mean(self.com_acc_reported_metrics) if len(self.com_acc_reported_metrics) > 0 else None
 
         if log_to_wandb and len(self.force_losses) > 0:
+            assert(args is not None)
             aggregate_force_loss = torch.mean(torch.vstack(self.force_losses), dim=0)
             aggregate_cop_loss = torch.mean(torch.vstack(self.cop_losses), dim=0)
             aggregate_moment_loss = torch.mean(torch.vstack(self.moment_losses), dim=0)

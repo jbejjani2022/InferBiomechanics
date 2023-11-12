@@ -219,7 +219,7 @@ class TrainCommand(AbstractCommand):
                         print('  - Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
             # Report dev loss on this epoch
             logging.info('Dev Set Evaluation: ')
-            dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb, compute_report=True)
+            dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb)
 
             print('Running Train Epoch '+str(epoch))
             for i, batch in enumerate(train_dataloader):
@@ -249,7 +249,7 @@ class TrainCommand(AbstractCommand):
 
                 if (i + 1) % 100 == 0 or i == len(train_dataloader) - 1:
                     logging.info('  - Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
-                if (i + 1) % 1000 == 0:
+                if (i + 1) % 1000 == 0 or i == len(train_dataloader) - 1:
                     train_loss_evaluator.print_report(args, reset=False)
                     model_path = f"{checkpoint_dir}/epoch_{epoch}_batch_{i}.pt"
                     if not os.path.exists(os.path.dirname(model_path)):

@@ -12,7 +12,7 @@ class CreateSplitsCommand(AbstractCommand):
 
     def register_subcommand(self, subparsers: argparse._SubParsersAction):
         subparser = subparsers.add_parser('create-splits', help='Turn a processed/ folder in train/ and dev/ splits.')
-        subparser.add_argument('--data-folder', type=str, help='The folder where the processed/ folder lives.')
+        subparser.add_argument('--data-folder', default='../data', type=str, help='The folder where the processed/ folder lives.')
 
     def run(self, args: argparse.Namespace):
         """
@@ -51,7 +51,7 @@ class CreateSplitsCommand(AbstractCommand):
                 file_name = file.split('/')[-1]
                 desired_name = dataset_name + '_' + file_name
                 print(desired_name)
-                if i >= 3 or len(dataset_files[dataset_name]) < 3:
+                if i >= 2 or len(dataset_files[dataset_name]) < 3:
                     if not os.path.exists(os.path.join(train_dir, desired_name)):
                         shutil.copy(file, os.path.join(train_dir, desired_name))
                 else:
