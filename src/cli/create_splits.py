@@ -41,10 +41,12 @@ class CreateSplitsCommand(AbstractCommand):
             for file in files:
                 file_path = os.path.join(root, file)
                 if file.endswith('.b3d'):
-                    dataset_name = file_path.split('/')[-3]
-                    if dataset_name not in dataset_files:
-                        dataset_files[dataset_name] = []
-                    dataset_files[dataset_name].append(file_path)
+                    # If the file is not empty
+                    if os.path.getsize(file_path) > 0:
+                        dataset_name = file_path.split('/')[-3]
+                        if dataset_name not in dataset_files:
+                            dataset_files[dataset_name] = []
+                        dataset_files[dataset_name].append(file_path)
 
         for dataset_name in dataset_files:
             for i, file in enumerate(sorted(dataset_files[dataset_name])):
