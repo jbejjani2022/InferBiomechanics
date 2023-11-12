@@ -158,6 +158,16 @@ class VisualizeCommand(AbstractCommand):
                     print('Results on Frame ' + str(frame) + '/' + str(num_frames))
                     loss_evaluator.print_report(args)
 
+                # subject_path = train_dataset.subject_paths[batch_subject_indices[0]]
+                # trial_index = batch_trial_indices[0]
+                # print('Subject: ' + subject_path + ', trial: ' + str(trial_index))
+
+                if output_data_format == 'all_frames':
+                    for key in outputs:
+                        outputs[key] = outputs[key][:, -1, :]
+                    for key in labels:
+                        labels[key] = labels[key][:, -1, :]
+
                 ground_forces: np.ndarray = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].numpy()
                 left_foot_force = ground_forces[0, 0:3]
                 right_foot_force = ground_forces[0, 3:6]
@@ -169,13 +179,13 @@ class VisualizeCommand(AbstractCommand):
                 predicted_forces = (left_foot_force, right_foot_force)
                 predicted_cops = (left_foot_cop, right_foot_cop)
 
-                pos_in_root_frame = np.copy(inputs[InputDataKeys.POS][0, 0, :].cpu().numpy())
+                pos_in_root_frame = np.copy(inputs[InputDataKeys.POS][0, -1, :].cpu().numpy())
                 pos_in_root_frame[0:6] = 0
                 skel.setPositions(pos_in_root_frame)
 
                 gui.nativeAPI().renderSkeleton(skel)
 
-                joint_centers = inputs[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME][0, 0, :].cpu().numpy()
+                joint_centers = inputs[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME][0, -1, :].cpu().numpy()
                 num_joints = int(len(joint_centers) / 3)
                 for j in range(num_joints):
                     gui.nativeAPI().createSphere('joint_' + str(j), [0.05, 0.05, 0.05], joint_centers[j * 3:(j + 1) * 3],

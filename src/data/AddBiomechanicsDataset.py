@@ -213,16 +213,16 @@ class AddBiomechanicsDataset(Dataset):
                 subject.getGroundForceBodies().index(body) if body in subject.getGroundForceBodies() else -1 for
                 body in self.contact_bodies]
             ground_contact_wrenches_in_root_frame: torch.Tensor = torch.row_stack([
-                torch.tensor(p.groundContactWrenchesInRootFrame, dtype=self.dtype) for p in output_passes[start_index:]
+                torch.tensor(p.groundContactWrenchesInRootFrame, dtype=self.dtype) for p in first_passes[start_index:]
             ])
             ground_contact_forces_in_root_frame: torch.Tensor = torch.row_stack([
-                torch.tensor(p.groundContactForceInRootFrame, dtype=self.dtype) for p in output_passes[start_index:]
+                torch.tensor(p.groundContactForceInRootFrame, dtype=self.dtype) for p in first_passes[start_index:]
             ])
             ground_contact_cop_in_root_frame: torch.Tensor = torch.row_stack([
-                torch.tensor(p.groundContactCenterOfPressureInRootFrame, dtype=self.dtype) for p in output_passes[start_index:]
+                torch.tensor(p.groundContactCenterOfPressureInRootFrame, dtype=self.dtype) for p in first_passes[start_index:]
             ])
             ground_contact_torque_in_root_frame: torch.Tensor = torch.row_stack([
-                torch.tensor(p.groundContactTorqueInRootFrame, dtype=self.dtype) for p in output_passes[start_index:]
+                torch.tensor(p.groundContactTorqueInRootFrame, dtype=self.dtype) for p in first_passes[start_index:]
             ])
             for i in range(len(self.contact_bodies)):
                 if contact_indices[i] >= 0:
