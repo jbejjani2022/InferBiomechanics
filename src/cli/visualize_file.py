@@ -106,12 +106,12 @@ class VisualizeFileCommand(AbstractCommand):
             output_dict: Dict[str, torch.Tensor] = model(featurized)
 
             ground_forces: np.ndarray = output_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].numpy()
-            left_foot_force = ground_forces[0, 0, 0:3]
-            right_foot_force = ground_forces[0, 0, 3:6]
+            left_foot_force = ground_forces[0, -1, 0:3]
+            right_foot_force = ground_forces[0, -1, 3:6]
 
             cops: np.ndarray = output_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME].numpy()
-            left_foot_cop = cops[0, 0, 0:3]
-            right_foot_cop = cops[0, 0, 3:6]
+            left_foot_cop = cops[0, -1, 0:3]
+            right_foot_cop = cops[0, -1, 3:6]
 
             return (left_foot_force, right_foot_force), (left_foot_cop, right_foot_cop)
 
@@ -140,7 +140,7 @@ class VisualizeFileCommand(AbstractCommand):
         print('Subject mass: ' + str(subject.getMassKg()) + "kg")
         print('Subject biological sex: ' + subject.getBiologicalSex())
         contact_bodies = subject.getGroundForceBodies()
-        model_contact_bodies = ['calcn_l', 'calcn_r']
+        model_contact_bodies = ['calcn_r', 'calcn_l']
         print('Contact bodies: ' + str(contact_bodies))
 
         # Create an instance of the model
@@ -262,7 +262,7 @@ class VisualizeFileCommand(AbstractCommand):
                                            [cop,
                                             cop + 0.2 * force],
                                            [1, 0, 0, 1],
-                                           width=[1.0, 0.2])
+                                           width=[1.0, 1.0])
 
             predicted_force_mags: List[float] = [np.linalg.norm(predicted_forces[i]) for i in range(len(predicted_forces))]
             predicted_force_mag_percentiles = [mag / sum(predicted_force_mags) for mag in predicted_force_mags]
@@ -271,15 +271,16 @@ class VisualizeFileCommand(AbstractCommand):
                 predicted_cop = root_transform.multiply(predicted_cops[force_index])
                 body_transform = body.getWorldTransform().translation()
                 predicted_cop = (predicted_cop + body_transform) / 2.0
-                if predicted_force_mag_percentiles[f] > 0.3:
-                    predicted_force = root_transform.rotation() @ predicted_forces[force_index]
-                    gui.nativeAPI().createLine('predicted_force_' + str(f),
-                                               [predicted_cop,
-                                                predicted_cop + 0.2 * predicted_force],
-                                               [0, 0, 1, 1],
-                                               width=[1.0, 0.2])
-                else:
-                    gui.nativeAPI().deleteObject('predicted_force_' + str(f))
+                # predicted_cop = body_transform
+                predicted_force = root_transform.rotation() @ predicted_forces[force_index]
+                if predicted_force_mag_percentiles[f] < 0.3:
+                    predicted_force = np.zeros(3)
+
+                gui.nativeAPI().createLine('predicted_force_' + str(f),
+                                           [predicted_cop,
+                                            predicted_cop + 0.2 * predicted_force],
+                                           [0, 0, 1, 1],
+                                           width=[1.0, 1.0])
                 force_index += 1
             advance_frame()
 
