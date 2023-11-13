@@ -69,11 +69,11 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--epochs', type=int, default=10, help='The number of epochs to run training for.')
         subparser.add_argument('--opt-type', type=str, default='rmsprop',
                                help='The optimizer to use when adapting the weights of the model during training.')
-        subparser.add_argument('--batch-size', type=int, default=32,
+        subparser.add_argument('--batch-size', type=int, default=512,
                                help='The batch size to use when training the model.')
         subparser.add_argument('--short', action='store_true',
                                help='Use very short datasets to test without loading a bunch of data.')
-        subparser.add_argument('--data-loading-workers', type=int, default=3,
+        subparser.add_argument('--data-loading-workers', type=int, default=10,
                                help='Number of separate processes to spawn to load data in parallel.')
         subparser.add_argument('--predict-grf-components', type=int, nargs='+', default=[i for i in range(6)],
                                help='Which grf components to train.')
@@ -96,7 +96,6 @@ class TrainCommand(AbstractCommand):
         history_len: int = args.history_len
         root_history_len: int = 10
         hidden_dims: List[int] = args.hidden_dims
-        activation: str = args.activation
         learning_rate: float = args.learning_rate
         epochs: int = args.epochs
         batch_size: int = args.batch_size
@@ -193,6 +192,7 @@ class TrainCommand(AbstractCommand):
 
             print(f'Evaluating Dev Set before {epoch=}')
             with torch.no_grad():
+                model.eval()  # Turn dropout off
                 for i, batch in enumerate(dev_dataloader):
                     # print(f"batch iter: {i=}")
                     inputs: Dict[str, torch.Tensor]
@@ -222,6 +222,7 @@ class TrainCommand(AbstractCommand):
             dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb)
 
             print('Running Train Epoch '+str(epoch))
+            model.train()  # Turn dropout back on
             for i, batch in enumerate(train_dataloader):
                 # print(f"batch iter: {i=}")
                 inputs: Dict[str, torch.Tensor]
