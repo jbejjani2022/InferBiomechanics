@@ -38,10 +38,10 @@ class VisualizeCommand(AbstractCommand):
                                help='The number of timesteps of context to show when constructing the inputs.')
         subparser.add_argument('--dropout', action='store_true', help='Apply dropout?')
         subparser.add_argument('--dropout-prob', type=float, default=0.5, help='Dropout prob')
-        subparser.add_argument('--hidden-dims', type=int, nargs='+', default=[512],
+        subparser.add_argument('--hidden-dims', type=int, nargs='+', default=[512, 512],
                                help='Hidden dims across different layers.')
         subparser.add_argument('--batchnorm', action='store_true', help='Apply batchnorm?')
-        subparser.add_argument('--activation', type=str, default='relu', help='Which activation func?')
+        subparser.add_argument('--activation', type=str, default='sigmoid', help='Which activation func?')
         subparser.add_argument('--batch-size', type=int, default=32,
                                help='The batch size to use when training the model.')
         subparser.add_argument('--short', action='store_true',
@@ -65,35 +65,57 @@ class VisualizeCommand(AbstractCommand):
         model_type: str = args.model_type
         checkpoint_dir: str = os.path.join(os.path.abspath(args.checkpoint_dir), model_type)
         history_len: int = args.history_len
+        root_history_len: int = 10
+        hidden_dims: List[int] = args.hidden_dims
         device: str = args.device
         short: bool = args.short
         stride: int = args.stride
+        batchnorm: bool = args.batchnorm
+        dropout: bool = args.dropout
         output_data_format: str = args.output_data_format
+        activation: str = args.activation
 
         geometry = self.ensure_geometry(args.geometry_folder)
 
         # Create an instance of the dataset
-        print('## Loading TRAIN set:')
-        train_dataset = AddBiomechanicsDataset(
-            os.path.abspath('../data/train'),
+        # print('## Loading TRAIN set:')
+        # train_dataset = AddBiomechanicsDataset(
+        #     os.path.abspath('../data/train'),
+        #     history_len,
+        #     device=torch.device(device),
+        #     geometry_folder=geometry,
+        #     testing_with_short_dataset=short,
+        #     output_data_format=output_data_format,
+        #     stride=stride)
+        print('## Loading DEV set:')
+        dev_dataset = AddBiomechanicsDataset(
+            os.path.abspath('../data/dev'),
             history_len,
             device=torch.device(device),
             geometry_folder=geometry,
             testing_with_short_dataset=short,
             output_data_format=output_data_format,
             stride=stride)
-        # print('## Loading DEV set:')
-        # dev_dataset = AddBiomechanicsDataset(
-        #     os.path.abspath('../data/dev'), history_len, device=torch.device(device), geometry_folder=geometry, testing_with_short_dataset=short)
 
         # Create an instance of the model
-        model = self.get_model(num_dofs=train_dataset.num_dofs, num_joints=train_dataset.num_joints, model_type=model_type, 
-                               history_len=history_len, stride=stride, output_data_format=output_data_format, device=device)
+        model = self.get_model(dev_dataset.num_dofs,
+                               dev_dataset.num_joints,
+                               model_type,
+                               history_len=history_len,
+                               stride=stride,
+                               hidden_dims=hidden_dims,
+                               activation=activation,
+                               batchnorm=batchnorm,
+                               dropout=dropout,
+                               dropout_prob=0.0,
+                               root_history_len=root_history_len,
+                               output_data_format=output_data_format,
+                               device=device)
         self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir)
         model.eval()
 
         # Iterate over the entire training dataset
-        loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train')
+        loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split='train')
 
         world = nimble.simulation.World()
         world.setGravity([0, -9.81, 0])
@@ -106,7 +128,7 @@ class VisualizeCommand(AbstractCommand):
 
         frame: int = 0
         playing: bool = True
-        num_frames = len(train_dataset)
+        num_frames = len(dev_dataset)
         if num_frames == 0:
             print('No frames in dataset!')
             exit(1)
@@ -133,11 +155,11 @@ class VisualizeCommand(AbstractCommand):
             with torch.no_grad():
                 nonlocal frame
                 nonlocal model
-                nonlocal train_dataset
+                nonlocal dev_dataset
 
                 inputs: Dict[str, torch.Tensor]
                 labels: Dict[str, torch.Tensor]
-                inputs, labels, batch_subject_index, trial_index = train_dataset[frame]
+                inputs, labels, batch_subject_index, trial_index = dev_dataset[frame]
                 batch_subject_indices: List[int] = [batch_subject_index]
                 batch_trial_indices: List[int] = [trial_index]
 
@@ -148,7 +170,7 @@ class VisualizeCommand(AbstractCommand):
                     labels[key] = labels[key].unsqueeze(0)
 
                 # Forward pass
-                skel_and_contact_bodies = [(train_dataset.skeletons[i], train_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices]
+                skel_and_contact_bodies = [(dev_dataset.skeletons[i], dev_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices]
                 outputs = model(inputs)
                 skel = skel_and_contact_bodies[0][0]
                 contact_bodies = skel_and_contact_bodies[0][1]
@@ -214,7 +236,7 @@ class VisualizeCommand(AbstractCommand):
                                                 cop + force],
                                                [1, 0, 0, 1])
 
-                    predicted_cop = contact_bodies[f].getWorldTransform().translation() # predicted_cops[force_index] #
+                    predicted_cop = predicted_cops[force_index] # contact_bodies[f].getWorldTransform().translation() #
                     predicted_force = predicted_forces[force_index]
                     gui.nativeAPI().createLine('predicted_force_' + str(f),
                                                [predicted_cop,
