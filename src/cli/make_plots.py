@@ -12,6 +12,8 @@ import re
 import seaborn as sns
 import time
 
+# Set a random seed for randomly selecting trials for scatter plots
+np.random.seed(42)
 
 class MakePlotsCommand(AbstractCommand):
     def __init__(self):
@@ -37,8 +39,11 @@ class MakePlotsCommand(AbstractCommand):
                                help='Whether to print subject metrics.')
         subparser.add_argument('--output-trialmetrics', action="store_true",
                                help='Whether to print trial metrics.')
-        subparser.add_argument('--short', action="store_true",
+        subparser.add_argument('--short', action='store_true',
                                help='Only use first few files of dataset.')
+        subparser.add_argument('--raw-data', action='store_true',
+                               help='Whether to use the raw files or not for all downstream processing.')
+
     def run(self, args: argparse.Namespace):
         """
         Iterate over all *.b3d files in a directory hierarchy,
@@ -119,6 +124,7 @@ class Dataset:
         self.output_subjmetrics: bool = args.output_subjmetrics
         self.output_trialmetrics: bool = args.output_trialmetrics
         self.short: bool = args.short
+        self.raw_data: bool = args.raw_data
 
         # Aggregate paths to subject data files
         self.subj_paths: List[str] = self.extract_data_files(file_type="b3d")
@@ -127,7 +133,7 @@ class Dataset:
 
         # Constants and processing settings
         self.num_dofs: int = 23  # hard-coded for std skel
-        self.min_trial_length: int = 15  # don't process trials shorter than this TODO: put into AddB segmenting pipeline
+        self.min_trial_length: int = 1  # don't process trials shorter than this TODO: put into AddB segmenting pipeline
         self.require_same_processing_passes = False  # only process trials with all the same processing passes; however, we will always require a dynamics pass and look for it.
         self.target_processing_passes = {nimble.biomechanics.ProcessingPassType.KINEMATICS,
                                          nimble.biomechanics.ProcessingPassType.LOW_PASS_FILTER,
@@ -149,14 +155,25 @@ class Dataset:
 
     def extract_data_files(self, file_type: str) -> List[str]:
         """
-        Recursively find files of the specified data type and aggregate their full paths.
+        Find files of the specified data type and aggregate their full paths.
         """
         subject_paths: List[str] = []
-        for root, _, files in os.walk(self.data_dir):
-            for file in files:
-                if file.endswith(file_type):
-                    path = os.path.join(root, file)
-                    subject_paths.append(path)
+        if self.raw_data:
+            for dataset in self.dataset_names:
+                dataset_path = os.path.join(self.data_dir, dataset, "b3d_no_arm")
+                for root, _, files in os.walk(dataset_path):
+                    for file in files:
+                        if file.endswith(file_type):
+                            path = os.path.join(root, file)
+                            if not os.path.basename(path).startswith('.'):
+                                subject_paths.append(path)  # do not use hidden files
+        else:  # use processed files
+            for root, _, files in os.walk(self.data_dir):
+                for file in files:
+                    if file.endswith(file_type):
+                        path = os.path.join(root, file)
+                        if not os.path.basename(path).startswith('.'):
+                            subject_paths.append(path)
         return subject_paths
 
     def estimate_masses(self) -> dict:
@@ -271,7 +288,7 @@ class Dataset:
                                               'running': 0.0, 'sit-to-stand': 0.0, 'stairs': 0.0, 'jump': 0.0,
                                               'squat': 0.0, 'lunge': 0.0, 'standing': 0.0, 'transition': 0.0}
 
-        if self.output_scatterplots:
+        if (not self.raw_data) and self.output_scatterplots:
             # Init scatter plots matrices
             joint_names = ['ankle_l', 'ankle_r', 'back', 'ground_pelvis', 'hip_l', 'hip_r', 'mtp_l', 'mtp_r',
                            'subtalar_l', 'subtalar_r', 'walker_knee_l', 'walker_knee_r']
@@ -284,72 +301,106 @@ class Dataset:
                       "knee_angle_l", "ankle_angle_l", "subtalar_angle_l", "mtp_angle_l",
                       "lumbar_extension", "lumbar_bending", "lumbar_rotation"]
 
-            # Set up plotting color schemes  # TODO: change color scheme, based on activity classification
-            scatter_colors_dict = {
-                                    'unknown': '#377eb8',
-                                    'other': '#ff7f00',
-                                    'bad': '#4daf4a',
-                                    'walking': '#f781bf',
-                                    'running': '#a65628',
-                                    'sit-to-stand': '#984ea3',
-                                    'stairs': '#999999',
-                                    'jump': '#e41a1c',
-                                    'squat': '#A6CEE3',
-                                    'lunge': '#FFD92F',
-                                    'standing': '#B3DE69',
-                                    'transition': '#C377E0'
+            # Set up plotting settings
+            scatter_settings_dict = {
+                                    'unknown': {'color': '#FFD92F', 'marker': '|'},
+                                    'other': {'color': '#A6CEE3', 'marker': '_'},
+                                    'bad': {'color': '#B3DE69', 'marker': '^'},
+                                    'walking': {'color': '#f781bf', 'marker': 'D'},
+                                    'running': {'color': '#a65628', 'marker': 'p'},
+                                    'sit-to-stand': {'color': '#984ea3', 'marker': '*'},
+                                    'stairs': {'color': '#999999', 'marker': 'H'},
+                                    'jump': {'color': '#e41a1c', 'marker': '+'},
+                                    'squat': {'color': '#ff7f00', 'marker': 'x'},
+                                    'lunge': {'color': '#377eb8', 'marker': 'o'},
+                                    'standing': {'color': '#4daf4a', 'marker': 's'},
+                                    'transition': {'color': '#C377E0', 'marker': '.'}
                                     }
 
-            self.jointacc_vs_comacc_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
+            # Set the number of trials you want to plot in the scatters for each motion type.
+            # Trials will be randomly selected until reaching these values.
+            scatter_threshold = 0.6  # threshold for probability of randomly selecting a trial
+            scatter_trials_target_dict = {
+                                        'unknown': 0,
+                                        'other': 0,
+                                        'bad': 0,
+                                        'walking': 2,
+                                        'running': 2,
+                                        'sit-to-stand': 2,
+                                        'stairs': 2,
+                                        'jump': 2,
+                                        'squat': 2,
+                                        'lunge': 2,
+                                        'standing': 2,
+                                        'transition': 2
+                                        }
+            scatter_trials_counter_dict = {
+                                        'unknown': 0,
+                                        'other': 0,
+                                        'bad': 0,
+                                        'walking': 0,
+                                        'running': 0,
+                                        'sit-to-stand': 0,
+                                        'stairs': 0,
+                                        'jump': 0,
+                                        'squat': 0,
+                                        'lunge': 0,
+                                        'standing': 0,
+                                        'transition': 0
+                                    }
+
+            self.jointacc_vs_comacc_plots = ScatterPlots(num_rows=6, num_cols=4,
                                                          num_plots=self.num_dofs, labels=dof_names)
-            self.jointacc_vs_totgrf_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
+            self.jointacc_vs_totgrf_plots = ScatterPlots(num_rows=6, num_cols=4,
                                                          num_plots=self.num_dofs, labels=dof_names)
-            self.jointacc_vs_firstcontact_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
+            self.jointacc_vs_firstcontact_plots = ScatterPlots(num_rows=6, num_cols=4,
                                                               num_plots=self.num_dofs, labels=dof_names)
-            self.jointacc_vs_firstdist_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
+            self.jointacc_vs_firstdist_plots = ScatterPlots(num_rows=6, num_cols=4,
                                                               num_plots=self.num_dofs, labels=dof_names)
 
-            self.jointpos_vs_comacc_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
+            self.jointpos_vs_comacc_plots = ScatterPlots(num_rows=6, num_cols=4,
                                                          num_plots=self.num_dofs, labels=dof_names)
-            self.jointpos_vs_totgrf_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
+            self.jointpos_vs_totgrf_plots = ScatterPlots(num_rows=6, num_cols=4,
                                                          num_plots=self.num_dofs, labels=dof_names)
-            self.jointpos_vs_firstcontact_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
+            self.jointpos_vs_firstcontact_plots = ScatterPlots(num_rows=6, num_cols=4,
                                                               num_plots=self.num_dofs, labels=dof_names)
-            self.jointpos_vs_firstdist_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
+            self.jointpos_vs_firstdist_plots = ScatterPlots(num_rows=6, num_cols=4,
                                                               num_plots=self.num_dofs, labels=dof_names)
-
-            self.jointtau_vs_comacc_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=dof_names)
-            self.jointtau_vs_totgrf_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                         num_plots=self.num_dofs, labels=dof_names)
-            self.jointtau_vs_firstcontact_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
-                                                              num_plots=self.num_dofs, labels=dof_names)
-            self.jointtau_vs_firstdist_plots = ScatterPlotMatrix(num_rows=6, num_cols=4,
+            self.jointpos_vs_totgrf_norm_plots = ScatterPlots(num_rows=6, num_cols=4,
                                                               num_plots=self.num_dofs, labels=dof_names)
 
-            self.comacc_vs_totgrf_x_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-                                                              num_plots=1, labels=[""])
-            self.comacc_vs_totgrf_y_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-                                                              num_plots=1, labels=[""])
-            self.comacc_vs_totgrf_z_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-                                                              num_plots=1, labels=[""])
+            self.jointtau_vs_comacc_plots = ScatterPlots(num_rows=6, num_cols=4,
+                                                         num_plots=self.num_dofs, labels=dof_names)
+            self.jointtau_vs_totgrf_plots = ScatterPlots(num_rows=6, num_cols=4,
+                                                         num_plots=self.num_dofs, labels=dof_names)
+            self.jointtau_vs_firstcontact_plots = ScatterPlots(num_rows=6, num_cols=4,
+                                                              num_plots=self.num_dofs, labels=dof_names)
+            self.jointtau_vs_firstdist_plots = ScatterPlots(num_rows=6, num_cols=4,
+                                                              num_plots=self.num_dofs, labels=dof_names)
 
-            self.comacc_vs_firstcontact_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-                                                              num_plots=1, labels=[""])
-            self.comacc_vs_firstdist_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-                                                              num_plots=1, labels=[""])
+            self.comacc_vs_totgrf_x_plots = ScatterPlots(num_rows=1, num_cols=1,
+                                                              num_plots=1, labels=[""], use_subplots=False)
+            self.comacc_vs_totgrf_y_plots = ScatterPlots(num_rows=1, num_cols=1,
+                                                              num_plots=1, labels=[""], use_subplots=False)
+            self.comacc_vs_totgrf_z_plots = ScatterPlots(num_rows=1, num_cols=1,
+                                                              num_plots=1, labels=[""], use_subplots=False)
 
-            self.jointcenters_vs_totgrf_plots = ScatterPlotMatrix(num_rows=4, num_cols=3,
+            self.comacc_vs_firstcontact_plots = ScatterPlots(num_rows=1, num_cols=1,
+                                                              num_plots=1, labels=[""], use_subplots=False)
+            self.comacc_vs_firstdist_plots = ScatterPlots(num_rows=1, num_cols=1,
+                                                              num_plots=1, labels=[""], use_subplots=False)
+
+            self.jointcenters_vs_totgrf_plots = ScatterPlots(num_rows=4, num_cols=3,
                                                               num_plots=len(joint_names), labels=joint_names)
 
-            self.root_lin_vel_vs_totgrf_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-                                                              num_plots=1, labels=[""])  # y component for now
-            self.root_ang_vel_vs_totgrf_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-                                                                  num_plots=1, labels=[""])
-            self.root_lin_acc_vs_totgrf_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-                                                                  num_plots=1, labels=[""])
-            self.root_ang_acc_vs_totgrf_plots = ScatterPlotMatrix(num_rows=1, num_cols=1,
-                                                                  num_plots=1, labels=[""])
+            self.root_lin_vel_vs_totgrf_plots = ScatterPlots(num_rows=1, num_cols=1,
+                                                              num_plots=1, labels=[""], use_subplots=False)
+            self.root_ang_vel_vs_totgrf_plots = ScatterPlots(num_rows=1, num_cols=1,
+                                                                  num_plots=1, labels=[""], use_subplots=False)
+            self.root_lin_acc_vs_totgrf_plots = ScatterPlots(num_rows=1, num_cols=1,
+                                                                  num_plots=1, labels=[""], use_subplots=False)
+            self.root_ang_acc_vs_totgrf_plots = ScatterPlots(num_rows=1, num_cols=1,
+                                                                  num_plots=1, labels=[""], use_subplots=False)
 
         if self.output_errvfreq:
             self.grf_errs_v_freq: List[List[float]] = []
@@ -361,7 +412,7 @@ class Dataset:
         self.total_num_valid_frames = 0  # keep track of total number of valid frames
         for subj_ix, subj_path in enumerate(self.subj_paths):
 
-            print(f"Processing subject file: {subj_path}...")
+            print(f"Processing subject file: {subj_path}... (Subject {subj_ix+1} of {len(self.subj_paths)})")
 
             # Load the subject
             subject_on_disk = nimble.biomechanics.SubjectOnDisk(subj_path)
@@ -375,42 +426,57 @@ class Dataset:
 
             # Load classification info if it exists
             # Get subject ID / name
-            pattern = re.compile(r'no_arm_(.*?)\.b3d', re.IGNORECASE)
-            match = re.search(pattern, subj_path)
-            if match:
-                subj_id = match.group(1)
+            if self.raw_data:
+                basename = os.path.basename(subj_path)
+                subj_id, _ = os.path.splitext(basename)
+                if len(subj_id) == 0:
+                    raise ValueError("Could not parse subject ID.")
             else:
-                raise ValueError("Could not parse subject ID.")
-            print(f"subj_id: {subj_id}")
+                pattern = re.compile(r'no_arm_(.*?)\.b3d', re.IGNORECASE)
+                match = re.search(pattern, subj_path)
+                if match:
+                    subj_id = match.group(1)
+                else:
+                    raise ValueError("Could not parse subject ID.")
+            # print(f"subj_id: {subj_id}")
 
             class_dataset_name = next((name for name in self.class_datasets if name in subj_path), "")
-            print(f"class_dataset_name: {class_dataset_name}")
             if len(class_dataset_name) > 0:
                 class_dict_path = os.path.join(self.class_dir, class_dataset_name, subj_id, subj_id + ".npy")
                 if os.path.exists(class_dict_path):
-                    print(f"found path: {class_dict_path}")
                     class_dict = np.load(class_dict_path, allow_pickle=True)
                     # Create trial name to motion class lookup
                     class_dict = {trial['trial_name']: trial['motion_class'] for trial in class_dict}
                 else:  # does not exist for subject
                     class_dict = {}
+                    print(f"Did not find class dict for subject {subj_path}")
             else:  # does not exist for dataset
                 class_dict = {}
+                print(f"Did not find class dict for current dataset")
 
             # Keep track of number of valid trials for this subject
             subj_num_valid_trials = 0
 
             # Loop through all trials for each subject:
             for trial in range(num_trials):
+
+                # if self.output_scatterplots:  # get probability of selecting this trial
+                #     prob = np.random.rand()
+                #     if prob < scatter_threshold:
+                #         continue  # skip processing
+
                 init_trial_length = subject_on_disk.getTrialLength(trial)
 
                 # Do a series of checks to see if okay to process this trial
-                has_dynamics = False
                 processing_passes = set()
-                for pass_ix in range(subject_on_disk.getTrialNumProcessingPasses(trial)):
-                    processing_passes.add(subject_on_disk.getProcessingPassType(pass_ix))
-                    if subject_on_disk.getProcessingPassType(pass_ix) == nimble.biomechanics.ProcessingPassType.DYNAMICS:
-                        has_dynamics = True
+                if self.raw_data:  # we don't care about dynamics in the raw dataset
+                    dynamics_satisfied = True
+                else:
+                    dynamics_satisfied = False
+                    for pass_ix in range(subject_on_disk.getTrialNumProcessingPasses(trial)):
+                        processing_passes.add(subject_on_disk.getProcessingPassType(pass_ix))
+                        if subject_on_disk.getProcessingPassType(pass_ix) == nimble.biomechanics.ProcessingPassType.DYNAMICS:
+                            dynamics_satisfied = True
 
                 if self.require_same_processing_passes:
                     if processing_passes == self.target_processing_passes:
@@ -421,9 +487,9 @@ class Dataset:
                     passes_satisfied = True
 
                 # We can process if these are all true:
-                if has_dynamics and passes_satisfied and (init_trial_length >= self.min_trial_length):
+                if dynamics_satisfied and passes_satisfied and (init_trial_length >= self.min_trial_length):
 
-                    print(f"Processing trial {trial + 1} of {num_trials}... (Subject {subj_ix+1} of {len(self.subj_paths)})")
+                    #print(f"Processing trial {trial + 1} of {num_trials}... (Subject {subj_ix+1} of {len(self.subj_paths)})")
                     frames = subject_on_disk.readFrames(trial=trial, startFrame=0, numFramesToRead=init_trial_length)
 
                     # Create Trial instance and store the motion classification if it exists
@@ -439,24 +505,34 @@ class Dataset:
                             print(f"For trial {trial_name}: does not exist in dict, labeling motion class as unknown")
                     else:  # means no classification done yet for this subject
                         motion_class = "unknown"
-                        print(f"No dict for {subj_path}")
-                    trial_data = Trial(frames, motion_class)
-                    num_valid_frames = trial_data.num_valid_frames
+                        #print(f"No dict for {subj_path}")
+                    if self.raw_data:
+                        trial_data = TrialRaw(frames, motion_class)
+                        if trial_data.missingPasses:
+                            print(f"SKIPPING TRIAL {trial + 1}: no processing passes!")
+                            continue
+                        assert (trial_data.total_grf.shape[0] == init_trial_length)
+                        num_valid_frames = len(frames)
+                    else:
+                        trial_data = Trial(frames, motion_class)
+                        num_valid_frames = trial_data.num_valid_frames
                     num_grf_frames = trial_data.num_grf_frames
 
                     # Additional checks based on results of processing frames for given trial:
-                    if num_valid_frames == 0:
-                        print(f"SKIPPING TRIAL {trial + 1} due to 0 valid frames")
+                    if num_valid_frames < 1:
+                        print(f"SKIPPING TRIAL {trial + 1} due to < 1 valid frames")
+                        print(f"Omission reasons raw: {trial_data.frame_omission_reasons}")
                         continue
-                    if np.sum(trial_data.total_grf) == 0:
+                    if (not self.raw_data) and np.sum(trial_data.total_grf) == 0:
                         print(f"SKIPPING TRIAL {trial + 1} due to no GRF at all in the valid frames")
                         continue
-                    if num_valid_frames < len(frames):
+                    if (not self.raw_data) and (num_valid_frames < len(frames)):  # should only be the case for non raw data
                         # Calculate percentages of frame omission reasons
                         omission_reasons = np.round( (trial_data.frame_omission_reasons / (len(frames)-num_valid_frames)) * 100 , 2)
                         print(f"REMOVING SOME FRAMES on trial {trial + 1}: "
                               f"num_valid_frames: {num_valid_frames} vs. total num frames: {len(frames)} vs. num_grf_frames: {num_grf_frames}")
-                        print(f"omission reasons: kin missing ({omission_reasons[0]}%), dyn missing ({omission_reasons[1]}%), grf labels ({omission_reasons[2]}%), not two contacts bodies ({omission_reasons[3]}%)")
+                        #print(f"omission reasons: kin missing ({omission_reasons[0]}%), dyn missing ({omission_reasons[1]}%), grf labels ({omission_reasons[2]}%), not two contacts bodies ({omission_reasons[3]}%)")
+                        print(f"omission reasons: kin missing ({omission_reasons[0]}%), dyn missing ({omission_reasons[1]}%), grf labels ({omission_reasons[2]}%)")
 
                     # We broke out of this iteration of trial looping if skipping trials due to reasons above;
                     # otherwise, increment number of valid trials for each subject and for totals
@@ -480,9 +556,9 @@ class Dataset:
                         self.trial_lengths_opt.append(num_valid_frames)
 
                         # Speeds:
-                        self.forward_speeds.append(np.average(np.abs(trial_data.com_vel_dyn[:, 0])))  # avg fwd speed over trial, absolute
-                        self.vertical_speeds.append(np.average(np.abs(trial_data.com_vel_dyn[:, 1])))
-                        self.mediolat_speeds.append(np.average(np.abs(trial_data.com_vel_dyn[:, 2])))
+                        self.forward_speeds.append(np.average(np.abs(trial_data.com_vel_kin[:, 0])))  # avg fwd speed over trial, absolute
+                        self.vertical_speeds.append(np.average(np.abs(trial_data.com_vel_kin[:, 1])))
+                        self.mediolat_speeds.append(np.average(np.abs(trial_data.com_vel_kin[:, 2])))
                         # TODO: check if first coor is fwd, etc.
 
                         # Contact dist:
@@ -502,105 +578,128 @@ class Dataset:
                         trial_time = num_valid_frames * subject_on_disk.getTrialTimestep(trial) / 60  # convert to time (minutes)
                         self.coarse_activity_type_dict[trial_data.coarse_motion_class] = self.coarse_activity_type_dict[trial_data.coarse_motion_class] + trial_time
 
-                    if self.output_scatterplots:
+                    if (not self.raw_data) and self.output_scatterplots:
                         assert (self.num_dofs == trial_data.num_dofs),  f"self.num_dofs: {self.num_dofs}; trial_data.num_dofs: {trial_data.num_dofs}"  # check what we assume from std skel matches data
-                        # joint accelerations vs. vertical component of COM acc
-                        self.jointacc_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
-                        # joint accelerations vs. vertical component of total GRF
-                        self.jointacc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
-                        # joint accelerations vs. contact classification of first listed contact body
-                        self.jointacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                         trial_data.coarse_motion_class, scatter_colors_dict, "biserial", scale_x=False)
-                        # joint accelerations vs. vertical component of GRF distribution on first listed contact body
-                        self.jointacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                      trial_data.coarse_motion_class, scatter_colors_dict, "pearson", scale_x=False)
 
-                        # joint positions vs. vertical component of COM acc
-                        self.jointpos_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
-                        # joint positions vs. vertical component of total GRF
-                        self.jointpos_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
-                        # joint positions vs. contact classification of first listed contact body
-                        self.jointpos_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                         trial_data.coarse_motion_class, scatter_colors_dict, "biserial", scale_x=False)
-                        # joint positions vs. vertical component of GRF distribution on first listed contact body
-                        self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                      trial_data.coarse_motion_class, scatter_colors_dict, "pearson", scale_x=False)
+                        if  scatter_trials_counter_dict[trial_data.coarse_motion_class] < scatter_trials_target_dict[trial_data.coarse_motion_class]:
+                            # # Select this trial to add to scatter plot, and increment counts of trials for this motion class
+                            # print(f"Selected trial {trial + 1} of motion class {trial_data.coarse_motion_class} from {subj_path} with prob of {prob}")
+                            # scatter_trials_counter_dict[trial_data.coarse_motion_class] += 1
+                            # print(f"trials counter: {scatter_trials_counter_dict}")
 
-                        # joint torques vs. vertical component of COM acc
-                        self.jointtau_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
-                        # joint torques vs. vertical component of total GRF
-                        self.jointtau_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
-                        # joint torques vs. contact classification of first listed contact body
-                        self.jointtau_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                         trial_data.coarse_motion_class, scatter_colors_dict, "biserial", scale_x=False)
-                        # joint torques vs. vertical component of GRF distribution on first listed contact body
-                        self.jointtau_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                      trial_data.coarse_motion_class, scatter_colors_dict, "pearson", scale_x=False)
+                            # joint accelerations vs. vertical component of COM acc
+                            self.jointacc_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
+                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                            # joint accelerations vs. vertical component of total GRF
+                            self.jointacc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.joint_acc_kin[::self.downsample_size],
+                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                            # joint accelerations vs. contact classification of first listed contact body
+                            self.jointacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_acc_kin[::self.downsample_size],
+                                                                             trial_data.coarse_motion_class, scatter_settings_dict, "biserial", scale_x=False)
+                            # joint accelerations vs. vertical component of GRF distribution on first listed contact body
+                            self.jointacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
+                                                                          trial_data.coarse_motion_class, scatter_settings_dict, "pearson", scale_x=False)
 
-                        # # COM acc vs tot GRF
-                        self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[::self.downsample_size, 0], trial_data.com_acc_dyn[::self.downsample_size, 0].reshape(-1,1),
-                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
-                        self.comacc_vs_totgrf_y_plots.update_plots(trial_data.total_grf[::self.downsample_size,1], trial_data.com_acc_dyn[::self.downsample_size,1].reshape(-1,1),
-                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
-                        self.comacc_vs_totgrf_z_plots.update_plots(trial_data.total_grf[::self.downsample_size,2], trial_data.com_acc_dyn[::self.downsample_size,2].reshape(-1,1),
-                                                                   trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
+                            # joint positions vs. vertical component of COM acc
+                            self.jointpos_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
+                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                            # joint positions vs. vertical component of total GRF
+                            self.jointpos_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.joint_pos_kin[::self.downsample_size],
+                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                            # joint positions vs. contact classification of first listed contact body
+                            self.jointpos_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_pos_kin[::self.downsample_size],
+                                                                             trial_data.coarse_motion_class, scatter_settings_dict, "biserial", scale_x=False)
+                            # joint positions vs. vertical component of GRF distribution on first listed contact body
+                            self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
+                                                                          trial_data.coarse_motion_class, scatter_settings_dict, "pearson", scale_x=False)
+                            # Joint positions vs. total GRF norm
+                            self.jointpos_vs_totgrf_norm_plots.update_plots(np.linalg.norm(trial_data.total_grf[::self.downsample_size, :] / mass, axis = -1), trial_data.joint_pos_kin[::self.downsample_size],
+                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
 
-                        # COM acc y vs contact and dist y
-                        self.comacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.com_acc_dyn[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "biserial", scale_x=False)
-                        self.comacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.com_acc_dyn[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "pearson", scale_x=False)
+                            # joint torques vs. vertical component of COM acc
+                            self.jointtau_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
+                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                            # joint torques vs. vertical component of total GRF
+                            self.jointtau_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.joint_tau_dyn[::self.downsample_size],
+                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                            # joint torques vs. contact classification of first listed contact body
+                            self.jointtau_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_tau_dyn[::self.downsample_size],
+                                                                             trial_data.coarse_motion_class, scatter_settings_dict, "biserial", scale_x=False)
+                            # joint torques vs. vertical component of GRF distribution on first listed contact body
+                            self.jointtau_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
+                                                                          trial_data.coarse_motion_class, scatter_settings_dict, "pearson", scale_x=False)
 
-                        # Joint center positions in root frame vs tot GRF in y direction
-                        self.jointcenters_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.joint_centers_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
+                            # # COM acc vs tot GRF
+                            self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[::self.downsample_size, 0] / mass, trial_data.com_acc_kin[::self.downsample_size, 0].reshape(-1,1),
+                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                            self.comacc_vs_totgrf_y_plots.update_plots(trial_data.total_grf[::self.downsample_size,1] / mass, trial_data.com_acc_kin[::self.downsample_size,1].reshape(-1,1),
+                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                            self.comacc_vs_totgrf_z_plots.update_plots(trial_data.total_grf[::self.downsample_size,2] / mass, trial_data.com_acc_kin[::self.downsample_size,2].reshape(-1,1),
+                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
 
-                        # Linear and angular velocities and accelerations vs. tot GRF in y direction
-                        self.root_lin_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_lin_vel_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
-                        self.root_ang_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_ang_vel_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
-                        self.root_lin_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_lin_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
-                        self.root_ang_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1], trial_data.root_ang_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.coarse_motion_class, scatter_colors_dict, "pearson")
+                            # COM acc y vs contact and dist y
+                            self.comacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.com_acc_kin[::self.downsample_size,1].reshape(-1,1),
+                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "biserial", scale_x=False)
+                            self.comacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.com_acc_kin[::self.downsample_size,1].reshape(-1,1),
+                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "pearson", scale_x=False)
 
-                    if self.output_errvfreq:
+                            # Joint center positions in root frame vs tot GRF in y direction
+                            self.jointcenters_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.joint_centers_kin[::self.downsample_size],
+                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+
+                            # Linear and angular velocities and accelerations vs. tot GRF in y direction
+                            self.root_lin_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_lin_vel_kin[::self.downsample_size,1].reshape(-1,1),
+                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                            self.root_ang_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_ang_vel_kin[::self.downsample_size,1].reshape(-1,1),
+                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                            self.root_lin_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_lin_acc_kin[::self.downsample_size,1].reshape(-1,1),
+                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                            self.root_ang_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_ang_acc_kin[::self.downsample_size,1].reshape(-1,1),
+                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+
+                    if (not self.raw_data) and self.output_errvfreq:
                         grf_err_v_freq = self.compute_err_v_freq(order=2, dt=subject_on_disk.getTrialTimestep(0),
                                                           pred=trial_data.com_acc_kin,
                                                           true=trial_data.total_grf / mass)
                         self.grf_errs_v_freq.append(grf_err_v_freq)
 
                 else:  # skipping trial due to failing at least one of initial checks:
-                    print(f"SKIPPING TRIAL due to: has_dynamics = {has_dynamics}; passes_satisfied = {passes_satisfied}; init_trial_length = {init_trial_length}")
+                    print(f"SKIPPING TRIAL due to: has_dynamics = {dynamics_satisfied}; passes_satisfied = {passes_satisfied}; init_trial_length = {init_trial_length}")
 
             # Keep tally of number of valid trials per input subject file
             print(f"FINISHED {subj_path}: num valid trials: {subj_num_valid_trials} num trials: {num_trials}")
 
             # Only get demographics info and store if this subject had at least one valid trial
             if subj_num_valid_trials >= 1:
-                self.num_valid_subjs += 1
+                if "Camargo" in subj_path:  # we have multiple .b3ds for each subject for this dataset
+                    if "split0" in subj_path:
+                        self.num_valid_subjs += 1
+                else:
+                    self.num_valid_subjs += 1
                 age = subject_on_disk.getAgeYears()
+                if age < 10: print(f"Age unknown for {subj_path}")
                 sex = subject_on_disk.getBiologicalSex()
                 height = subject_on_disk.getHeightM()
                 bmi = mass / (height ** 2)
                 if self.output_histograms:
                     # Add to subject-specific storage
-                    self.ages.append(age)
-                    self.bmis.append(bmi)
                     if sex == "male":
                         sex_int = 0
                     elif sex == "female":
                         sex_int = 1
                     else:
                         sex_int = 2  # unknown
-                    self.sexes.append(sex_int)
+                        print(f"Sex unknown for {subj_path}")
+
+                    if "Camargo" in subj_path:
+                        if "split0" in subj_path:
+                            self.ages.append(age)
+                            self.bmis.append(bmi)
+                            self.sexes.append(sex_int)
+                    else:
+                        self.ages.append(age)
+                        self.bmis.append(bmi)
+                        self.sexes.append(sex_int)
 
         # Convert demographics storage to arrays  # TODO: get rid of this in revamp
         if self.output_histograms:
@@ -662,6 +761,7 @@ class Dataset:
         self.jointpos_vs_totgrf_plots.save_plot(self.out_dir, "jointpos_vs_totgrf.png", self.num_valid_trials)
         self.jointpos_vs_firstcontact_plots.save_plot(self.out_dir, "jointpos_vs_firstcontact.png", self.num_valid_trials)
         self.jointpos_vs_firstdist_plots.save_plot(self.out_dir, "jointpos_vs_firstdist.png", self.num_valid_trials)
+        self.jointpos_vs_totgrf_norm_plots.save_plot(self.out_dir, "jointpos_vs_totgrf_norm.png", self.num_valid_trials)
 
         self.jointtau_vs_comacc_plots.save_plot(self.out_dir, "jointtau_vs_comacc.png", self.num_valid_trials)
         self.jointtau_vs_totgrf_plots.save_plot(self.out_dir, "jointtau_vs_totgrf.png", self.num_valid_trials)
@@ -721,9 +821,9 @@ class Dataset:
 
         colors = ['#006BA4', '#FF800E', '#ABABAB']
 
-        plot_histograms(datas=[self.ages[m_ix], self.ages[f_ix], self.ages[u_ix]], num_bins=3, colors=colors, labels=["male", "female", "unknown"],
+        plot_histograms(datas=[self.ages[m_ix], self.ages[f_ix], self.ages[u_ix]], num_bins=6, colors=colors, labels=["male", "female", "unknown"],
                         edgecolor="black", alpha=1, ylabel="no. of subjects", xlabel="age (years)", outdir=self.out_dir, outname="age_bysex_histo.png")
-        plot_histograms(datas=[self.bmis[m_ix], self.bmis[f_ix], self.bmis[u_ix]], num_bins=3, colors=colors, labels=["male", "female", "unknown"],
+        plot_histograms(datas=[self.bmis[m_ix], self.bmis[f_ix], self.bmis[u_ix]], num_bins=6, colors=colors, labels=["male", "female", "unknown"],
                         edgecolor="black", alpha=1, ylabel="no. of subjects", xlabel="BMI (kg/$\\mathrm{m}^2$)", outdir=self.out_dir, outname="bmi_bysex_histo.png")
 
     def plot_biomechanics_metrics_histograms(self):
@@ -732,8 +832,12 @@ class Dataset:
         """
         self.prepare_data_for_plotting()
 
-        plot_histograms(datas=[self.trial_lengths_total, self.trial_lengths_grf, self.trial_lengths_opt], num_bins=8, colors=['#006BA4', '#FF800E', '#ABABAB'], labels=["total", "with GRF", "with opt"], edgecolor="black", alpha=1,
-                        ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png', plot_log_scale=True)
+        if self.raw_data:
+            plot_histograms(datas=[self.trial_lengths_total, self.trial_lengths_grf], num_bins=8, colors=['#006BA4', '#FF800E'], labels=["total", "with GRF"], edgecolor="black", alpha=1,
+                            ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png', plot_log_scale=True)
+        else:
+            plot_histograms(datas=[self.trial_lengths_total, self.trial_lengths_grf, self.trial_lengths_opt], num_bins=8, colors=['#006BA4', '#FF800E', '#ABABAB'], labels=["total", "with GRF", "with opt"], edgecolor="black", alpha=1,
+                            ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png', plot_log_scale=True)
         plot_histograms(datas=[self.forward_speeds, self.vertical_speeds, self.mediolat_speeds], num_bins=6, colors=['#006BA4', '#FF800E', '#ABABAB'], labels=["antero-posterior", "vertical", "mediolateral"], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='average absolute speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)  # TODO: separate btwn walking and running
         plot_histograms(datas=[self.percent_double, self.percent_single, self.percent_flight], num_bins=6, colors=['#006BA4', '#FF800E', '#ABABAB'],
@@ -847,7 +951,7 @@ class Dataset:
         self.prepare_data_for_plotting()
 
         # Round the values
-        rounded_dict = {outer_key: {inner_key: round(value, 2) for inner_key, value in inner_dict.items()} for outer_key,
+        rounded_dict = {outer_key: {inner_key: round(value, 5) for inner_key, value in inner_dict.items()} for outer_key,
                         inner_dict in self.dataset_hours_dict.items()}
 
         print(f"DATASET HOURS: ")
@@ -895,7 +999,7 @@ class Trial:
         self.num_joints = int(len(frames[0].processingPasses[0].jointCentersInRootFrame) / 3) # get the number of joints; divide by 3 since 3 coor values per joint
 
         # Tally reasons of frame omissions
-        self.frame_omission_reasons: ndarray = np.array([0, 0, 0, 0])  # kin_processed / dyn_processed / not_missing_grf
+        self.frame_omission_reasons: ndarray = np.array([0, 0, 0])  # kin_processed / dyn_processed / not_missing_grf
 
         # # INIT ARRAYS FOR STORAGE # #
         # From kinematics processing pass
@@ -943,8 +1047,12 @@ class Trial:
             if frame.missingGRFReason != nimble.biomechanics.MissingGRFReason.manualReview:  # manual review means flagged as bad
                 num_grf_frames += 1
 
-            # Check that there is only two contact bodies
-            two_contacts = 1 if len(frame.processingPasses[0].groundContactForce) == 6 else 0
+            # # Check that there is only two contact bodies
+            # #two_contacts = 1 if len(frame.processingPasses[0].groundContactForce) == 6 else 0
+            # if motion_class == 'sit-to-stand':
+            #     two_contacts = 0
+            # else:
+            #     two_contacts = 1
 
             # Only use frames that are confidently not missing GRF
             not_missing_grf = 1 if frame.missingGRFReason == nimble.biomechanics.MissingGRFReason.notMissingGRF else 0
@@ -960,7 +1068,8 @@ class Trial:
                     dyn_processed = 1
                     dyn_pass_ix = j  # store the processing pass index corresponding to the dynamics pass
 
-            if kin_processed and dyn_processed and not_missing_grf and two_contacts:  # store the data
+            #if kin_processed and dyn_processed and not_missing_grf and two_contacts:  # store the data
+            if kin_processed and dyn_processed and not_missing_grf:  # store the data
                 num_valid_frames += 1
                 # From kinematics processing pass
                 self.joint_pos_kin.append(frame.processingPasses[kin_pass_ix].pos)
@@ -993,10 +1102,16 @@ class Trial:
                 # self.root_ang_acc_dyn.append(frame.processingPasses[dyn_pass_ix].rootAngularAccInRootFrame)
 
                 # GRF stuff
-                self.grf.append(frame.processingPasses[dyn_pass_ix].groundContactForce)
-                self.cop.append(frame.processingPasses[dyn_pass_ix].groundContactCenterOfPressure)
-                self.grm.append(frame.processingPasses[dyn_pass_ix].groundContactTorque)
-                self.contact.append(frame.processingPasses[dyn_pass_ix].contact)
+                if len(frame.processingPasses[dyn_pass_ix].groundContactForce) > 6:
+                    self.grf.append(frame.processingPasses[dyn_pass_ix].groundContactForce[0:6])
+                    self.cop.append(frame.processingPasses[dyn_pass_ix].groundContactCenterOfPressure[0:6])
+                    self.grm.append(frame.processingPasses[dyn_pass_ix].groundContactTorque[0:6])
+                    self.contact.append(frame.processingPasses[dyn_pass_ix].contact[0:2])
+                else:
+                    self.grf.append(frame.processingPasses[dyn_pass_ix].groundContactForce)
+                    self.cop.append(frame.processingPasses[dyn_pass_ix].groundContactCenterOfPressure)
+                    self.grm.append(frame.processingPasses[dyn_pass_ix].groundContactTorque)
+                    self.contact.append(frame.processingPasses[dyn_pass_ix].contact)
 
             else:  # tally reason why frame was omitted
                 if not kin_processed:
@@ -1005,8 +1120,8 @@ class Trial:
                     self.frame_omission_reasons[1] += 1
                 if not not_missing_grf:
                     self.frame_omission_reasons[2] += 1
-                if not two_contacts:
-                    self.frame_omission_reasons[3] += 1
+                # if not two_contacts:
+                #     self.frame_omission_reasons[3] += 1
 
         # Store the number of frames marked OK by manual review
         self.num_grf_frames = num_grf_frames
@@ -1092,21 +1207,127 @@ class Trial:
             assert (np.all(np.logical_or(self.contact == 0, self.contact == 1)))  # all contact labels either 0 or 1
             assert (np.all((self.grf_dist >= 0) & (self.grf_dist <= 1))), f"Violation found at rows: {np.where(~((self.grf_dist >= 0) & (self.grf_dist <= 1)).all(axis=1))[0]} in grf_dist: {self.grf_dist}"  # distribution must be between 0 and 1
 
+class TrialRaw:
+    """
+    Combines the relevant measures across all valid frames of data for a given trial, and also store other
+    trial-specific information.
+    For the "raw" data; so does not require a dynamics pass.
+    """
 
-class ScatterPlotMatrix:
+    def __init__(self, frames: List[nimble.biomechanics.Frame], motion_class: str = "unknown"):
+
+        # Store the activity classification
+        self.motion_class = motion_class
+        self.coarse_motion_class = motion_class.split('_')[0]
+
+        # Get the num of DOFs and joints
+        #self.num_dofs = len(frames[0].processingPasses[0].pos)  # get the number of dofs
+        self.num_dofs = 23
+
+        # # INIT ARRAYS FOR STORAGE # #
+        # From kinematics processing pass
+        self.joint_pos_kin = []
+        self.joint_vel_kin = []
+        self.joint_acc_kin = []
+        self.com_pos_kin = []
+        self.com_vel_kin = []
+        self.com_acc_kin = []
+
+        # GRF stuff
+        self.grf = []
+        self.contact = []
+
+        # Flag for skipping trial
+        self.missingPasses = False
+
+        # Loop thru frames and extract data
+        num_grf_frames = 0
+        for i, frame in enumerate(frames):
+
+            # Skip trial if missing all processing passes
+            if len(frame.processingPasses) == 0:
+                self.missingPasses = True
+                continue
+
+            # Check for frames marked as fine by manual review
+            if frame.missingGRFReason != nimble.biomechanics.MissingGRFReason.notMissingGRF:
+                num_grf_frames += 1
+
+            # Get kinematics processing pass ix
+            kin_pass_ix = -1  # init
+            for j, processing_pass in enumerate(frame.processingPasses):
+                if processing_pass.type == nimble.biomechanics.ProcessingPassType.KINEMATICS:
+                    kin_pass_ix = j  # store the processing pass index corresponding to the kinematics pass
+                    break
+
+            # From kinematics processing pass
+            self.joint_pos_kin.append(frame.processingPasses[kin_pass_ix].pos)
+            self.joint_vel_kin.append(frame.processingPasses[kin_pass_ix].vel)
+            self.joint_acc_kin.append(frame.processingPasses[kin_pass_ix].acc)
+            self.com_pos_kin.append(frame.processingPasses[kin_pass_ix].comPos)
+            self.com_vel_kin.append(frame.processingPasses[kin_pass_ix].comVel)
+            self.com_acc_kin.append(frame.processingPasses[kin_pass_ix].comAcc)
+
+            # GRF stuff
+            if len(frame.processingPasses[kin_pass_ix].groundContactForce) > 6:
+                curr_grf = frame.processingPasses[kin_pass_ix].groundContactForce[0:6]  # TODO: add more robust check
+                curr_contact = frame.processingPasses[kin_pass_ix].contact[0:2]
+            else:
+                curr_grf = frame.processingPasses[kin_pass_ix].groundContactForce
+                curr_contact = frame.processingPasses[kin_pass_ix].contact
+            self.grf.append(curr_grf)
+            self.contact.append(curr_contact)
+
+        if not self.missingPasses:
+            # Store the number of frames marked OK by manual review
+            self.num_grf_frames = num_grf_frames
+
+            # From kinematics processing pass
+            self.joint_pos_kin = np.array(self.joint_pos_kin)
+            self.joint_vel_kin = np.array(self.joint_vel_kin)
+            self.joint_acc_kin = np.array(self.joint_acc_kin)
+            self.com_pos_kin = np.array(self.com_pos_kin)
+            self.com_vel_kin = np.array(self.com_vel_kin)
+            self.com_acc_kin = np.array(self.com_acc_kin)
+
+            # GRF stuff
+            self.grf = np.array(self.grf)
+            self.contact = np.array(self.contact)
+
+            # Check shapes and values
+            assert (self.joint_pos_kin.shape[-1] == self.num_dofs)
+            assert (self.joint_vel_kin.shape[-1] == self.num_dofs)
+            assert (self.joint_acc_kin.shape[-1] == self.num_dofs)
+            assert (self.com_pos_kin.shape[-1] == 3)
+            assert (self.com_vel_kin.shape[-1] == 3)
+            assert (self.com_acc_kin.shape[-1] == 3)
+            assert (self.grf.shape[-1] == 6), f"grf shape: {self.grf.shape}"
+            assert (self.contact.shape[-1] == 2)
+            assert (np.all(np.logical_or(self.contact == 0, self.contact == 1)))  # all contact labels either 0 or 1
+
+            # Compute total GRF from both (foot) contact bodies
+            self.total_grf = self.grf[:, 0:3] + self.grf[:, 3:6]
+
+class ScatterPlots:
     """
     Stages a matrix of scatter plots and continuously updates the plots when processing the dataset.
     """
 
-    def __init__(self, num_rows: int, num_cols: int, num_plots: int, labels: List[str]):
+    def __init__(self, num_rows: int, num_cols: int, num_plots: int, labels: List[str], display_corr: bool = False, use_subplots: bool = True):
         self.num_rows = num_rows
         self.num_cols = num_cols
         self.num_plots = num_plots
         self.labels = labels
-        self.fig, self.axs = plt.subplots(num_rows, num_cols, figsize=(24, 24), constrained_layout=True)
-        self.corrs: ndarray = np.zeros(num_plots)  # aggregate correlation coefficients
+        self.display_corr = display_corr
+        self.use_subplots = use_subplots
 
-    def update_plots(self, x: ndarray, y: ndarray, motion_class: str, colors: dict, corr_type: str, scale_x: bool = True, scale_y: bool = True):
+        if display_corr: self.corrs: ndarray = np.zeros(num_plots)  # aggregate correlation coefficients
+        if self.use_subplots:
+            self.fig, self.axs = plt.subplots(num_rows, num_cols, figsize=(24, 24), constrained_layout=True)
+        else:
+            self.fig, self.axs = plt.subplots(figsize=(8, 8))
+
+    def update_plots(self, x: ndarray, y: ndarray, motion_class: str, settings: dict, corr_type: str, scale_x: bool = False, scale_y: bool = False):
         for i in range(self.num_plots):
 
             # Standardize the vars
@@ -1119,45 +1340,54 @@ class ScatterPlotMatrix:
                 y_scaled = (y[:, i] - np.mean(y[:, i])) / np.std(y[:, i])
                 np.nan_to_num(y_scaled, nan=0.0, copy=False)
             else:
-                y_scaled = y
+                y_scaled = y[:, i]
 
             # Store the correlation coefficient
-            if corr_type == "biserial":
-                assert np.all(np.logical_or(x_scaled == 0, x_scaled == 1)), "X array is not binary"
-                corr, _ = stats.pointbiserialr(x_scaled, y_scaled)
-                self.corrs[i] = corr
-            elif corr_type == "pearson":
-                self.corrs[i] = np.corrcoef(x_scaled, y_scaled)[0, 1]
-            else:
-                raise ValueError("Invalid input for 'corr_type.'")
+            if self.display_corr:
+                if corr_type == "biserial":
+                    assert np.all(np.logical_or(x_scaled == 0, x_scaled == 1)), "X array is not binary"
+                    corr, _ = stats.pointbiserialr(x_scaled, y_scaled)
+                    self.corrs[i] = corr
+                elif corr_type == "pearson":
+                    self.corrs[i] = np.corrcoef(x_scaled, y_scaled)[0, 1]
+                else:
+                    raise ValueError("Invalid input for 'corr_type.'")
 
-            if np.isnan(self.corrs[i]):  # happens when one vec is constant, like all 0s for distribution in running
-                self.corrs[i] = 0  # TODO: better way to address?
+                if np.isnan(self.corrs[i]):  # happens when one vec is constant, like all 0s for distribution in running
+                    self.corrs[i] = 0  # TODO: better way to address?
 
             # Plot
-            row = i // self.num_cols
-            col = i % self.num_cols
-            if self.num_plots == 1:
-                ax = self.axs
+            if self.use_subplots:
+                row = i // self.num_cols
+                col = i % self.num_cols
+                if self.num_plots == 1:
+                    ax = self.axs
+                else:
+                    ax = self.axs[row, col]
+                ax.scatter(x_scaled, y_scaled, s=30, alpha=0.75, color=settings[motion_class]['color'], marker=settings[motion_class]['marker'])
+                ax.set_box_aspect(1)  # for formatting
             else:
-                ax = self.axs[row, col]
-            ax.scatter(x_scaled, y_scaled, s=0.5, alpha=0.25, color=colors[motion_class])
-            ax.set_box_aspect(1)  # for formatting
+                self.axs.scatter(x_scaled, y_scaled, s=30, alpha=0.75, color=settings[motion_class]['color'], marker=settings[motion_class]['marker'])
 
     def save_plot(self, plots_outdir: str, outname: str, num_trials: int):
 
-        for i in range(self.num_plots):
-            row = i // self.num_cols
-            col = i % self.num_cols
-            if self.num_plots == 1:
-                ax = self.axs
-            else:
-                ax = self.axs[row, col]
-            plot_title = f"{self.labels[i]}: r = {np.round(self.corrs[i] / num_trials, 5)}"
-            ax.set_title(plot_title, fontsize=16)
-        if self.num_plots > 1:
-            for i, ax in enumerate(self.axs.flat):
-                if i >= self.num_plots:
-                    ax.axis("off")  # remove empty plots
+        if self.use_subplots:
+            for i in range(self.num_plots):
+                row = i // self.num_cols
+                col = i % self.num_cols
+                if self.num_plots == 1:
+                    ax = self.axs
+                else:
+                    ax = self.axs[row, col]
+                if self.display_corr:
+                    plot_title = f"{self.labels[i]}: r = {np.round(self.corrs[i] / num_trials, 5)}"
+                else:
+                    plot_title = f"{self.labels[i]}"
+                ax.set_title(plot_title, fontsize=16)
+            if self.num_plots > 1:
+                for i, ax in enumerate(self.axs.flat):
+                    if i >= self.num_plots:
+                        ax.axis("off")  # remove empty plots
+
         plt.tight_layout()
         self.fig.savefig(os.path.join(plots_outdir, outname))
