@@ -58,12 +58,12 @@ class MakePlotsCommand(AbstractCommand):
 
         # Create and save plots and print metrics based on settings
         if dataset.output_histograms:
-            dataset.plot_demographics_histograms()
-            dataset.plot_demographics_by_sex_histograms()
+            #dataset.plot_demographics_histograms()
+            #dataset.plot_demographics_by_sex_histograms()
             dataset.plot_biomechanics_metrics_histograms()
-            dataset.make_contact_pie_chart()
+            #dataset.make_contact_pie_chart()
             dataset.plot_activity_classification()
-            dataset.calculate_sex_breakdown()
+            dataset.print_demographics_summary()
         if dataset.output_errvfreq:
             dataset.make_err_v_freq_plots()
         if dataset.output_scatterplots:
@@ -100,6 +100,30 @@ def plot_histograms(datas: List[Sequence], num_bins: int, colors: List[str], lab
     plt.tight_layout()
     plt.savefig(os.path.join(outdir, outname))
     plt.close()
+
+def calculate_avg_treadmill_speed(com_vel_kin: ndarray, contact: ndarray) -> (int, int):
+    """
+    For treadmill trials, the world frame is the treadmill, so we can only calculate the speed when either foot is
+    in stance phase. At these instances, the foot is moving along with the treadmill, so we can get a better sense
+    of the actual speed.
+    """
+
+    assert (com_vel_kin.shape[-1] == 3)
+    assert (contact.shape[-1] == 2)  # for two legs
+    assert (com_vel_kin.shape[0] == contact.shape[0])  # assure same number of frames
+
+    # Get the indices of single support
+    ss_ix = np.where((contact == [0, 1]) | (contact == [1, 0]))
+    ss_com_vel_kin = com_vel_kin[ss_ix, :]
+
+    # Calculate average absolute vertical speed
+    avg_vertical_speed = np.average(np.abs(ss_com_vel_kin[:, 1]))
+
+    # Calculate average absolute "horizontal" speed, the norm of x and z coordinates
+    norm = np.sqrt(ss_com_vel_kin[:, 0]**2 + ss_com_vel_kin[:, 2]**2)
+    avg_horizontal_speed = np.average(np.abs(norm))  # technically don't need the absolute because norm will be +, but just in case
+
+    return avg_vertical_speed, avg_horizontal_speed
 
 
 # # # CLASSES # # #
@@ -225,7 +249,7 @@ class Dataset:
 
         return estimated_mass
 
-    def compute_err_v_freq(self, order: int, dt: float, pred: ndarray, true: ndarray) -> List[float]:
+    def compute_err_v_freq(self, order: int, dt: float, pred: ndarray, true: ndarray) -> ndarray:
         """
         Computes RMSE between two force prediction quantities
         (i.e. finite differenced COM acc / dynamics-derived COM acc),
@@ -234,12 +258,12 @@ class Dataset:
         # Check inputs
         assert (pred.shape == true.shape)
 
-        errors: List[float] = []
+        errors: ndarray = np.zeros(len(self.freqs))
         # Filter with each cutoff frequency and compute error
-        for freq in self.freqs:
+        for i, freq in enumerate(self.freqs):
             if freq == 0:
                 # We use the average of the signals to represent lowpass filtering with cutoff freq of 0 hz
-                errors.append(np.sqrt(np.mean((np.mean(pred, axis=0) - np.mean(true, axis=0)) ** 2)))
+                errors[i] = np.sqrt(np.mean((np.mean(pred, axis=0) - np.mean(true, axis=0)) ** 2))
             else:
                 b, a = butter(N=order, Wn=freq / (0.5 * (1 / dt)), btype='low', analog=False, output='ba')
                 filt_pred = np.zeros(pred.shape)
@@ -247,7 +271,7 @@ class Dataset:
                 for c in range(pred.shape[1]):  # filter each coordinate separately
                     filt_pred[:, c] = filtfilt(b, a, pred[:, c], padtype='constant', method='pad')
                     filt_true[:, c] = filtfilt(b, a, true[:, c], padtype='constant', method='pad')
-                errors.append(np.sqrt(np.mean((filt_pred - filt_true) ** 2)))
+                errors[i] = np.sqrt(np.mean((filt_pred - filt_true) ** 2))
 
         return errors
 
@@ -267,6 +291,22 @@ class Dataset:
         # Calculate total hours per dataset; store in a dict
         self.dataset_hours_dict = {key: {'total': 0.0, 'grf': 0.0, 'opt': 0.0} for key in self.dataset_names}
 
+        # Set up plotting settings
+        self.motion_settings_dict = {
+            'unknown': {'color': '#FFD92F', 'marker': '|'},
+            'other': {'color': '#A6CEE3', 'marker': '_'},
+            'bad': {'color': '#B3DE69', 'marker': '^'},
+            'walking': {'color': '#f781bf', 'marker': 'D'},
+            'running': {'color': '#a65628', 'marker': 'p'},
+            'sit-to-stand': {'color': '#984ea3', 'marker': '*'},
+            'stairs': {'color': '#999999', 'marker': 'H'},
+            'jump': {'color': '#e41a1c', 'marker': '+'},
+            'squat': {'color': '#ff7f00', 'marker': 'x'},
+            'lunge': {'color': '#377eb8', 'marker': 'o'},
+            'standing': {'color': '#4daf4a', 'marker': 's'},
+            'transition': {'color': '#C377E0', 'marker': '.'}
+        }
+
         if self.output_histograms:
             # INIT STORAGE
             # Subject-specific
@@ -277,9 +317,8 @@ class Dataset:
             self.trial_lengths_total: List[int] = []  # num frames
             self.trial_lengths_grf: List[int] = []
             self.trial_lengths_opt: List[int] = []
-            self.forward_speeds: List[float] = []
             self.vertical_speeds: List[float] = []
-            self.mediolat_speeds: List[float] = []
+            self.horizontal_speeds: List[float] = []
             self.percent_double: List[float] = []
             self.percent_single: List[float] = []
             self.percent_flight: List[float] = []
@@ -300,22 +339,6 @@ class Dataset:
                       "hip_flexion_l", "hip_adduction_l", "hip_rotation_l",
                       "knee_angle_l", "ankle_angle_l", "subtalar_angle_l", "mtp_angle_l",
                       "lumbar_extension", "lumbar_bending", "lumbar_rotation"]
-
-            # Set up plotting settings
-            scatter_settings_dict = {
-                                    'unknown': {'color': '#FFD92F', 'marker': '|'},
-                                    'other': {'color': '#A6CEE3', 'marker': '_'},
-                                    'bad': {'color': '#B3DE69', 'marker': '^'},
-                                    'walking': {'color': '#f781bf', 'marker': 'D'},
-                                    'running': {'color': '#a65628', 'marker': 'p'},
-                                    'sit-to-stand': {'color': '#984ea3', 'marker': '*'},
-                                    'stairs': {'color': '#999999', 'marker': 'H'},
-                                    'jump': {'color': '#e41a1c', 'marker': '+'},
-                                    'squat': {'color': '#ff7f00', 'marker': 'x'},
-                                    'lunge': {'color': '#377eb8', 'marker': 'o'},
-                                    'standing': {'color': '#4daf4a', 'marker': 's'},
-                                    'transition': {'color': '#C377E0', 'marker': '.'}
-                                    }
 
             # Set the number of trials you want to plot in the scatters for each motion type.
             # Trials will be randomly selected until reaching these values.
@@ -403,8 +426,8 @@ class Dataset:
                                                                   num_plots=1, labels=[""], use_subplots=False)
 
         if self.output_errvfreq:
-            self.grf_errs_v_freq: List[List[float]] = []
-            self.tau_errs_v_freq: List[List[float]] = []  # TODO: compute this
+            self.grf_errs_v_freq: List[ndarray] = []  # list over all trials --> array of errors over frequencies
+            self.grf_errs_v_freq_by_motion = {key: [] for key in self.motion_settings_dict}  # dict for each motion class
 
         # Loop through each subject:
         self.num_valid_subjs = 0  # keep track of subjects we eliminate because no valid trials
@@ -519,14 +542,15 @@ class Dataset:
                     num_grf_frames = trial_data.num_grf_frames
 
                     # Additional checks based on results of processing frames for given trial:
-                    if num_valid_frames < 1:
+                    if self.output_errvfreq:  # stricter because we need a reasonable size array to do filtering on
+                        frames_threshold = 10
+                    else:
+                        frames_threshold = 1
+                    if num_valid_frames < frames_threshold:
                         print(f"SKIPPING TRIAL {trial + 1} due to < 1 valid frames")
                         print(f"Omission reasons raw: {trial_data.frame_omission_reasons}")
                         continue
-                    if (not self.raw_data) and np.sum(trial_data.total_grf) == 0:
-                        print(f"SKIPPING TRIAL {trial + 1} due to no GRF at all in the valid frames")
-                        continue
-                    if (not self.raw_data) and (num_valid_frames < len(frames)):  # should only be the case for non raw data
+                    if (not self.raw_data) and (num_valid_frames < len(frames)):  # should only be the case for non raw data where num_valid_frames is less than total frames
                         # Calculate percentages of frame omission reasons
                         omission_reasons = np.round( (trial_data.frame_omission_reasons / (len(frames)-num_valid_frames)) * 100 , 2)
                         print(f"REMOVING SOME FRAMES on trial {trial + 1}: "
@@ -556,10 +580,15 @@ class Dataset:
                         self.trial_lengths_opt.append(num_valid_frames)
 
                         # Speeds:
-                        self.forward_speeds.append(np.average(np.abs(trial_data.com_vel_kin[:, 0])))  # avg fwd speed over trial, absolute
-                        self.vertical_speeds.append(np.average(np.abs(trial_data.com_vel_kin[:, 1])))
-                        self.mediolat_speeds.append(np.average(np.abs(trial_data.com_vel_kin[:, 2])))
-                        # TODO: check if first coor is fwd, etc.
+                        if "treadmill" in trial_data.motion_class:  # we need to only calculate based on stance phase
+                            print(f"detected treadmill trial: motion class = {trial_data.motion_class}")
+                            vert_speed, horiz_speed = calculate_avg_treadmill_speed(trial_data.com_vel_kin, trial_data.contact)
+                            self.vertical_speeds.append(vert_speed)
+                            self.horizontal_speeds.append(horiz_speed)
+                        else:  # can calculate over all frames
+                            self.vertical_speeds.append(np.average(np.abs(trial_data.com_vel_kin[:, 1])))
+                            horiz_speed = np.sqrt(trial_data.com_vel_kin[:, 0]**2 + trial_data.com_vel_kin[:, 2]**2)
+                            self.horizontal_speeds.append(np.average(np.abs(horiz_speed)))
 
                         # Contact dist:
                         flight_count = np.count_nonzero((trial_data.contact == [0, 0]).all(axis=1))
@@ -589,79 +618,80 @@ class Dataset:
 
                             # joint accelerations vs. vertical component of COM acc
                             self.jointacc_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
                             # joint accelerations vs. vertical component of total GRF
                             self.jointacc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.joint_acc_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
                             # joint accelerations vs. contact classification of first listed contact body
                             self.jointacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                             trial_data.coarse_motion_class, scatter_settings_dict, "biserial", scale_x=False)
+                                                                             trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False)
                             # joint accelerations vs. vertical component of GRF distribution on first listed contact body
                             self.jointacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                          trial_data.coarse_motion_class, scatter_settings_dict, "pearson", scale_x=False)
+                                                                          trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False)
 
                             # joint positions vs. vertical component of COM acc
                             self.jointpos_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
                             # joint positions vs. vertical component of total GRF
                             self.jointpos_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.joint_pos_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
                             # joint positions vs. contact classification of first listed contact body
                             self.jointpos_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                             trial_data.coarse_motion_class, scatter_settings_dict, "biserial", scale_x=False)
+                                                                             trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False)
                             # joint positions vs. vertical component of GRF distribution on first listed contact body
                             self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                          trial_data.coarse_motion_class, scatter_settings_dict, "pearson", scale_x=False)
+                                                                          trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False)
                             # Joint positions vs. total GRF norm
                             self.jointpos_vs_totgrf_norm_plots.update_plots(np.linalg.norm(trial_data.total_grf[::self.downsample_size, :] / mass, axis = -1), trial_data.joint_pos_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
 
                             # joint torques vs. vertical component of COM acc
                             self.jointtau_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
                             # joint torques vs. vertical component of total GRF
                             self.jointtau_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
                             # joint torques vs. contact classification of first listed contact body
                             self.jointtau_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                             trial_data.coarse_motion_class, scatter_settings_dict, "biserial", scale_x=False)
+                                                                             trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False)
                             # joint torques vs. vertical component of GRF distribution on first listed contact body
                             self.jointtau_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                          trial_data.coarse_motion_class, scatter_settings_dict, "pearson", scale_x=False)
+                                                                          trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False)
 
                             # # COM acc vs tot GRF
                             self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[::self.downsample_size, 0] / mass, trial_data.com_acc_kin[::self.downsample_size, 0].reshape(-1,1),
-                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
                             self.comacc_vs_totgrf_y_plots.update_plots(trial_data.total_grf[::self.downsample_size,1] / mass, trial_data.com_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
                             self.comacc_vs_totgrf_z_plots.update_plots(trial_data.total_grf[::self.downsample_size,2] / mass, trial_data.com_acc_kin[::self.downsample_size,2].reshape(-1,1),
-                                                                       trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
 
                             # COM acc y vs contact and dist y
                             self.comacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.com_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "biserial", scale_x=False)
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False)
                             self.comacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.com_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "pearson", scale_x=False)
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False)
 
                             # Joint center positions in root frame vs tot GRF in y direction
                             self.jointcenters_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.joint_centers_kin[::self.downsample_size],
-                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
 
                             # Linear and angular velocities and accelerations vs. tot GRF in y direction
                             self.root_lin_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_lin_vel_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
                             self.root_ang_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_ang_vel_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
                             self.root_lin_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_lin_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
                             self.root_ang_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_ang_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                           trial_data.coarse_motion_class, scatter_settings_dict, "pearson")
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
 
                     if (not self.raw_data) and self.output_errvfreq:
                         grf_err_v_freq = self.compute_err_v_freq(order=2, dt=subject_on_disk.getTrialTimestep(0),
                                                           pred=trial_data.com_acc_kin,
                                                           true=trial_data.total_grf / mass)
                         self.grf_errs_v_freq.append(grf_err_v_freq)
+                        self.grf_errs_v_freq_by_motion[trial_data.coarse_motion_class].append(grf_err_v_freq)
 
                 else:  # skipping trial due to failing at least one of initial checks:
                     print(f"SKIPPING TRIAL due to: has_dynamics = {dynamics_satisfied}; passes_satisfied = {passes_satisfied}; init_trial_length = {init_trial_length}")
@@ -677,10 +707,11 @@ class Dataset:
                 else:
                     self.num_valid_subjs += 1
                 age = subject_on_disk.getAgeYears()
-                if age < 10: print(f"Age unknown for {subj_path}")
+                if age <= 0: print(f"Age unknown for {subj_path}: age value = {age}")
                 sex = subject_on_disk.getBiologicalSex()
                 height = subject_on_disk.getHeightM()
                 bmi = mass / (height ** 2)
+                if bmi <= 10: print(f"BMI too low for {subj_path}: BMI value = {bmi}")
                 if self.output_histograms:
                     # Add to subject-specific storage
                     if sex == "male":
@@ -707,7 +738,7 @@ class Dataset:
             self.bmis = np.array(self.bmis)
             self.sexes = np.array(self.sexes)
 
-    def plot_err_v_freq(self, errors: List[List[List[float]]], outname: str, colors: List[str], labels: List[str] = [], fontsize: int = 16, plot_std: bool = False):
+    def plot_err_v_freq(self, errors: List[List[ndarray]], outname: str, colors: List[str], labels: List[str] = [], fontsize: int = 16, plot_std: bool = False):
         """
         Plots the errors vs. frequency over a single or multiple trials,
         with errors computed from filtering at different cut off frequencies
@@ -721,10 +752,14 @@ class Dataset:
         plt.figure()
 
         for i, var_errors in enumerate(errors):
+
+            if len(var_errors) == 0:
+                continue  # do not process
+
             var_errors = np.array(var_errors)  # make list of lists into a 2D array
 
             # Check that transform to array was done with correct shape
-            assert (var_errors.shape[-1] == len(self.freqs))
+            assert (var_errors.shape[-1] == len(self.freqs)), f"var_errors.shape[-1]: {var_errors.shape[-1]}, num freqs: {len(self.freqs)}"
 
             err_avg = np.average(var_errors, axis=0)
 
@@ -732,12 +767,13 @@ class Dataset:
             assert (len(err_avg) == len(self.freqs))
 
             if len(labels) == 0:
-                plt.plot(self.freqs, err_avg, color=colors[i])
+                plt.plot(self.freqs, err_avg, color=colors[i], linewidth=2)
             else:
-                plt.plot(self.freqs, err_avg, color=colors[i], label=labels[i])
+                plt.plot(self.freqs, err_avg, color=colors[i], label=labels[i], linewidth=2)
             if plot_std:
                 err_std = np.std(var_errors, axis=0)
                 plt.fill_between(self.freqs, err_avg - err_std, err_avg + err_std, alpha=0.5)
+
         plt.ylabel('RMSE (N/kg)', fontsize=fontsize)
         plt.xlabel('cutoff frequency (Hz)', fontsize=fontsize)
         plt.xticks(fontsize=fontsize)
@@ -788,19 +824,10 @@ class Dataset:
         """
         self.prepare_data_for_plotting()
 
-        ages_filtered = self.ages[np.where(self.ages > 0)]  # exclude unknown
-        bmis_filtered = self.bmis[np.where(self.bmis > 0)]
-
         plot_histograms(datas=[self.ages], num_bins=6, colors=['#006BA4'], labels=[], edgecolor="black", alpha=1,
                         ylabel="no. of subjects", xlabel="age (years)", outdir=self.out_dir, outname="age_histo.png")
         plot_histograms(datas=[self.bmis], num_bins=6, colors=['#006BA4'], labels=[], edgecolor="black", alpha=1,
                         ylabel="no. of subjects", xlabel="BMI (kg/$\\mathrm{m}^2$)", outdir=self.out_dir, outname="bmi_histo.png")
-        # Calculate % of data with reported age and print out
-        print(f"The following is from filtering to remove ages and BMIs less than zero:")
-        print(f"{np.round((len(ages_filtered) / self.num_valid_subjs), 2) * 100}% of subjects have age info.")
-        # Calculate means
-        print(f"MEAN AGE: {np.mean(ages_filtered)}")
-        print(f"MEAN BMI: {np.mean(bmis_filtered)}")
 
     def plot_demographics_by_sex_histograms(self):
         """
@@ -838,8 +865,8 @@ class Dataset:
         else:
             plot_histograms(datas=[self.trial_lengths_total, self.trial_lengths_grf, self.trial_lengths_opt], num_bins=8, colors=['#006BA4', '#FF800E', '#ABABAB'], labels=["total", "with GRF", "with opt"], edgecolor="black", alpha=1,
                             ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png', plot_log_scale=True)
-        plot_histograms(datas=[self.forward_speeds, self.vertical_speeds, self.mediolat_speeds], num_bins=6, colors=['#006BA4', '#FF800E', '#ABABAB'], labels=["antero-posterior", "vertical", "mediolateral"], edgecolor="black", alpha=1,
-                        ylabel='no. of trials', xlabel='average absolute speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)  # TODO: separate btwn walking and running
+        plot_histograms(datas=[self.horizontal_speeds, self.vertical_speeds], num_bins=6, colors=['#006BA4', '#FF800E'], labels=["horizontal", "vertical"], edgecolor="black", alpha=1,
+                        ylabel='no. of trials', xlabel='average absolute speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)
         plot_histograms(datas=[self.percent_double, self.percent_single, self.percent_flight], num_bins=6, colors=['#006BA4', '#FF800E', '#ABABAB'],
                         labels=["double support", "single support", "flight"], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='percent of trial (%)', outdir=self.out_dir, outname='contact_histo.png', plot_log_scale=True)
@@ -870,12 +897,14 @@ class Dataset:
         # filtered_coarse_activity_type_dict = {key: value for key, value in self.coarse_activity_type_dict.items() if
         #                                       value != 0}
 
+        fontsize = 30
         plt.figure()
+
         # plt.bar(filtered_coarse_activity_type_dict.keys(), filtered_coarse_activity_type_dict.values(), color='#006BA4')
         plt.bar(self.coarse_activity_type_dict.keys(), self.coarse_activity_type_dict.values(), color='#006BA4')
-        plt.xlabel('activity type', fontsize=25)
-        plt.xticks(fontsize=25)
-        plt.yticks(fontsize=25)
+        plt.xlabel('activity type', fontsize=fontsize)
+        plt.xticks(fontsize=fontsize)
+        plt.yticks(fontsize=fontsize)
         plt.yticks([])  # remove y ticks
         plt.xticks(rotation=45) # change orientation of labels
 
@@ -899,14 +928,15 @@ class Dataset:
         plt.axhline(y=60, color=line_color, linestyle='--', linewidth=4)
         plt.axhline(y=120, color=line_color, linestyle='--', linewidth=4)
         plt.axhline(y=300, color=line_color, linestyle='--', linewidth=4)
-        # add small text for each line indicating the 2,5,10 and 20 minutes
-        plt.text(11.5, 2.1, '2 min', fontsize=25, color=text_color)
-        plt.text(11.5, 5.3, '5 min', fontsize=25, color=text_color)
-        plt.text(11.5, 10.3, '10 min', fontsize=25, color=text_color)
-        plt.text(11.5, 20.3, '20 min', fontsize=25, color=text_color)
-        plt.text(11.5, 61.5, '1 h', fontsize=25, color=text_color)
-        plt.text(11.5, 123.5, '2 h', fontsize=25, color=text_color)
-        plt.text(11.5, 306.5, '5 h', fontsize=25, color=text_color)
+        # add small text for each line indicating the 2,5,10 and 20 minutes, etc; a little above the y value for spacing
+        plt.text(11.5, 2.1, '2 min', fontsize=fontsize, color=text_color)
+        plt.text(11.5, 5.3, '5 min', fontsize=fontsize, color=text_color)
+        plt.text(11.5, 10.3, '10 min', fontsize=fontsize, color=text_color)
+        plt.text(11.5, 20.3, '20 min', fontsize=fontsize, color=text_color)
+        plt.text(11.5, 61.5, '1 h', fontsize=fontsize, color=text_color)
+        plt.text(11.5, 123.5, '2 h', fontsize=fontsize, color=text_color)
+        plt.text(11.5, 306.5, '5 h', fontsize=fontsize, color=text_color)
+        plt.text(11.5, 608.5, '10 h', fontsize=fontsize, color=text_color)
 
         # make figure much wider
         fig = plt.gcf()
@@ -918,7 +948,6 @@ class Dataset:
         # save the figure
         plt.savefig(os.path.join(self.out_dir, "coarse_activity_type_distribution.png"))
 
-
     def make_err_v_freq_plots(self):
         """
         For accelerations, GRFs, joint torques
@@ -928,17 +957,34 @@ class Dataset:
         self.plot_err_v_freq(errors=[self.grf_errs_v_freq],
                              outname='err_vs_freq.png', colors=['#006BA4'], plot_std=False)
 
-    def calculate_sex_breakdown(self):
+        # Sort alphabetically to pass as lists to function
+        sorted_motions = sorted(self.grf_errs_v_freq_by_motion.keys())
+        sorted_errs = [self.grf_errs_v_freq_by_motion[motion] for motion in sorted_motions if motion not in ["unknown", "other", "bad"]]
+        sorted_colors = [self.motion_settings_dict[motion]['color'] for motion in sorted_motions if motion not in ["unknown", "other", "bad"]]
+
+        self.plot_err_v_freq(errors=sorted_errs,
+                             outname='err_vs_freq_by_motion.png', colors=sorted_colors, plot_std=False)
+
+    def print_demographics_summary(self):
         """
-        Calculate biological sex breakdowns
+        Calculate mean, std, range of age, BMI; calculate biological sex breakdowns
         """
         self.prepare_data_for_plotting()
 
+        ages_filtered = self.ages[np.where(self.ages > 0)]  # exclude unknown
+        bmis_filtered = self.bmis[np.where(self.bmis > 10)]
+        print(f"The following is from filtering to remove inaccurate ages and BMIs:")
+        print(f"{np.round((len(ages_filtered) / self.num_valid_subjs), 2) * 100}% of subjects have accurate age info ({len(ages_filtered)} vs. {self.num_valid_subjs}).")
+        print(f"{np.round((len(bmis_filtered) / self.num_valid_subjs), 2) * 100}% of subjects have accurate BMI info ({len(bmis_filtered)} vs. {self.num_valid_subjs}).")
+
+        # Calculate summary metrics
+        print(f"AGE: MEAN = {np.mean(ages_filtered)}, STD = {np.std(ages_filtered)}, MIN = {np.min(ages_filtered)}, MAX = {np.max(ages_filtered)}")
+        print(f"BMI: MEAN = {np.mean(bmis_filtered)}, STD = {np.std(bmis_filtered)}, MIN = {np.min(bmis_filtered)}, MAX = {np.max(bmis_filtered)}")
+
         num_males = np.count_nonzero(self.sexes == 0)
         num_females = np.count_nonzero(self.sexes == 1)
-        print(f"{np.round(num_males / self.num_valid_subjs, 2) * 100}% of subjects are male.")
-        print(f"{np.round(num_females / self.num_valid_subjs, 2) * 100}% of subjects are female.")
-        print("Rest of data has unknown sex.")
+        print(f"{np.round(num_males / self.num_valid_subjs, 2) * 100}% of subjects are male ({num_males} vs. {self.num_valid_subjs}).")
+        print(f"{np.round(num_females / self.num_valid_subjs, 2) * 100}% of subjects are female ({num_females} vs. {self.num_valid_subjs}).")
 
     def print_totals(self):
         self.prepare_data_for_plotting()
@@ -976,9 +1022,8 @@ class Dataset:
         print(f"trial_lengths_total: {self.trial_lengths_total}")
         print(f"trial_lengths_grf: {self.trial_lengths_grf}")
         print(f"trial_lengths_opt: {self.trial_lengths_opt}")
-        print(f"forward speeds: {self.forward_speeds}")
+        print(f"horizontal speeds: {self.horizontal_speeds}")
         print(f"vertical speeds: {self.vertical_speeds}")
-        print(f"mediolat speeds: {self.mediolat_speeds}")
 
 
 class Trial:
