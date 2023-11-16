@@ -43,6 +43,8 @@ class MakePlotsCommand(AbstractCommand):
                                help='Only use first few files of dataset.')
         subparser.add_argument('--raw-data', action='store_true',
                                help='Whether to use the raw files or not for all downstream processing.')
+        subparser.add_argument('--scatter-random', action="store_true",
+                               help='Whether to use randomly selected trials when making scatter plots.')
 
     def run(self, args: argparse.Namespace):
         """
@@ -61,9 +63,9 @@ class MakePlotsCommand(AbstractCommand):
             #dataset.plot_demographics_histograms()
             #dataset.plot_demographics_by_sex_histograms()
             dataset.plot_biomechanics_metrics_histograms()
-            #dataset.make_contact_pie_chart()
+            dataset.make_contact_pie_chart()
             dataset.plot_activity_classification()
-            dataset.print_demographics_summary()
+            dataset.plot_demographics_by_sex_boxplots()
         if dataset.output_errvfreq:
             dataset.make_err_v_freq_plots()
         if dataset.output_scatterplots:
@@ -75,8 +77,8 @@ class MakePlotsCommand(AbstractCommand):
 
         # Print how many total subjects and trials processed, and hours of data per dataset
         dataset.print_totals()
-        dataset.print_dataset_hours()
-
+        dataset.print_dataset_info()
+        dataset.print_demographics_summary()
 
 # # # HELPERS # # #
 def plot_histograms(datas: List[Sequence], num_bins: int, colors: List[str], labels: List[str], edgecolor: str, alpha: float,
@@ -100,6 +102,16 @@ def plot_histograms(datas: List[Sequence], num_bins: int, colors: List[str], lab
     plt.tight_layout()
     plt.savefig(os.path.join(outdir, outname))
     plt.close()
+
+def plot_boxplots(datas: List[Sequence], labels: List[str], ylabel: str, outdir: str, outname: str, fontsize: int = 16):
+    """
+    Create boxplots of input data
+    """
+    fig, ax = plt.subplots()
+    ax.tick_params(axis='both', which='major', labelsize=fontsize)
+    ax.boxplot(datas, labels=labels)
+    plt.ylabel(ylabel, fontsize=fontsize)
+    plt.savefig(os.path.join(outdir, outname))
 
 def calculate_avg_treadmill_speed(com_vel_kin: ndarray, contact: ndarray) -> (int, int):
     """
@@ -149,6 +161,7 @@ class Dataset:
         self.output_trialmetrics: bool = args.output_trialmetrics
         self.short: bool = args.short
         self.raw_data: bool = args.raw_data
+        self.scatter_random: bool = args.scatter_random
 
         # Aggregate paths to subject data files
         self.subj_paths: List[str] = self.extract_data_files(file_type="b3d")
@@ -288,23 +301,24 @@ class Dataset:
         if self.use_estimated_mass:
             self.estimated_masses = self.estimate_masses()
 
-        # Calculate total hours per dataset; store in a dict
+        # Calculate total hours and subjects per dataset; store in a dict
         self.dataset_hours_dict = {key: {'total': 0.0, 'grf': 0.0, 'opt': 0.0} for key in self.dataset_names}
+        self.dataset_n_dict = {key: 0 for key in self.dataset_names}
 
         # Set up plotting settings
         self.motion_settings_dict = {
             'unknown': {'color': '#FFD92F', 'marker': '|'},
             'other': {'color': '#A6CEE3', 'marker': '_'},
-            'bad': {'color': '#B3DE69', 'marker': '^'},
-            'walking': {'color': '#f781bf', 'marker': 'D'},
-            'running': {'color': '#a65628', 'marker': 'p'},
+            'bad': {'color': '#a65628', 'marker': '^'},
+            'walking': {'color': '#377eb8', 'marker': 'D'},
+            'running': {'color': '#ff7f00', 'marker': 'p'},
             'sit-to-stand': {'color': '#984ea3', 'marker': '*'},
             'stairs': {'color': '#999999', 'marker': 'H'},
-            'jump': {'color': '#e41a1c', 'marker': '+'},
-            'squat': {'color': '#ff7f00', 'marker': 'x'},
-            'lunge': {'color': '#377eb8', 'marker': 'o'},
+            'jump': {'color': '#e41a1c', 'marker': '.'},
+            'squat': {'color': '#f781bf', 'marker': 'x'},
+            'lunge': {'color': '#B3DE69', 'marker': 'o'},
             'standing': {'color': '#4daf4a', 'marker': 's'},
-            'transition': {'color': '#C377E0', 'marker': '.'}
+            'transition': {'color': '#C377E0', 'marker': 'P'}
         }
 
         if self.output_histograms:
@@ -322,6 +336,7 @@ class Dataset:
             self.percent_double: List[float] = []
             self.percent_single: List[float] = []
             self.percent_flight: List[float] = []
+            self.max_trial_grf: List[float] = []
             self.contact_counts: ndarray[int, int, int] = np.array([0, 0, 0])  # we will increment counts in order of double, single, flight
             self.coarse_activity_type_dict = {'unknown': 0.0, 'other': 0.0, 'bad': 0.0, 'walking': 0.0,
                                               'running': 0.0, 'sit-to-stand': 0.0, 'stairs': 0.0, 'jump': 0.0,
@@ -340,37 +355,38 @@ class Dataset:
                       "knee_angle_l", "ankle_angle_l", "subtalar_angle_l", "mtp_angle_l",
                       "lumbar_extension", "lumbar_bending", "lumbar_rotation"]
 
-            # Set the number of trials you want to plot in the scatters for each motion type.
-            # Trials will be randomly selected until reaching these values.
-            scatter_threshold = 0.6  # threshold for probability of randomly selecting a trial
-            scatter_trials_target_dict = {
-                                        'unknown': 0,
-                                        'other': 0,
-                                        'bad': 0,
-                                        'walking': 2,
-                                        'running': 2,
-                                        'sit-to-stand': 2,
-                                        'stairs': 2,
-                                        'jump': 2,
-                                        'squat': 2,
-                                        'lunge': 2,
-                                        'standing': 2,
-                                        'transition': 2
+            if self.scatter_random:
+                # Set the number of trials you want to plot in the scatters for each motion type.
+                # Trials will be randomly selected until reaching these values.
+                scatter_threshold = 0.6  # threshold for probability of randomly selecting a trial
+                scatter_trials_target_dict = {
+                                            'unknown': 0,
+                                            'other': 0,
+                                            'bad': 0,
+                                            'walking': 2,
+                                            'running': 2,
+                                            'sit-to-stand': 2,
+                                            'stairs': 2,
+                                            'jump': 2,
+                                            'squat': 2,
+                                            'lunge': 2,
+                                            'standing': 2,
+                                            'transition': 2
+                                            }
+                self.scatter_trials_counter_dict = {
+                                            'unknown': 0,
+                                            'other': 0,
+                                            'bad': 0,
+                                            'walking': 0,
+                                            'running': 0,
+                                            'sit-to-stand': 0,
+                                            'stairs': 0,
+                                            'jump': 0,
+                                            'squat': 0,
+                                            'lunge': 0,
+                                            'standing': 0,
+                                            'transition': 0
                                         }
-            scatter_trials_counter_dict = {
-                                        'unknown': 0,
-                                        'other': 0,
-                                        'bad': 0,
-                                        'walking': 0,
-                                        'running': 0,
-                                        'sit-to-stand': 0,
-                                        'stairs': 0,
-                                        'jump': 0,
-                                        'squat': 0,
-                                        'lunge': 0,
-                                        'standing': 0,
-                                        'transition': 0
-                                    }
 
             self.jointacc_vs_comacc_plots = ScatterPlots(num_rows=6, num_cols=4,
                                                          num_plots=self.num_dofs, labels=dof_names)
@@ -437,6 +453,9 @@ class Dataset:
 
             print(f"Processing subject file: {subj_path}... (Subject {subj_ix+1} of {len(self.subj_paths)})")
 
+            # Get the dataset name
+            dataset_name = next((name for name in self.dataset_names if name in subj_path), "")
+
             # Load the subject
             subject_on_disk = nimble.biomechanics.SubjectOnDisk(subj_path)
 
@@ -483,10 +502,10 @@ class Dataset:
             # Loop through all trials for each subject:
             for trial in range(num_trials):
 
-                # if self.output_scatterplots:  # get probability of selecting this trial
-                #     prob = np.random.rand()
-                #     if prob < scatter_threshold:
-                #         continue  # skip processing
+                if self.output_scatterplots and self.scatter_random:  # get probability of selecting this trial
+                    prob = np.random.rand()
+                    if prob < scatter_threshold:
+                        continue  # skip processing
 
                 init_trial_length = subject_on_disk.getTrialLength(trial)
 
@@ -550,13 +569,13 @@ class Dataset:
                         print(f"SKIPPING TRIAL {trial + 1} due to < 1 valid frames")
                         print(f"Omission reasons raw: {trial_data.frame_omission_reasons}")
                         continue
-                    if (not self.raw_data) and (num_valid_frames < len(frames)):  # should only be the case for non raw data where num_valid_frames is less than total frames
+                    #if (not self.raw_data) and (num_valid_frames < len(frames)):  # should only be the case for non raw data where num_valid_frames is less than total frames
                         # Calculate percentages of frame omission reasons
-                        omission_reasons = np.round( (trial_data.frame_omission_reasons / (len(frames)-num_valid_frames)) * 100 , 2)
-                        print(f"REMOVING SOME FRAMES on trial {trial + 1}: "
-                              f"num_valid_frames: {num_valid_frames} vs. total num frames: {len(frames)} vs. num_grf_frames: {num_grf_frames}")
+                        #omission_reasons = np.round( (trial_data.frame_omission_reasons / (len(frames)-num_valid_frames)) * 100 , 2)
+                        #print(f"REMOVING SOME FRAMES on trial {trial + 1}: "
+                              #f"num_valid_frames: {num_valid_frames} vs. total num frames: {len(frames)} vs. num_grf_frames: {num_grf_frames}")
                         #print(f"omission reasons: kin missing ({omission_reasons[0]}%), dyn missing ({omission_reasons[1]}%), grf labels ({omission_reasons[2]}%), not two contacts bodies ({omission_reasons[3]}%)")
-                        print(f"omission reasons: kin missing ({omission_reasons[0]}%), dyn missing ({omission_reasons[1]}%), grf labels ({omission_reasons[2]}%)")
+                        #print(f"omission reasons: kin missing ({omission_reasons[0]}%), dyn missing ({omission_reasons[1]}%), grf labels ({omission_reasons[2]}%)")
 
                     # We broke out of this iteration of trial looping if skipping trials due to reasons above;
                     # otherwise, increment number of valid trials for each subject and for totals
@@ -565,7 +584,6 @@ class Dataset:
                     self.total_num_valid_frames += num_valid_frames
 
                     # Increment dataset hours dict
-                    dataset_name = next((name for name in self.dataset_names if name in subj_path), "")
                     if len(dataset_name) > 0:
                         self.dataset_hours_dict[dataset_name]['total'] += init_trial_length * subject_on_disk.getTrialTimestep(trial) / 60 / 60  # in hours
                         self.dataset_hours_dict[dataset_name]['grf'] += num_grf_frames * subject_on_disk.getTrialTimestep(trial) / 60 / 60
@@ -581,7 +599,7 @@ class Dataset:
 
                         # Speeds:
                         if "treadmill" in trial_data.motion_class:  # we need to only calculate based on stance phase
-                            print(f"detected treadmill trial: motion class = {trial_data.motion_class}")
+                            #print(f"detected treadmill trial: motion class = {trial_data.motion_class}")
                             vert_speed, horiz_speed = calculate_avg_treadmill_speed(trial_data.com_vel_kin, trial_data.contact)
                             self.vertical_speeds.append(vert_speed)
                             self.horizontal_speeds.append(horiz_speed)
@@ -589,6 +607,9 @@ class Dataset:
                             self.vertical_speeds.append(np.average(np.abs(trial_data.com_vel_kin[:, 1])))
                             horiz_speed = np.sqrt(trial_data.com_vel_kin[:, 0]**2 + trial_data.com_vel_kin[:, 2]**2)
                             self.horizontal_speeds.append(np.average(np.abs(horiz_speed)))
+
+                        # Max absolute mass-normalized GRF:
+                        self.max_trial_grf.append(np.max(np.linalg.norm(trial_data.total_grf, axis=-1) / mass))
 
                         # Contact dist:
                         flight_count = np.count_nonzero((trial_data.contact == [0, 0]).all(axis=1))
@@ -607,84 +628,96 @@ class Dataset:
                         trial_time = num_valid_frames * subject_on_disk.getTrialTimestep(trial) / 60  # convert to time (minutes)
                         self.coarse_activity_type_dict[trial_data.coarse_motion_class] = self.coarse_activity_type_dict[trial_data.coarse_motion_class] + trial_time
 
-                    if (not self.raw_data) and self.output_scatterplots:
+                    if (not self.raw_data) and self.output_scatterplots:  # only do scatter plots on processed data
                         assert (self.num_dofs == trial_data.num_dofs),  f"self.num_dofs: {self.num_dofs}; trial_data.num_dofs: {trial_data.num_dofs}"  # check what we assume from std skel matches data
 
-                        if  scatter_trials_counter_dict[trial_data.coarse_motion_class] < scatter_trials_target_dict[trial_data.coarse_motion_class]:
-                            # # Select this trial to add to scatter plot, and increment counts of trials for this motion class
-                            # print(f"Selected trial {trial + 1} of motion class {trial_data.coarse_motion_class} from {subj_path} with prob of {prob}")
-                            # scatter_trials_counter_dict[trial_data.coarse_motion_class] += 1
-                            # print(f"trials counter: {scatter_trials_counter_dict}")
+                        update_plots = False
+                        if self.scatter_random:
+                            if self.scatter_trials_counter_dict[trial_data.coarse_motion_class] < scatter_trials_target_dict[trial_data.coarse_motion_class]:
+                                # Select this trial to add to scatter plot, and increment counts of trials for this motion class
+                                print(f"Selected trial {trial + 1} of motion class {trial_data.coarse_motion_class} from {subj_path} with prob of {prob}")
+                                self.scatter_trials_counter_dict[trial_data.coarse_motion_class] += 1
+                                print(f"trials counter: {self.scatter_trials_counter_dict}")
+                                mkr_size = 30
+                                alpha = 0.75
+                                random = True
+                                update_plots = True
+                        else:  # plotting all data
+                            mkr_size = 10
+                            alpha = 0.25
+                            random = False
+                            update_plots = True  # plot all trials
 
+                        if update_plots:
                             # joint accelerations vs. vertical component of COM acc
                             self.jointacc_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             # joint accelerations vs. vertical component of total GRF
                             self.jointacc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.joint_acc_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             # joint accelerations vs. contact classification of first listed contact body
                             self.jointacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                             trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False)
+                                                                             trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random)
                             # joint accelerations vs. vertical component of GRF distribution on first listed contact body
                             self.jointacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_acc_kin[::self.downsample_size],
-                                                                          trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False)
+                                                                          trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random)
 
                             # joint positions vs. vertical component of COM acc
                             self.jointpos_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             # joint positions vs. vertical component of total GRF
                             self.jointpos_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.joint_pos_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             # joint positions vs. contact classification of first listed contact body
                             self.jointpos_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                             trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False)
+                                                                             trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random)
                             # joint positions vs. vertical component of GRF distribution on first listed contact body
                             self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                          trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False)
+                                                                          trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random)
                             # Joint positions vs. total GRF norm
                             self.jointpos_vs_totgrf_norm_plots.update_plots(np.linalg.norm(trial_data.total_grf[::self.downsample_size, :] / mass, axis = -1), trial_data.joint_pos_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
 
                             # joint torques vs. vertical component of COM acc
                             self.jointtau_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             # joint torques vs. vertical component of total GRF
                             self.jointtau_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             # joint torques vs. contact classification of first listed contact body
                             self.jointtau_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                             trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False)
+                                                                             trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random)
                             # joint torques vs. vertical component of GRF distribution on first listed contact body
                             self.jointtau_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
-                                                                          trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False)
+                                                                          trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random)
 
                             # # COM acc vs tot GRF
                             self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[::self.downsample_size, 0] / mass, trial_data.com_acc_kin[::self.downsample_size, 0].reshape(-1,1),
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             self.comacc_vs_totgrf_y_plots.update_plots(trial_data.total_grf[::self.downsample_size,1] / mass, trial_data.com_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             self.comacc_vs_totgrf_z_plots.update_plots(trial_data.total_grf[::self.downsample_size,2] / mass, trial_data.com_acc_kin[::self.downsample_size,2].reshape(-1,1),
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
 
                             # COM acc y vs contact and dist y
                             self.comacc_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.com_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False)
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random)
                             self.comacc_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.com_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False)
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random)
 
                             # Joint center positions in root frame vs tot GRF in y direction
                             self.jointcenters_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.joint_centers_kin[::self.downsample_size],
-                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
 
                             # Linear and angular velocities and accelerations vs. tot GRF in y direction
                             self.root_lin_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_lin_vel_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             self.root_ang_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_ang_vel_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             self.root_lin_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_lin_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             self.root_ang_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_ang_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson")
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
 
                     if (not self.raw_data) and self.output_errvfreq:
                         grf_err_v_freq = self.compute_err_v_freq(order=2, dt=subject_on_disk.getTrialTimestep(0),
@@ -701,17 +734,23 @@ class Dataset:
 
             # Only get demographics info and store if this subject had at least one valid trial
             if subj_num_valid_trials >= 1:
+
+                # Get the number of valid subjects
                 if "Camargo" in subj_path:  # we have multiple .b3ds for each subject for this dataset
                     if "split0" in subj_path:
                         self.num_valid_subjs += 1
+                        self.dataset_n_dict[dataset_name] += 1  # store num subjs per dataset
                 else:
                     self.num_valid_subjs += 1
+                    self.dataset_n_dict[dataset_name] += 1  # store num subjs per dataset
+
+                # Get and store demographics
                 age = subject_on_disk.getAgeYears()
                 if age <= 0: print(f"Age unknown for {subj_path}: age value = {age}")
                 sex = subject_on_disk.getBiologicalSex()
                 height = subject_on_disk.getHeightM()
                 bmi = mass / (height ** 2)
-                if bmi <= 10: print(f"BMI too low for {subj_path}: BMI value = {bmi}")
+                if bmi <= 15: print(f"BMI too low for {subj_path}: BMI value = {bmi}")
                 if self.output_histograms:
                     # Add to subject-specific storage
                     if sex == "male":
@@ -829,6 +868,7 @@ class Dataset:
         plot_histograms(datas=[self.bmis], num_bins=6, colors=['#006BA4'], labels=[], edgecolor="black", alpha=1,
                         ylabel="no. of subjects", xlabel="BMI (kg/$\\mathrm{m}^2$)", outdir=self.out_dir, outname="bmi_histo.png")
 
+
     def plot_demographics_by_sex_histograms(self):
         """
         Plots histograms of demographics by sex
@@ -836,15 +876,9 @@ class Dataset:
         self.prepare_data_for_plotting()
 
         # Get indices for valid age and for valid sex fields
-        valid_age_ix = np.where(self.ages > 0)[0]  # access within tuple return
         m_ix = np.where(self.sexes == 0)[0]  # we assign "males" to 0
         f_ix = np.where(self.sexes == 1)[0]  # we assign "females" to 1
         u_ix = np.where(self.sexes == 2)[0]  # we assign "unknown" to 2
-
-        # Only plot if there is both age and sex
-        valid_m_ix = np.intersect1d(valid_age_ix, m_ix)
-        valid_f_ix = np.intersect1d(valid_age_ix, f_ix)
-        valid_u_ix = np.intersect1d(valid_age_ix, u_ix)
 
         colors = ['#006BA4', '#FF800E', '#ABABAB']
 
@@ -852,6 +886,31 @@ class Dataset:
                         edgecolor="black", alpha=1, ylabel="no. of subjects", xlabel="age (years)", outdir=self.out_dir, outname="age_bysex_histo.png")
         plot_histograms(datas=[self.bmis[m_ix], self.bmis[f_ix], self.bmis[u_ix]], num_bins=6, colors=colors, labels=["male", "female", "unknown"],
                         edgecolor="black", alpha=1, ylabel="no. of subjects", xlabel="BMI (kg/$\\mathrm{m}^2$)", outdir=self.out_dir, outname="bmi_bysex_histo.png")
+
+    def plot_demographics_by_sex_boxplots(self):
+        """
+        Plots histograms of demographics by sex
+        """
+        self.prepare_data_for_plotting()
+
+        # Get indices for valid age and for valid sex fields
+        valid_age_ix = np.where(self.ages > 0)[0]  # access within tuple return
+        valid_bmi_ix = np.where(self.bmis > 15)[0]  # access within tuple return
+        m_ix = np.where(self.sexes == 0)[0]  # we assign "males" to 0
+        f_ix = np.where(self.sexes == 1)[0]  # we assign "females" to 1
+
+        # Only plot if there is valid age, sex, BMI
+        valid_m_ix = np.intersect1d(valid_bmi_ix, np.intersect1d(valid_age_ix, m_ix))
+        valid_f_ix = np.intersect1d(valid_bmi_ix, np.intersect1d(valid_age_ix, f_ix))
+
+        colors = ['#006BA4', '#FF800E', '#ABABAB']
+
+        plot_boxplots(datas=[self.ages[valid_m_ix], self.ages[valid_f_ix]],
+                        labels=["male", "female"], ylabel="age (years)", outdir=self.out_dir,
+                        outname="age_bysex_boxplot.png")
+        plot_boxplots(datas=[self.bmis[valid_m_ix], self.bmis[valid_f_ix]],
+                      labels=["male", "female"], ylabel="BMI (kg/$\\mathrm{m}^2$)", outdir=self.out_dir,
+                      outname="bmi_bysex_boxplot.png")
 
     def plot_biomechanics_metrics_histograms(self):
         """
@@ -870,6 +929,11 @@ class Dataset:
         plot_histograms(datas=[self.percent_double, self.percent_single, self.percent_flight], num_bins=6, colors=['#006BA4', '#FF800E', '#ABABAB'],
                         labels=["double support", "single support", "flight"], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='percent of trial (%)', outdir=self.out_dir, outname='contact_histo.png', plot_log_scale=True)
+        plot_histograms(datas=[self.max_trial_grf], num_bins=6,
+                        colors=['#006BA4'],
+                        labels=[], edgecolor="black", alpha=1,
+                        ylabel='no. of trials', xlabel='maximum GRF per trial (N/kg)', outdir=self.out_dir,
+                        outname='max_grf_histo.png', plot_log_scale=True)
 
     def make_contact_pie_chart(self):
         """
@@ -921,15 +985,17 @@ class Dataset:
         # Add a horizontal red line for 2, 5, 10 and 20 minutes
         line_color = '#CFCFCF'
         text_color = 'black'
-        plt.axhline(y=2, color=line_color, linestyle='--', linewidth=4)
+        #plt.axhline(y=2, color=line_color, linestyle='--', linewidth=4)
         plt.axhline(y=5, color=line_color, linestyle='--', linewidth=4)
         plt.axhline(y=10, color=line_color, linestyle='--', linewidth=4)
         plt.axhline(y=20, color=line_color, linestyle='--', linewidth=4)
         plt.axhline(y=60, color=line_color, linestyle='--', linewidth=4)
         plt.axhline(y=120, color=line_color, linestyle='--', linewidth=4)
         plt.axhline(y=300, color=line_color, linestyle='--', linewidth=4)
+        plt.axhline(y=600, color=line_color, linestyle='--', linewidth=4)
+        plt.axhline(y=1200, color=line_color, linestyle='--', linewidth=4)
         # add small text for each line indicating the 2,5,10 and 20 minutes, etc; a little above the y value for spacing
-        plt.text(11.5, 2.1, '2 min', fontsize=fontsize, color=text_color)
+        #plt.text(11.5, 2.1, '2 min', fontsize=fontsize, color=text_color)
         plt.text(11.5, 5.3, '5 min', fontsize=fontsize, color=text_color)
         plt.text(11.5, 10.3, '10 min', fontsize=fontsize, color=text_color)
         plt.text(11.5, 20.3, '20 min', fontsize=fontsize, color=text_color)
@@ -937,6 +1003,7 @@ class Dataset:
         plt.text(11.5, 123.5, '2 h', fontsize=fontsize, color=text_color)
         plt.text(11.5, 306.5, '5 h', fontsize=fontsize, color=text_color)
         plt.text(11.5, 608.5, '10 h', fontsize=fontsize, color=text_color)
+        plt.text(11.5, 1208.5, '20 h', fontsize=fontsize, color=text_color)
 
         # make figure much wider
         fig = plt.gcf()
@@ -972,14 +1039,14 @@ class Dataset:
         self.prepare_data_for_plotting()
 
         ages_filtered = self.ages[np.where(self.ages > 0)]  # exclude unknown
-        bmis_filtered = self.bmis[np.where(self.bmis > 10)]
+        bmis_filtered = self.bmis[np.where(self.bmis > 15)]
         print(f"The following is from filtering to remove inaccurate ages and BMIs:")
         print(f"{np.round((len(ages_filtered) / self.num_valid_subjs), 2) * 100}% of subjects have accurate age info ({len(ages_filtered)} vs. {self.num_valid_subjs}).")
         print(f"{np.round((len(bmis_filtered) / self.num_valid_subjs), 2) * 100}% of subjects have accurate BMI info ({len(bmis_filtered)} vs. {self.num_valid_subjs}).")
 
         # Calculate summary metrics
-        print(f"AGE: MEAN = {np.mean(ages_filtered)}, STD = {np.std(ages_filtered)}, MIN = {np.min(ages_filtered)}, MAX = {np.max(ages_filtered)}")
-        print(f"BMI: MEAN = {np.mean(bmis_filtered)}, STD = {np.std(bmis_filtered)}, MIN = {np.min(bmis_filtered)}, MAX = {np.max(bmis_filtered)}")
+        print(f"AGE: MEAN = {np.mean(ages_filtered)}, MEDIAN = {np.median(ages_filtered)}, STD = {np.std(ages_filtered)}, MIN = {np.min(ages_filtered)}, MAX = {np.max(ages_filtered)}")
+        print(f"BMI: MEAN = {np.mean(bmis_filtered)}, MEDIAN = {np.median(ages_filtered)}, STD = {np.std(bmis_filtered)}, MIN = {np.min(bmis_filtered)}, MAX = {np.max(bmis_filtered)}")
 
         num_males = np.count_nonzero(self.sexes == 0)
         num_females = np.count_nonzero(self.sexes == 1)
@@ -993,7 +1060,7 @@ class Dataset:
         print(f"TOTAL NUM VALID TRIALS: {self.num_valid_trials}")
         print(f"TOTAL NUM VALID FRAMES: {self.total_num_valid_frames}")
 
-    def print_dataset_hours(self):
+    def print_dataset_info(self):
         self.prepare_data_for_plotting()
 
         # Round the values
@@ -1002,6 +1069,15 @@ class Dataset:
 
         print(f"DATASET HOURS: ")
         print(rounded_dict)
+        print(f"DATASET SAMPLE SIZES: ")
+        print(self.dataset_n_dict)
+        if sum(self.dataset_n_dict.values()) != self.num_valid_subjs:
+            print(f"WARNING: discrepancy between per dataset sample size and total sample size:")
+            print(f"Sum of per dataset sample sizes: {sum(self.dataset_n_dict.values())}")
+        if self.output_scatterplots and self.scatter_random:
+            print(f"Tallies of motions covered by random sampling: ")
+            print(self.scatter_trials_counter_dict)
+
 
     def print_subject_metrics(self):
         """
@@ -1372,7 +1448,7 @@ class ScatterPlots:
         else:
             self.fig, self.axs = plt.subplots(figsize=(8, 8))
 
-    def update_plots(self, x: ndarray, y: ndarray, motion_class: str, settings: dict, corr_type: str, scale_x: bool = False, scale_y: bool = False):
+    def update_plots(self, x: ndarray, y: ndarray, motion_class: str, settings: dict, corr_type: str, scale_x: bool = False, scale_y: bool = False,  mkr_size: int = 20, alpha: float = 1, random: bool = False):
         for i in range(self.num_plots):
 
             # Standardize the vars
@@ -1402,6 +1478,11 @@ class ScatterPlots:
                     self.corrs[i] = 0  # TODO: better way to address?
 
             # Plot
+            if random:
+                marker = settings[motion_class]['marker']
+            else:
+                marker = '.'
+
             if self.use_subplots:
                 row = i // self.num_cols
                 col = i % self.num_cols
@@ -1409,10 +1490,10 @@ class ScatterPlots:
                     ax = self.axs
                 else:
                     ax = self.axs[row, col]
-                ax.scatter(x_scaled, y_scaled, s=30, alpha=0.75, color=settings[motion_class]['color'], marker=settings[motion_class]['marker'])
+                ax.scatter(x_scaled, y_scaled, s=mkr_size, alpha=alpha, color=settings[motion_class]['color'], marker=marker)
                 ax.set_box_aspect(1)  # for formatting
             else:
-                self.axs.scatter(x_scaled, y_scaled, s=30, alpha=0.75, color=settings[motion_class]['color'], marker=settings[motion_class]['marker'])
+                self.axs.scatter(x_scaled, y_scaled, s=mkr_size, alpha=alpha, color=settings[motion_class]['color'], marker=marker)
 
     def save_plot(self, plots_outdir: str, outname: str, num_trials: int):
 
