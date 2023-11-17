@@ -79,14 +79,14 @@ def main(args):
         'unknown': 0,
         'other': 0,
         'bad': 0,
-        'walking': 2,
-        'running': 2,
-        'sit-to-stand': 2,
-        'stairs': 2,
-        'jump': 2,
-        'squat': 2,
+        'walking': 10,
+        'running': 10,
+        'sit-to-stand': 10,
+        'stairs': 10,
+        'jump': 10,
+        'squat': 10,
         'lunge': 0,
-        'standing': 2
+        'standing': 10
     }
     scatter_trials_counter_dict = {
         'unknown': 0,
@@ -101,12 +101,14 @@ def main(args):
         'lunge': 0,
         'standing': 0
     }
+    assert (len(vel_x) == len(vel_y) == len(com_x) == len(com_y) == len(add_r_x) == len(add_r_y) == len(add_l_x) == len(add_l_y))
 
     plt.figure(figsize=(8, 8))
     for i in range(len(add_r_x)):
         plt.scatter(add_r_x[i], add_r_y[i], s=10, alpha=0.25, color=motion_settings_dict[scatter_motion_classes[i]]['color'], marker='.')
     plt.tick_params(axis='both', which='major', labelsize=20)
     plt.savefig(os.path.join(out_path, "add_r_scatter.png"))
+
     plt.figure(figsize=(8,  8))
     for i in range(len(add_r_x)):
         plt.scatter(add_l_x[i], add_l_y[i], s=10, alpha=0.25,
@@ -114,11 +116,27 @@ def main(args):
     plt.tick_params(axis='both', which='major', labelsize=20)
     plt.savefig(os.path.join(out_path, "add_l_scatter.png"))
 
+    plt.figure(figsize=(8, 8))
+    for i in range(len(com_x)):
+        plt.scatter(com_x[i], com_y[i], s=10, alpha=0.25,
+                    color=motion_settings_dict[scatter_motion_classes[i]]['color'], marker='.')
+    plt.tick_params(axis='both', which='major', labelsize=20)
+    plt.savefig(os.path.join(out_path, "com_all.png"))
+
+    plt.figure(figsize=(8, 8))
+    for i in range(len(vel_x)):
+        plt.scatter(vel_x[i], vel_y[i], s=10, alpha=0.25,
+                    color=motion_settings_dict[scatter_motion_classes[i]]['color'], marker='.')
+    plt.tick_params(axis='both', which='major', labelsize=20)
+    plt.savefig(os.path.join(out_path, "vel_all.png"))
+
     scatter_thresh = 0.6
     fig_com, ax_com = plt.subplots(figsize=(8, 8))
     fig_vel, ax_vel = plt.subplots(figsize=(8, 8))
 
     for i in range(len(com_x)):
+        if scatter_trials_counter_dict[motion_class] == scatter_trials_target_dict[motion_class]: break
+
         motion_class = scatter_motion_classes[i]
         prob = np.random.rand()
         if (prob < scatter_thresh) and (scatter_trials_counter_dict[motion_class] < scatter_trials_target_dict[motion_class]):
