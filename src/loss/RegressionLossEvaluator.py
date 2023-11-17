@@ -260,8 +260,8 @@ class RegressionLossEvaluator:
                                                                     np.zeros(6))
                     tau_error = tau - labels[OutputDataKeys.TAU][batch, -1, :].cpu().numpy()
                     # Exclude root residual from error
-                    tau_reported_metric += np.linalg.norm(tau_error[6:])
-                tau_reported_metric /= (num_batches)
+                    tau_reported_metric += np.mean(np.abs(tau_error[6:])) / skel.getMass()
+                tau_reported_metric /= num_batches
                 self.tau_reported_metrics.append(tau_reported_metric)
             # 2.4. Keep track of the reported metrics for reporting averages across the entire dev set
             self.force_reported_metrics.append(force_reported_metric)
@@ -382,7 +382,7 @@ class RegressionLossEvaluator:
             print(f'\tMoment Avg Err: {moment_reported_metric} Nm / kg')
             print(f'\tWrench Avg Err: {wrench_reported_metric} N+Nm / kg')
             print(
-                f'\tNon-root Joint Torques (Inverse Dynamics) Avg Err: {tau_reported_metric} Nm')
+                f'\tNon-root Joint Torques (Inverse Dynamics) Avg Err: {tau_reported_metric} Nm / kg')
 
         # Reset
         if reset:
