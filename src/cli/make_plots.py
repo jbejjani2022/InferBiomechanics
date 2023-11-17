@@ -9,8 +9,9 @@ import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
 from scipy import stats
 import re
-import seaborn as sns
-import time
+import pandas as pd
+import pickle
+
 
 # Set a random seed for randomly selecting trials for scatter plots
 np.random.seed(42)
@@ -45,6 +46,10 @@ class MakePlotsCommand(AbstractCommand):
                                help='Whether to use the raw files or not for all downstream processing.')
         subparser.add_argument('--scatter-random', action="store_true",
                                help='Whether to use randomly selected trials when making scatter plots.')
+        subparser.add_argument('--save-histo-data', action="store_true",
+                               help='Whether to save the data used to make the histograms.')
+        subparser.add_argument('--save-scatter-data', action="store_true",
+                               help='Whether to save the data used to make the scatterplots.')
 
     def run(self, args: argparse.Namespace):
         """
@@ -74,6 +79,8 @@ class MakePlotsCommand(AbstractCommand):
             dataset.print_subject_metrics()
         if dataset.output_trialmetrics:
             dataset.print_trial_metrics()
+        if dataset.save_histo_data or dataset.save_scatter_data:
+            dataset.save_plot_data()
 
         # Print how many total subjects and trials processed, and hours of data per dataset
         dataset.print_totals()
@@ -82,7 +89,7 @@ class MakePlotsCommand(AbstractCommand):
 
 # # # HELPERS # # #
 def plot_histograms(datas: List[Sequence], num_bins: int, colors: List[str], labels: List[str], edgecolor: str, alpha: float,
-                    ylabel: str, xlabel: str, outdir: str, outname: str, fontsize: int = 16, plot_log_scale: bool = False):
+                    ylabel: str, xlabel: str, outdir: str, outname: str, fontsize: int = 20, plot_log_scale: bool = False):
     """
     Create a single histogram or overlaid histograms of the given input data with given plotting settings
     """
@@ -125,7 +132,7 @@ def calculate_avg_treadmill_speed(com_vel_kin: ndarray, contact: ndarray) -> (in
     assert (com_vel_kin.shape[0] == contact.shape[0])  # assure same number of frames
 
     # Get the indices of single support
-    ss_ix = np.where((contact == [0, 1]) | (contact == [1, 0]))
+    ss_ix = np.where((np.all(contact == [0, 1], axis=1)) | (np.all(contact == [1, 0], axis=1)))[0]
     ss_com_vel_kin = com_vel_kin[ss_ix, :]
 
     # Calculate average absolute vertical speed
@@ -162,6 +169,8 @@ class Dataset:
         self.short: bool = args.short
         self.raw_data: bool = args.raw_data
         self.scatter_random: bool = args.scatter_random
+        self.save_histo_data: bool = args.save_histo_data
+        self.save_scatter_data: bool = args.save_scatter_data
 
         # Aggregate paths to subject data files
         self.subj_paths: List[str] = self.extract_data_files(file_type="b3d")
@@ -196,14 +205,24 @@ class Dataset:
         """
         subject_paths: List[str] = []
         if self.raw_data:
-            for dataset in self.dataset_names:
-                dataset_path = os.path.join(self.data_dir, dataset, "b3d_no_arm")
-                for root, _, files in os.walk(dataset_path):
-                    for file in files:
-                        if file.endswith(file_type):
-                            path = os.path.join(root, file)
-                            if not os.path.basename(path).startswith('.'):
-                                subject_paths.append(path)  # do not use hidden files
+            # Obsolete version of accessing files from Google Drive:
+            # for dataset in self.dataset_names:
+            #     dataset_path = os.path.join(self.data_dir, dataset, "b3d_no_arm")
+            #     for root, _, files in os.walk(dataset_path):
+            #         for file in files:
+            #             if file.endswith(file_type):
+            #                 path = os.path.join(root, file)
+            #                 if not os.path.basename(path).startswith('.'):
+            #                     subject_paths.append(path)  # do not use hidden files
+            datasets = os.listdir(self.data_dir)
+            #assert (len(datasets) == 15), f"Unexpected number of datasets: {len(datasets)}"  # final for CVPR
+            if '.DS_Store' in datasets: datasets.remove('.DS_Store')
+            for dataset in datasets:
+                subjs = os.listdir(os.path.join(self.data_dir, dataset))
+                for subj in subjs:
+                    filepath = os.path.join(self.data_dir, dataset, subj, subj + "." + file_type)
+                    if os.path.exists(filepath):
+                        subject_paths.append(filepath)
         else:  # use processed files
             for root, _, files in os.walk(self.data_dir):
                 for file in files:
@@ -301,6 +320,10 @@ class Dataset:
         if self.use_estimated_mass:
             self.estimated_masses = self.estimate_masses()
 
+        # Load in Carter demographics info if within the dataset
+        if any("Carter2023" in dataset for dataset in self.dataset_names):
+            carter_demo = pd.read_csv("/Users/janellekaneda/Desktop/CVPR24/carter_demo/Participant_Info.csv")
+
         # Calculate total hours and subjects per dataset; store in a dict
         self.dataset_hours_dict = {key: {'total': 0.0, 'grf': 0.0, 'opt': 0.0} for key in self.dataset_names}
         self.dataset_n_dict = {key: 0 for key in self.dataset_names}
@@ -331,16 +354,28 @@ class Dataset:
             self.trial_lengths_total: List[int] = []  # num frames
             self.trial_lengths_grf: List[int] = []
             self.trial_lengths_opt: List[int] = []
+
             self.vertical_speeds: List[float] = []
             self.horizontal_speeds: List[float] = []
+            self.all_speeds_kin: List[ndarray] = []
+            #self.all_speeds_dyn: List[ndarray] = []
+            self.ankle_l_pos_all: List[ndarray] = []
+            self.ankle_r_pos_all: List[ndarray] = []
+
+            self.contacts_all: List[ndarray] = []
+
+            self.timesteps_all: List[float] = []
+
             self.percent_double: List[float] = []
             self.percent_single: List[float] = []
             self.percent_flight: List[float] = []
             self.max_trial_grf: List[float] = []
             self.contact_counts: ndarray[int, int, int] = np.array([0, 0, 0])  # we will increment counts in order of double, single, flight
             self.coarse_activity_type_dict = {'unknown': 0.0, 'other': 0.0, 'bad': 0.0, 'walking': 0.0,
-                                              'running': 0.0, 'sit-to-stand': 0.0, 'stairs': 0.0, 'jump': 0.0,
-                                              'squat': 0.0, 'lunge': 0.0, 'standing': 0.0, 'transition': 0.0}
+                                              'walking_overground': 0.0, 'walking_treadmill': 0.0,
+                                                'running': 0.0, 'sit-to-stand': 0.0, 'stairs': 0.0, 'jump': 0.0,
+                                                'squat': 0.0, 'lunge': 0.0, 'standing': 0.0}
+
 
         if (not self.raw_data) and self.output_scatterplots:
             # Init scatter plots matrices
@@ -370,8 +405,7 @@ class Dataset:
                                             'jump': 2,
                                             'squat': 2,
                                             'lunge': 2,
-                                            'standing': 2,
-                                            'transition': 2
+                                            'standing': 2
                                             }
                 self.scatter_trials_counter_dict = {
                                             'unknown': 0,
@@ -384,8 +418,7 @@ class Dataset:
                                             'jump': 0,
                                             'squat': 0,
                                             'lunge': 0,
-                                            'standing': 0,
-                                            'transition': 0
+                                            'standing': 0
                                         }
 
             self.jointacc_vs_comacc_plots = ScatterPlots(num_rows=6, num_cols=4,
@@ -451,6 +484,11 @@ class Dataset:
         self.total_num_valid_frames = 0  # keep track of total number of valid frames
         for subj_ix, subj_path in enumerate(self.subj_paths):
 
+            # If plotting scatterplots and random sampling, stop looping once meet target trial counts
+            if (not self.raw_data) and self.output_scatterplots and self.scatter_random:
+                if self.scatter_trials_counter_dict == scatter_trials_target_dict:
+                    break
+
             print(f"Processing subject file: {subj_path}... (Subject {subj_ix+1} of {len(self.subj_paths)})")
 
             # Get the dataset name
@@ -458,6 +496,13 @@ class Dataset:
 
             # Load the subject
             subject_on_disk = nimble.biomechanics.SubjectOnDisk(subj_path)
+            # Get kinematics pass index
+            skel_pass_ix = 0  # default
+            for proc_pass in range(subject_on_disk.getNumProcessingPasses()):
+                if subject_on_disk.getProcessingPassType(proc_pass) == nimble.biomechanics.ProcessingPassType.KINEMATICS:
+                    skel_pass_ix = 0
+                    break
+            skel = subject_on_disk.readSkel(skel_pass_ix, "/Volumes/Extreme SSD/Geometry/")
 
             # Get the subject info needed for trial processing
             num_trials = subject_on_disk.getNumTrials()
@@ -480,7 +525,6 @@ class Dataset:
                     subj_id = match.group(1)
                 else:
                     raise ValueError("Could not parse subject ID.")
-            # print(f"subj_id: {subj_id}")
 
             class_dataset_name = next((name for name in self.class_datasets if name in subj_path), "")
             if len(class_dataset_name) > 0:
@@ -533,30 +577,76 @@ class Dataset:
 
                     #print(f"Processing trial {trial + 1} of {num_trials}... (Subject {subj_ix+1} of {len(self.subj_paths)})")
                     frames = subject_on_disk.readFrames(trial=trial, startFrame=0, numFramesToRead=init_trial_length)
+                    trial_name = subject_on_disk.getTrialName(trial)
 
-                    # Create Trial instance and store the motion classification if it exists
-                    if len(class_dict) > 0:
-                        trial_name = subject_on_disk.getTrialName(trial)
-                        if trial_name in class_dict:
-                            motion_class = class_dict[trial_name]
-                            if motion_class is None:
-                                motion_class = "unknown"  # means classification does not exist for this trial
-                                print(f"For trial {trial_name}: exists in dict but no motion class found, labeling motion class as unknown")
+                    # # Get the motion classification # #
+                    # Manual classifications:
+                    if "Carter2023" in subj_path:
+                        if "static" in trial_name.lower():
+                            motion_class = "standing"
+                        elif "walk" in trial_name.lower():
+                            motion_class = "walking_treadmill"
+                        else:  # running
+                            motion_class = "running_treadmill"
+                    elif "Han2023" in subj_path:
+                        if any(motion in trial_name for motion in ["chair", "_squat_"]):
+                            motion_class = "squat"
+                        elif any(motion in trial_name for motion in ["_hop_", "balletsmalljump", "jumpingjack"]):
+                            motion_class = "jump"
+                        elif "_step_" in trial_name:
+                            motion_class = "stairs"
+                        elif any(motion in trial_name for motion in ["_idling_", "_static"]):
+                            motion_class = "standing"
+                        elif "_walk_" in trial_name:
+                            motion_class = "walking_overground"
                         else:
-                            motion_class = "unknown"  # trial name not in dict
-                            print(f"For trial {trial_name}: does not exist in dict, labeling motion class as unknown")
-                    else:  # means no classification done yet for this subject
-                        motion_class = "unknown"
-                        #print(f"No dict for {subj_path}")
+                            motion_class = "other"
+
+                    else:  # the rest were manually classified
+                        if len(class_dict) > 0:  # check again that the manual classification exists
+                            if trial_name in class_dict:
+                                motion_class = class_dict[trial_name]
+                                if motion_class is None:
+                                    motion_class = "unknown"  # means classification does not exist for this trial
+                                    print(f"For trial {trial_name}: exists in dict but no motion class found, labeling motion class as unknown")
+                            else:
+                                motion_class = "unknown"  # trial name not in dict
+                                print(f"For trial {trial_name}: does not exist in dict, labeling motion class as unknown")
+                        else:  # means no classification done yet for this subject
+                            motion_class = "unknown"
+
+                        if "transition" in motion_class:  # relabel transition as other
+                            motion_class = "other"
+
+                        if motion_class == "walking_ramp":  # label added for Camargo trials; still overground
+                            motion_class = "walking_overground"
+
+                        if ("Tan2021" in subj_path) and ("s9" in subj_path):
+                            if motion_class == "unknown":
+                                motion_class = "running_treadmill"
+                                print(f"Relabeling {trial_name} from {subj_path} to running_treadmill")
+
+                        if ("Uhlrich2023" in subj_path) and ("subject2" in subj_path):
+                            if motion_class == "unknown":
+                                motion_class = "jump_dropjump"
+                                print(f"Relabeling {trial_name} from {subj_path} to jump_dropjump")
+
+                    if "bad" in motion_class:
+                        print(f"SKIPPING TRIAL {trial + 1} ({trial_name}) for {subj_path} because motion_class = bad")
+                        continue
+
+                    # Create Trial instance,
+                    # and calculate number of frames with GRF, and "valid" frames
+                    # (valid frames is most restrictive, means also contains dynamics optimization)
                     if self.raw_data:
-                        trial_data = TrialRaw(frames, motion_class)
+                        trial_data = TrialRaw(frames, skel, motion_class)
                         if trial_data.missingPasses:
                             print(f"SKIPPING TRIAL {trial + 1}: no processing passes!")
                             continue
                         assert (trial_data.total_grf.shape[0] == init_trial_length)
                         num_valid_frames = len(frames)
                     else:
-                        trial_data = Trial(frames, motion_class)
+                        trial_data = Trial(frames, skel, motion_class)
                         num_valid_frames = trial_data.num_valid_frames
                     num_grf_frames = trial_data.num_grf_frames
 
@@ -586,7 +676,10 @@ class Dataset:
                     # Increment dataset hours dict
                     if len(dataset_name) > 0:
                         self.dataset_hours_dict[dataset_name]['total'] += init_trial_length * subject_on_disk.getTrialTimestep(trial) / 60 / 60  # in hours
-                        self.dataset_hours_dict[dataset_name]['grf'] += num_grf_frames * subject_on_disk.getTrialTimestep(trial) / 60 / 60
+                        if "treadmill" in trial_data.motion_class:  # we assume that treadmill data has complete force data
+                            self.dataset_hours_dict[dataset_name]['grf'] += init_trial_length * subject_on_disk.getTrialTimestep(trial) / 60 / 60
+                        else:
+                            self.dataset_hours_dict[dataset_name]['grf'] += num_grf_frames * subject_on_disk.getTrialTimestep(trial) / 60 / 60
                         self.dataset_hours_dict[dataset_name]['opt'] += num_valid_frames * subject_on_disk.getTrialTimestep(trial) / 60 / 60
 
                     if self.output_histograms:
@@ -594,10 +687,20 @@ class Dataset:
 
                         # Trial lengths:
                         self.trial_lengths_total.append(init_trial_length)
-                        self.trial_lengths_grf.append(num_grf_frames)
+                        if "treadmill" in trial_data.motion_class:
+                            self.trial_lengths_grf.append(init_trial_length)
+                        else:
+                            self.trial_lengths_grf.append(num_grf_frames)
                         self.trial_lengths_opt.append(num_valid_frames)
 
                         # Speeds:
+                        self.all_speeds_kin.append(trial_data.com_vel_kin)
+                        self.ankle_l_pos_all.append(trial_data.ankle_l_pos_kin)
+                        self.ankle_r_pos_all.append(trial_data.ankle_r_pos_kin)
+                        self.contacts_all.append(trial_data.contact)
+                        self.timesteps_all.append(subject_on_disk.getTrialTimestep(trial))
+
+                        #self.all_speeds_dyn.append(trial_data.com_vel_dyn)
                         if "treadmill" in trial_data.motion_class:  # we need to only calculate based on stance phase
                             #print(f"detected treadmill trial: motion class = {trial_data.motion_class}")
                             vert_speed, horiz_speed = calculate_avg_treadmill_speed(trial_data.com_vel_kin, trial_data.contact)
@@ -625,8 +728,11 @@ class Dataset:
                         self.percent_single.append((single_count / trial_data.contact.shape[0]) * 100)
 
                         # Activity classification plot
-                        trial_time = num_valid_frames * subject_on_disk.getTrialTimestep(trial) / 60  # convert to time (minutes)
+                        trial_time = init_trial_length * subject_on_disk.getTrialTimestep(trial) / 60  # convert to time (minutes)
                         self.coarse_activity_type_dict[trial_data.coarse_motion_class] = self.coarse_activity_type_dict[trial_data.coarse_motion_class] + trial_time
+                        if trial_data.coarse_motion_class == "walking":  # also tally overground and treadmill
+                            if (trial_data.motion_class == "walking_overground") or (trial_data.motion_class == "walking_treadmill"):
+                                self.coarse_activity_type_dict[trial_data.motion_class] = self.coarse_activity_type_dict[trial_data.motion_class] + trial_time
 
                     if (not self.raw_data) and self.output_scatterplots:  # only do scatter plots on processed data
                         assert (self.num_dofs == trial_data.num_dofs),  f"self.num_dofs: {self.num_dofs}; trial_data.num_dofs: {trial_data.num_dofs}"  # check what we assume from std skel matches data
@@ -735,44 +841,78 @@ class Dataset:
             # Only get demographics info and store if this subject had at least one valid trial
             if subj_num_valid_trials >= 1:
 
+                datasets_with_splits = ["Camargo2021", "Carter2023", "Han2023"]
+
                 # Get the number of valid subjects
-                if "Camargo" in subj_path:  # we have multiple .b3ds for each subject for this dataset
-                    if "split0" in subj_path:
-                        self.num_valid_subjs += 1
-                        self.dataset_n_dict[dataset_name] += 1  # store num subjs per dataset
+                if any(dataset in subj_path for dataset in datasets_with_splits):  # we have multiple .b3ds for each subject for these datasets
+                    if "Han2023" in subj_path:  # Han split ix starts at 1
+                        if "split1" in subj_path:
+                            self.num_valid_subjs += 1
+                            self.dataset_n_dict[dataset_name] += 1  # store num subjs per dataset
+                    else:  # for Camargo, Carter
+                        if "split0" in subj_path:
+                            self.num_valid_subjs += 1
+                            self.dataset_n_dict[dataset_name] += 1  # store num subjs per dataset
                 else:
                     self.num_valid_subjs += 1
                     self.dataset_n_dict[dataset_name] += 1  # store num subjs per dataset
 
                 # Get and store demographics
                 age = subject_on_disk.getAgeYears()
+
+                if "Carter2023" in subj_path:  # need to get from file
+                    age = carter_demo.loc[carter_demo['Participant_code'] == subj_id.split('_')[0], 'Age (years)'].values[0]
+
                 if age <= 0: print(f"Age unknown for {subj_path}: age value = {age}")
-                sex = subject_on_disk.getBiologicalSex()
+
+                if "Fregly" in subj_path:
+                    if "3GC" in subj_path:
+                        sex = "female"
+                    if "4GC" in subj_path:
+                        sex = "male"
+                    if "6GC" in subj_path:
+                        sex = "male"
+                elif "Carter2023" in subj_path:  # need to get from file
+                    sex = carter_demo.loc[carter_demo['Participant_code'] == subj_id.split('_')[0], 'Sex'].values[0]
+                else:
+                    sex = subject_on_disk.getBiologicalSex()
+
                 height = subject_on_disk.getHeightM()
+
                 bmi = mass / (height ** 2)
-                if bmi <= 15: print(f"BMI too low for {subj_path}: BMI value = {bmi}")
+                if bmi <= 11: print(f"BMI too low for {subj_path}: BMI value = {bmi}")
+
                 if self.output_histograms:
                     # Add to subject-specific storage
-                    if sex == "male":
+                    if sex.lower() == "male":
                         sex_int = 0
-                    elif sex == "female":
+                    elif sex.lower() == "female":
                         sex_int = 1
                     else:
                         sex_int = 2  # unknown
                         print(f"Sex unknown for {subj_path}")
 
-                    if "Camargo" in subj_path:
-                        if "split0" in subj_path:
-                            self.ages.append(age)
-                            self.bmis.append(bmi)
-                            self.sexes.append(sex_int)
+                    if any(dataset in subj_path for dataset in datasets_with_splits):  # we have multiple .b3ds for each subject for these datasets
+                        if "Han2023" in subj_path:  # Han split ix starts at 1
+                            if "split1" in subj_path:
+                                self.ages.append(age)
+                                self.bmis.append(bmi)
+                                self.sexes.append(sex_int)
+                        else:  # for Camargo, Carter
+                            if "split0" in subj_path:
+                                self.ages.append(age)
+                                self.bmis.append(bmi)
+                                self.sexes.append(sex_int)
                     else:
                         self.ages.append(age)
                         self.bmis.append(bmi)
                         self.sexes.append(sex_int)
 
-        # Convert demographics storage to arrays  # TODO: get rid of this in revamp
+        # Once finished looping over arrays, convert demographics storage to arrays  # TODO: get rid of this in revamp
         if self.output_histograms:
+            assert (len(self.ages) == self.num_valid_subjs)
+            assert (len(self.bmis) == self.num_valid_subjs)
+            assert (len(self.sexes) == self.num_valid_subjs)
             self.ages = np.array(self.ages)
             self.bmis = np.array(self.bmis)
             self.sexes = np.array(self.sexes)
@@ -895,7 +1035,7 @@ class Dataset:
 
         # Get indices for valid age and for valid sex fields
         valid_age_ix = np.where(self.ages > 0)[0]  # access within tuple return
-        valid_bmi_ix = np.where(self.bmis > 15)[0]  # access within tuple return
+        valid_bmi_ix = np.where(self.bmis > 11)[0]  # access within tuple return
         m_ix = np.where(self.sexes == 0)[0]  # we assign "males" to 0
         f_ix = np.where(self.sexes == 1)[0]  # we assign "females" to 1
 
@@ -919,12 +1059,12 @@ class Dataset:
         self.prepare_data_for_plotting()
 
         if self.raw_data:
-            plot_histograms(datas=[self.trial_lengths_total, self.trial_lengths_grf], num_bins=8, colors=['#006BA4', '#FF800E'], labels=["total", "with GRF"], edgecolor="black", alpha=1,
+            plot_histograms(datas=[self.trial_lengths_total, self.trial_lengths_grf], num_bins=5, colors=['#C85200', '#FFBC79'], labels=["total", "with GRF"], edgecolor="black", alpha=1,
                             ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png', plot_log_scale=True)
         else:
             plot_histograms(datas=[self.trial_lengths_total, self.trial_lengths_grf, self.trial_lengths_opt], num_bins=8, colors=['#006BA4', '#FF800E', '#ABABAB'], labels=["total", "with GRF", "with opt"], edgecolor="black", alpha=1,
                             ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png', plot_log_scale=True)
-        plot_histograms(datas=[self.horizontal_speeds, self.vertical_speeds], num_bins=6, colors=['#006BA4', '#FF800E'], labels=["horizontal", "vertical"], edgecolor="black", alpha=1,
+        plot_histograms(datas=[self.horizontal_speeds, self.vertical_speeds], num_bins=6, colors=['#006BA4', '#A2C8EC'], labels=["horizontal", "vertical"], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='average absolute speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)
         plot_histograms(datas=[self.percent_double, self.percent_single, self.percent_flight], num_bins=6, colors=['#006BA4', '#FF800E', '#ABABAB'],
                         labels=["double support", "single support", "flight"], edgecolor="black", alpha=1,
@@ -957,17 +1097,23 @@ class Dataset:
         Bar chart of durations for each coarse activity classification.
         Using code from Tom!
         """
-        # Remove activities from activity type dict that are less than 0.1% of the total time
-        # filtered_coarse_activity_type_dict = {key: value for key, value in self.coarse_activity_type_dict.items() if
-        #                                       value != 0}
 
         fontsize = 30
         plt.figure()
 
-        # plt.bar(filtered_coarse_activity_type_dict.keys(), filtered_coarse_activity_type_dict.values(), color='#006BA4')
-        plt.bar(self.coarse_activity_type_dict.keys(), self.coarse_activity_type_dict.values(), color='#006BA4')
+        #assert (self.coarse_activity_type_dict['walking'] == self.coarse_activity_type_dict['walking_overground'] + self.coarse_activity_type_dict['walking_treadmill'])
+
+        # Only plot certain motion classes
+        motions_to_plot = ['other', 'walking_overground', 'walking_treadmill', 'running', 'sit-to-stand',
+                           'stairs', 'jump', 'squat', 'lunge', 'standing']
+        filtered_coarse_activity_type_dict = {key: value for key, value in self.coarse_activity_type_dict.items() if key in motions_to_plot}
+
+        plt.bar(filtered_coarse_activity_type_dict.keys(), filtered_coarse_activity_type_dict.values(), color='#006BA4')
+        #plt.bar(self.coarse_activity_type_dict.keys(), self.coarse_activity_type_dict.values(), color='#006BA4')
         plt.xlabel('activity type', fontsize=fontsize)
-        plt.xticks(fontsize=fontsize)
+        #plt.xticks(fontsize=fontsize)
+        plt.xticks(ticks=motions_to_plot, labels=['other', 'walking\noverground', 'walking\ntreadmill', 'running', 'sit-to-stand',
+                           'stairs', 'jump', 'squat', 'lunge', 'standing'], fontsize=fontsize)
         plt.yticks(fontsize=fontsize)
         plt.yticks([])  # remove y ticks
         plt.xticks(rotation=45) # change orientation of labels
@@ -996,18 +1142,19 @@ class Dataset:
         plt.axhline(y=1200, color=line_color, linestyle='--', linewidth=4)
         # add small text for each line indicating the 2,5,10 and 20 minutes, etc; a little above the y value for spacing
         #plt.text(11.5, 2.1, '2 min', fontsize=fontsize, color=text_color)
-        plt.text(11.5, 5.3, '5 min', fontsize=fontsize, color=text_color)
-        plt.text(11.5, 10.3, '10 min', fontsize=fontsize, color=text_color)
-        plt.text(11.5, 20.3, '20 min', fontsize=fontsize, color=text_color)
-        plt.text(11.5, 61.5, '1 h', fontsize=fontsize, color=text_color)
-        plt.text(11.5, 123.5, '2 h', fontsize=fontsize, color=text_color)
-        plt.text(11.5, 306.5, '5 h', fontsize=fontsize, color=text_color)
-        plt.text(11.5, 608.5, '10 h', fontsize=fontsize, color=text_color)
-        plt.text(11.5, 1208.5, '20 h', fontsize=fontsize, color=text_color)
+        x = 9.5
+        plt.text(x, 5.3, '5 min', fontsize=fontsize, color=text_color)
+        plt.text(x, 10.3, '10 min', fontsize=fontsize, color=text_color)
+        plt.text(x, 20.3, '20 min', fontsize=fontsize, color=text_color)
+        plt.text(x, 61.5, '1 h', fontsize=fontsize, color=text_color)
+        plt.text(x, 123.5, '2 h', fontsize=fontsize, color=text_color)
+        plt.text(x, 306.5, '5 h', fontsize=fontsize, color=text_color)
+        plt.text(x, 608.5, '10 h', fontsize=fontsize, color=text_color)
+        plt.text(x, 1208.5, '20 h', fontsize=fontsize, color=text_color)
 
         # make figure much wider
         fig = plt.gcf()
-        fig.set_size_inches(18.5, 10.5)
+        fig.set_size_inches(25, 12)
 
         # make sure all labels are visible but limit white space
         plt.tight_layout()
@@ -1039,7 +1186,7 @@ class Dataset:
         self.prepare_data_for_plotting()
 
         ages_filtered = self.ages[np.where(self.ages > 0)]  # exclude unknown
-        bmis_filtered = self.bmis[np.where(self.bmis > 15)]
+        bmis_filtered = self.bmis[np.where(self.bmis > 11)]
         print(f"The following is from filtering to remove inaccurate ages and BMIs:")
         print(f"{np.round((len(ages_filtered) / self.num_valid_subjs), 2) * 100}% of subjects have accurate age info ({len(ages_filtered)} vs. {self.num_valid_subjs}).")
         print(f"{np.round((len(bmis_filtered) / self.num_valid_subjs), 2) * 100}% of subjects have accurate BMI info ({len(bmis_filtered)} vs. {self.num_valid_subjs}).")
@@ -1101,6 +1248,40 @@ class Dataset:
         print(f"horizontal speeds: {self.horizontal_speeds}")
         print(f"vertical speeds: {self.vertical_speeds}")
 
+    def save_plot_data(self):
+        """
+        Save data used to make plots so don't have to process whole dataset to tweak figs
+        """
+        if self.save_histo_data:
+            print(f"activity class dict: {self.coarse_activity_type_dict}")
+            # Activity classification bar chart
+            with open(os.path.join(self.out_dir, "activity_class.pkl"), "wb") as file:
+                pickle.dump(self.coarse_activity_type_dict, file)
+
+            # For speeds histo
+            with open(os.path.join(self.out_dir, "speeds_kin.pkl"), "wb") as file:
+                pickle.dump(self.all_speeds_kin, file)
+            # with open(os.path.join(self.out_dir, "speeds_dyn.pkl"), "wb") as file:
+            #     pickle.dump(self.all_speeds_dyn, file)
+            with open(os.path.join(self.out_dir, "ankle_l_pos.pkl"), "wb") as file:
+                pickle.dump(self.ankle_l_pos_all, file)
+            with open(os.path.join(self.out_dir, "ankle_r_pos.pkl"), "wb") as file:
+                pickle.dump(self.ankle_r_pos_all, file)
+            with open(os.path.join(self.out_dir, "contacts.pkl"), "wb") as file:
+                pickle.dump(self.contacts_all, file)
+            with open(os.path.join(self.out_dir, "timesteps.pkl"), "wb") as file:
+                pickle.dump(self.timesteps_all, file)
+
+            # Trial lengths
+            with open(os.path.join(self.out_dir, "total_trial_lengths.pkl"), "wb") as file:
+                pickle.dump(self.trial_lengths_total, file)
+            with open(os.path.join(self.out_dir, "grf_trial_lengths.pkl"), "wb") as file:
+                pickle.dump(self.trial_lengths_grf, file)
+            with open(os.path.join(self.out_dir, "opt_trial_lengths.pkl"), "wb") as file:
+                pickle.dump(self.trial_lengths_opt, file)
+
+        #if self.save_scatter_data:
+
 
 class Trial:
     """
@@ -1109,7 +1290,7 @@ class Trial:
     A frame is valid if it has both kinematics and dynamics processing passes completed.
     """
 
-    def __init__(self, frames: List[nimble.biomechanics.Frame], motion_class: str = "unknown"):
+    def __init__(self, frames: List[nimble.biomechanics.Frame], skel: nimble.dynamics.Skeleton, motion_class: str = "unknown"):
 
         # Store the activity classification
         self.motion_class = motion_class
@@ -1130,6 +1311,8 @@ class Trial:
         self.com_pos_kin = []
         self.com_vel_kin = []
         self.com_acc_kin = []
+        self.ankle_l_pos_kin = []
+        self.ankle_r_pos_kin = []
 
         self.root_lin_vel_kin = []
         self.root_ang_vel_kin = []
@@ -1200,6 +1383,12 @@ class Trial:
                 self.com_vel_kin.append(frame.processingPasses[kin_pass_ix].comVel)
                 self.com_acc_kin.append(frame.processingPasses[kin_pass_ix].comAcc)
 
+                # Calculate ankle joint positions
+                skel.setPositions(frame.processingPasses[kin_pass_ix].pos)
+                joint_pos_dict = skel.getJointWorldPositionsMap()
+                self.ankle_l_pos_kin.append(joint_pos_dict['ankle_l'])
+                self.ankle_r_pos_kin.append(joint_pos_dict['ankle_r'])
+
                 self.root_lin_vel_kin.append(frame.processingPasses[kin_pass_ix].rootLinearVelInRootFrame)
                 self.root_ang_vel_kin.append(frame.processingPasses[kin_pass_ix].rootAngularVelInRootFrame)
                 self.root_lin_acc_kin.append(frame.processingPasses[kin_pass_ix].rootLinearAccInRootFrame)
@@ -1258,6 +1447,8 @@ class Trial:
             self.com_pos_kin = np.array(self.com_pos_kin)
             self.com_vel_kin = np.array(self.com_vel_kin)
             self.com_acc_kin = np.array(self.com_acc_kin)
+            self.ankle_l_pos_kin = np.array(self.ankle_l_pos_kin)
+            self.ankle_r_pos_kin = np.array(self.ankle_r_pos_kin)
 
             self.root_lin_vel_kin = np.array(self.root_lin_vel_kin)
             self.root_ang_vel_kin = np.array(self.root_ang_vel_kin)
@@ -1298,6 +1489,7 @@ class Trial:
             assert ((self.com_pos_kin.shape[-1] == 3) and (self.com_pos_dyn.shape[-1] == 3))
             assert ((self.com_vel_kin.shape[-1] == 3) and (self.com_vel_dyn.shape[-1] == 3))
             assert ((self.com_acc_kin.shape[-1] == 3) and (self.com_acc_dyn.shape[-1] == 3))
+            assert (self.ankle_l_pos_kin.shape[-1] == 3) and (self.ankle_r_pos_kin.shape[-1] == 3)
             # assert ((self.root_lin_vel_kin.shape[-1] == 3) and (self.root_lin_vel_dyn.shape[-1] == 3)), f"root lin vel dyn shape: {self.root_lin_vel_dyn.shape}"
             # assert ((self.root_ang_vel_kin.shape[-1] == 3) and (self.root_ang_vel_dyn.shape[-1] == 3))
             # assert ((self.root_lin_acc_kin.shape[-1] == 3) and (self.root_lin_acc_dyn.shape[-1] == 3))
@@ -1335,7 +1527,7 @@ class TrialRaw:
     For the "raw" data; so does not require a dynamics pass.
     """
 
-    def __init__(self, frames: List[nimble.biomechanics.Frame], motion_class: str = "unknown"):
+    def __init__(self, frames: List[nimble.biomechanics.Frame], skel: nimble.dynamics.Skeleton, motion_class: str = "unknown"):
 
         # Store the activity classification
         self.motion_class = motion_class
@@ -1353,6 +1545,8 @@ class TrialRaw:
         self.com_pos_kin = []
         self.com_vel_kin = []
         self.com_acc_kin = []
+        self.ankle_l_pos_kin = []
+        self.ankle_r_pos_kin = []
 
         # GRF stuff
         self.grf = []
@@ -1370,7 +1564,7 @@ class TrialRaw:
                 self.missingPasses = True
                 continue
 
-            # Check for frames marked as fine by manual review
+            # Check for frames that are not missing GRF
             if frame.missingGRFReason != nimble.biomechanics.MissingGRFReason.notMissingGRF:
                 num_grf_frames += 1
 
@@ -1388,6 +1582,12 @@ class TrialRaw:
             self.com_pos_kin.append(frame.processingPasses[kin_pass_ix].comPos)
             self.com_vel_kin.append(frame.processingPasses[kin_pass_ix].comVel)
             self.com_acc_kin.append(frame.processingPasses[kin_pass_ix].comAcc)
+
+            # Calculate ankle joint positions
+            skel.setPositions(frame.processingPasses[kin_pass_ix].pos)
+            joint_pos_dict = skel.getJointWorldPositionsMap()
+            self.ankle_l_pos_kin.append(joint_pos_dict['ankle_l'])
+            self.ankle_r_pos_kin.append(joint_pos_dict['ankle_r'])
 
             # GRF stuff
             if len(frame.processingPasses[kin_pass_ix].groundContactForce) > 6:
@@ -1410,6 +1610,8 @@ class TrialRaw:
             self.com_pos_kin = np.array(self.com_pos_kin)
             self.com_vel_kin = np.array(self.com_vel_kin)
             self.com_acc_kin = np.array(self.com_acc_kin)
+            self.ankle_l_pos_kin = np.array(self.ankle_l_pos_kin)
+            self.ankle_r_pos_kin = np.array(self.ankle_r_pos_kin)
 
             # GRF stuff
             self.grf = np.array(self.grf)
@@ -1422,6 +1624,7 @@ class TrialRaw:
             assert (self.com_pos_kin.shape[-1] == 3)
             assert (self.com_vel_kin.shape[-1] == 3)
             assert (self.com_acc_kin.shape[-1] == 3)
+            assert (self.ankle_l_pos_kin.shape[-1] == 3) and (self.ankle_r_pos_kin.shape[-1] == 3)
             assert (self.grf.shape[-1] == 6), f"grf shape: {self.grf.shape}"
             assert (self.contact.shape[-1] == 2)
             assert (np.all(np.logical_or(self.contact == 0, self.contact == 1)))  # all contact labels either 0 or 1
@@ -1510,6 +1713,8 @@ class ScatterPlots:
                 else:
                     plot_title = f"{self.labels[i]}"
                 ax.set_title(plot_title, fontsize=16)
+                for item in ax.get_xticklabels() + ax.get_yticklabels():
+                    item.set_fontsize(20)  # Increase tick font size
             if self.num_plots > 1:
                 for i, ax in enumerate(self.axs.flat):
                     if i >= self.num_plots:
