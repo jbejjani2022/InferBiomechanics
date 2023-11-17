@@ -404,38 +404,37 @@ class Dataset:
             'transition': {'color': '#C377E0', 'marker': 'P'}
         }
 
-        if self.output_histograms:
-            # INIT STORAGE
-            # Subject-specific
-            self.ages: List[int] = []
-            self.sexes: List[int] = []  # TODO: change this back to string
-            self.bmis: List[float] = []
-            # Trial-specific
-            self.trial_lengths_total: List[int] = []  # num frames
-            self.trial_lengths_grf: List[int] = []
-            self.trial_lengths_opt: List[int] = []
+        # INIT STORAGE
+        # Subject-specific
+        self.ages: List[int] = []
+        self.sexes: List[int] = []  # TODO: change this back to string
+        self.bmis: List[float] = []
+        # Trial-specific
+        self.trial_lengths_total: List[int] = []  # num frames
+        self.trial_lengths_grf: List[int] = []
+        self.trial_lengths_opt: List[int] = []
 
-            self.norm_speeds: List[float] = []
-            self.vertical_speeds: List[float] = []
-            self.horizontal_speeds: List[float] = []
-            self.all_speeds_kin: List[ndarray] = []
-            #self.all_speeds_dyn: List[ndarray] = []
-            self.ankle_l_pos_all: List[ndarray] = []
-            self.ankle_r_pos_all: List[ndarray] = []
+        self.norm_speeds: List[float] = []
+        self.vertical_speeds: List[float] = []
+        self.horizontal_speeds: List[float] = []
+        self.all_speeds_kin: List[ndarray] = []
+        #self.all_speeds_dyn: List[ndarray] = []
+        self.ankle_l_pos_all: List[ndarray] = []
+        self.ankle_r_pos_all: List[ndarray] = []
 
-            self.contacts_all: List[ndarray] = []
+        self.contacts_all: List[ndarray] = []
 
-            self.timesteps_all: List[float] = []
+        self.timesteps_all: List[float] = []
 
-            self.percent_double: List[float] = []
-            self.percent_single: List[float] = []
-            self.percent_flight: List[float] = []
-            self.max_trial_grf: List[float] = []
-            self.contact_counts: ndarray[int, int, int] = np.array([0, 0, 0])  # we will increment counts in order of double, single, flight
-            self.coarse_activity_type_dict = {'unknown': 0.0, 'other': 0.0, 'bad': 0.0, 'walking': 0.0,
-                                              'walking_overground': 0.0, 'walking_treadmill': 0.0,
-                                                'running': 0.0, 'sit-to-stand': 0.0, 'stairs': 0.0, 'jump': 0.0,
-                                                'squat': 0.0, 'lunge': 0.0, 'standing': 0.0}
+        self.percent_double: List[float] = []
+        self.percent_single: List[float] = []
+        self.percent_flight: List[float] = []
+        self.max_trial_grf: List[float] = []
+        self.contact_counts: ndarray[int, int, int] = np.array([0, 0, 0])  # we will increment counts in order of double, single, flight
+        self.coarse_activity_type_dict = {'unknown': 0.0, 'other': 0.0, 'bad': 0.0, 'walking': 0.0,
+                                          'walking_overground': 0.0, 'walking_treadmill': 0.0,
+                                            'running': 0.0, 'sit-to-stand': 0.0, 'stairs': 0.0, 'jump': 0.0,
+                                            'squat': 0.0, 'lunge': 0.0, 'standing': 0.0}
 
 
         if (not self.raw_data) and self.output_scatterplots:
@@ -768,7 +767,7 @@ class Dataset:
                                                                        trial_data.contact,
                                                                        subject_on_disk.getTrialTimestep(trial))
                             if norm_speed is not None: self.norm_speeds.append(norm_speed)  # if None type, we skip
-                            print(f"detected treadmill trial: motion class = {trial_data.motion_class}; speed = {norm_speed}")
+                            #print(f"detected treadmill trial: motion class = {trial_data.motion_class}; speed = {norm_speed}")
                         else:  # can calculate over all frames, using the COM vel
                             norm_speed = np.average(np.linalg.norm(trial_data.com_vel_kin, axis=-1))
                             self.norm_speeds.append(norm_speed)
@@ -903,22 +902,6 @@ class Dataset:
             # Only get demographics info and store if this subject had at least one valid trial
             if subj_num_valid_trials >= 1:
 
-                datasets_with_splits = ["Camargo2021", "Carter2023", "Han2023"]
-
-                # Get the number of valid subjects
-                if any(dataset in subj_path for dataset in datasets_with_splits):  # we have multiple .b3ds for each subject for these datasets
-                    if "Han2023" in subj_path:  # Han split ix starts at 1
-                        if "split1" in subj_path:
-                            self.num_valid_subjs += 1
-                            self.dataset_n_dict[dataset_name] += 1  # store num subjs per dataset
-                    else:  # for Camargo, Carter
-                        if "split0" in subj_path:
-                            self.num_valid_subjs += 1
-                            self.dataset_n_dict[dataset_name] += 1  # store num subjs per dataset
-                else:
-                    self.num_valid_subjs += 1
-                    self.dataset_n_dict[dataset_name] += 1  # store num subjs per dataset
-
                 # Get and store demographics
                 age = subject_on_disk.getAgeYears()
 
@@ -944,40 +927,41 @@ class Dataset:
                 bmi = mass / (height ** 2)
                 if bmi <= 11: print(f"BMI too low for {subj_path}: BMI value = {bmi}")
 
-                if self.output_histograms:
-                    # Add to subject-specific storage
-                    if sex.lower() == "male":
-                        sex_int = 0
-                    elif sex.lower() == "female":
-                        sex_int = 1
-                    else:
-                        sex_int = 2  # unknown
-                        print(f"Sex unknown for {subj_path}")
+                if sex.lower() == "male":
+                    sex_int = 0
+                elif sex.lower() == "female":
+                    sex_int = 1
+                else:
+                    sex_int = 2  # unknown
+                    print(f"Sex unknown for {subj_path}")
 
-                    if any(dataset in subj_path for dataset in datasets_with_splits):  # we have multiple .b3ds for each subject for these datasets
-                        if "Han2023" in subj_path:  # Han split ix starts at 1
-                            if "split1" in subj_path:
-                                self.ages.append(age)
-                                self.bmis.append(bmi)
-                                self.sexes.append(sex_int)
-                        else:  # for Camargo, Carter
-                            if "split0" in subj_path:
-                                self.ages.append(age)
-                                self.bmis.append(bmi)
-                                self.sexes.append(sex_int)
-                    else:
+                # Add to subject-specific storage
+                datasets_with_splits = ["Camargo2021", "Carter2023", "Han2023"]
+                datasets_with_splits_seen_subjects = set()  # these datasets all use diff subj IDs
+                # Get the number of valid subjects
+                if any(dataset in subj_path for dataset in datasets_with_splits):  # we have multiple .b3ds for each subject for these datasets
+                    unique_id = subj_id.split('_')[0]  # first part, without the split
+                    if unique_id not in datasets_with_splits_seen_subjects:
+                        self.num_valid_subjs += 1
+                        self.dataset_n_dict[dataset_name] += 1  # store num subjs per dataset
                         self.ages.append(age)
                         self.bmis.append(bmi)
                         self.sexes.append(sex_int)
+                        datasets_with_splits_seen_subjects.add(unique_id)
+                else:
+                    self.num_valid_subjs += 1
+                    self.dataset_n_dict[dataset_name] += 1  # store num subjs per dataset
+                    self.ages.append(age)
+                    self.bmis.append(bmi)
+                    self.sexes.append(sex_int)
 
         # Once finished looping over arrays, convert demographics storage to arrays  # TODO: get rid of this in revamp
-        if self.output_histograms:
-            assert (len(self.ages) == self.num_valid_subjs)
-            assert (len(self.bmis) == self.num_valid_subjs)
-            assert (len(self.sexes) == self.num_valid_subjs)
-            self.ages = np.array(self.ages)
-            self.bmis = np.array(self.bmis)
-            self.sexes = np.array(self.sexes)
+        assert (len(self.ages) == self.num_valid_subjs)
+        assert (len(self.bmis) == self.num_valid_subjs)
+        assert (len(self.sexes) == self.num_valid_subjs)
+        self.ages = np.array(self.ages)
+        self.bmis = np.array(self.bmis)
+        self.sexes = np.array(self.sexes)
 
     def plot_err_v_freq(self, errors: List[List[ndarray]], outname: str, colors: List[str], labels: List[str] = [], fontsize: int = 16, plot_std: bool = False):
         """
