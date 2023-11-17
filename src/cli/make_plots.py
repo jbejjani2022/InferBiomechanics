@@ -120,29 +120,89 @@ def plot_boxplots(datas: List[Sequence], labels: List[str], ylabel: str, outdir:
     plt.ylabel(ylabel, fontsize=fontsize)
     plt.savefig(os.path.join(outdir, outname))
 
-def calculate_avg_treadmill_speed(com_vel_kin: ndarray, contact: ndarray) -> (int, int):
+def get_single_support_indices(contact: ndarray):
+    """
+    Returns indices corresponding to right leg and left leg stance phases
+    """
+    assert (contact.shape[-1] == 2)  # two contact bodies
+
+    right_stride_indices = np.where((contact[:, 0] == 1) & (contact[:, 1] == 0))[0]  # right contact body listed first
+    left_stride_indices = np.where((contact[:, 0] == 0) & (contact[:, 1] == 1))[0]
+
+    return right_stride_indices, left_stride_indices
+
+def find_consecutive_indices(indices: List[int]) -> List[tuple]:
+    """
+    Returns list of tuples containing the start and ending index
+    of a contiguous stretch of indices (longer than one data point).
+    Returned list is empty if there are no contiguous stretches.
+    """
+    if not indices:  # if indices empty
+        return []
+
+    consecutive_chunks = []
+    start_idx = indices[0]
+    prev_idx = indices[0]
+
+    for idx in indices[1:]:
+        if idx == prev_idx + 1:
+            prev_idx = idx
+        else:
+            if start_idx != prev_idx:  # Check if it's not a single index
+                consecutive_chunks.append((start_idx, prev_idx))
+            start_idx = idx
+            prev_idx = idx
+
+    # Append the last chunk if needed; don't want repeats
+    if start_idx != prev_idx:
+        consecutive_chunks.append((start_idx, prev_idx))
+
+    return consecutive_chunks
+
+def calculate_speed_from_stride(stride_times: List[tuple], ankle_pos: ndarray, timestep: float) -> List[float]:
+    """
+    Calculate the speed of strides
+    """
+    speeds = []
+    for stride_time in stride_times:
+        start_ix = stride_time[0]
+        end_ix = stride_time[1]
+
+        # Speed = distance / time
+        speed = (ankle_pos[end_ix, :] - ankle_pos[start_ix, :]) / ((end_ix - start_ix + 1) * timestep)
+        speeds.append(speed)
+
+    return speeds
+
+def calculate_avg_treadmill_speed(ankle_r_pos: ndarray, ankle_l_pos: ndarray, contact: ndarray, timestep: float) -> float:
     """
     For treadmill trials, the world frame is the treadmill, so we can only calculate the speed when either foot is
     in stance phase. At these instances, the foot is moving along with the treadmill, so we can get a better sense
-    of the actual speed.
+    of the actual speed. This function returns the average norm speed for the given trial. Returns "None" if no stance
+    phases detected, thus we can't calculate the speed.
     """
 
-    assert (com_vel_kin.shape[-1] == 3)
-    assert (contact.shape[-1] == 2)  # for two legs
-    assert (com_vel_kin.shape[0] == contact.shape[0])  # assure same number of frames
+    assert (ankle_r_pos.shape == ankle_l_pos.shape)
+    assert (ankle_r_pos.shape[0] == contact.shape[0])
+    assert (ankle_l_pos.shape[0] == contact.shape[0])
 
-    # Get the indices of single support
-    ss_ix = np.where((np.all(contact == [0, 1], axis=1)) | (np.all(contact == [1, 0], axis=1)))[0]
-    ss_com_vel_kin = com_vel_kin[ss_ix, :]
+    # Get frame indices corresponding to single support on both legs
+    right_stride_indices, left_stride_indices = get_single_support_indices(contact)
+    if (len(right_stride_indices) <= 1) and (len(left_stride_indices) <= 1):
+        return None
+    else:  # Let's see if there are contiguous stretches
+        right_strides = find_consecutive_indices(list(right_stride_indices))
+        left_strides = find_consecutive_indices(list(left_stride_indices))
+        if (len(right_strides) == 0) and (len(left_strides) == 0):
+            return None
+        else:  # There is at least one stance phase for us to calculate from!
+            right_speeds = calculate_speed_from_stride(right_strides, ankle_r_pos, timestep)
+            left_speeds = calculate_speed_from_stride(left_strides, ankle_l_pos, timestep)
 
-    # Calculate average absolute vertical speed
-    avg_vertical_speed = np.average(np.abs(ss_com_vel_kin[:, 1]))
-
-    # Calculate average absolute "horizontal" speed, the norm of x and z coordinates
-    norm = np.sqrt(ss_com_vel_kin[:, 0]**2 + ss_com_vel_kin[:, 2]**2)
-    avg_horizontal_speed = np.average(np.abs(norm))  # technically don't need the absolute because norm will be +, but just in case
-
-    return avg_vertical_speed, avg_horizontal_speed
+    # Take norm of each speed and average
+    speeds = right_speeds + left_speeds
+    norms = [np.linalg.norm(speed) for speed in speeds]
+    return np.average(norms)
 
 
 # # # CLASSES # # #
@@ -355,6 +415,7 @@ class Dataset:
             self.trial_lengths_grf: List[int] = []
             self.trial_lengths_opt: List[int] = []
 
+            self.norm_speeds: List[float] = []
             self.vertical_speeds: List[float] = []
             self.horizontal_speeds: List[float] = []
             self.all_speeds_kin: List[ndarray] = []
@@ -702,14 +763,15 @@ class Dataset:
 
                         #self.all_speeds_dyn.append(trial_data.com_vel_dyn)
                         if "treadmill" in trial_data.motion_class:  # we need to only calculate based on stance phase
-                            #print(f"detected treadmill trial: motion class = {trial_data.motion_class}")
-                            vert_speed, horiz_speed = calculate_avg_treadmill_speed(trial_data.com_vel_kin, trial_data.contact)
-                            self.vertical_speeds.append(vert_speed)
-                            self.horizontal_speeds.append(horiz_speed)
-                        else:  # can calculate over all frames
-                            self.vertical_speeds.append(np.average(np.abs(trial_data.com_vel_kin[:, 1])))
-                            horiz_speed = np.sqrt(trial_data.com_vel_kin[:, 0]**2 + trial_data.com_vel_kin[:, 2]**2)
-                            self.horizontal_speeds.append(np.average(np.abs(horiz_speed)))
+                            norm_speed = calculate_avg_treadmill_speed(trial_data.ankle_r_pos_kin,
+                                                                       trial_data.ankle_l_pos_kin,
+                                                                       trial_data.contact,
+                                                                       subject_on_disk.getTrialTimestep(trial))
+                            if norm_speed is not None: self.norm_speeds.append(norm_speed)  # if None type, we skip
+                            print(f"detected treadmill trial: motion class = {trial_data.motion_class}; speed = {norm_speed}")
+                        else:  # can calculate over all frames, using the COM vel
+                            norm_speed = np.average(np.linalg.norm(trial_data.com_vel_kin, axis=-1))
+                            self.norm_speeds.append(norm_speed)
 
                         # Max absolute mass-normalized GRF:
                         self.max_trial_grf.append(np.max(np.linalg.norm(trial_data.total_grf, axis=-1) / mass))
@@ -826,7 +888,7 @@ class Dataset:
                                                                            trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
 
                     if (not self.raw_data) and self.output_errvfreq:
-                        grf_err_v_freq = self.compute_err_v_freq(order=2, dt=subject_on_disk.getTrialTimestep(0),
+                        grf_err_v_freq = self.compute_err_v_freq(order=2, dt=subject_on_disk.getTrialTimestep(trial),
                                                           pred=trial_data.com_acc_kin,
                                                           true=trial_data.total_grf / mass)
                         self.grf_errs_v_freq.append(grf_err_v_freq)
@@ -1064,8 +1126,10 @@ class Dataset:
         else:
             plot_histograms(datas=[self.trial_lengths_total, self.trial_lengths_grf, self.trial_lengths_opt], num_bins=8, colors=['#006BA4', '#FF800E', '#ABABAB'], labels=["total", "with GRF", "with opt"], edgecolor="black", alpha=1,
                             ylabel='no. of trials', xlabel='no. of frames', outdir=self.out_dir, outname='trial_length_histo.png', plot_log_scale=True)
-        plot_histograms(datas=[self.horizontal_speeds, self.vertical_speeds], num_bins=6, colors=['#006BA4', '#A2C8EC'], labels=["horizontal", "vertical"], edgecolor="black", alpha=1,
-                        ylabel='no. of trials', xlabel='average absolute speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)
+        # plot_histograms(datas=[self.horizontal_speeds, self.vertical_speeds], num_bins=6, colors=['#006BA4', '#A2C8EC'], labels=["horizontal", "vertical"], edgecolor="black", alpha=1,
+        #                 ylabel='no. of trials', xlabel='average absolute speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)
+        plot_histograms(datas=[self.norm_speeds], num_bins=6, colors=['#006BA4'], labels=[], edgecolor="black", alpha=1,
+                        ylabel='no. of trials', xlabel='average speed (m/s)', outdir=self.out_dir, outname='speed_histo.png', plot_log_scale=True)
         plot_histograms(datas=[self.percent_double, self.percent_single, self.percent_flight], num_bins=6, colors=['#006BA4', '#FF800E', '#ABABAB'],
                         labels=["double support", "single support", "flight"], edgecolor="black", alpha=1,
                         ylabel='no. of trials', xlabel='percent of trial (%)', outdir=self.out_dir, outname='contact_histo.png', plot_log_scale=True)
