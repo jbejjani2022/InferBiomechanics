@@ -69,7 +69,7 @@ class MakePlotsCommand(AbstractCommand):
             #dataset.plot_demographics_by_sex_histograms()
             dataset.plot_biomechanics_metrics_histograms()
             dataset.make_contact_pie_chart()
-            dataset.plot_activity_classification()
+            dataset.make_activity_classification_plot()
             dataset.plot_demographics_by_sex_boxplots()
         if dataset.output_errvfreq:
             dataset.make_err_v_freq_plots()
@@ -88,6 +88,79 @@ class MakePlotsCommand(AbstractCommand):
         dataset.print_demographics_summary()
 
 # # # HELPERS # # #
+def plot_activity_classification(coarse_activity_type_dict: dict, out_dir: str):
+    """
+    Bar chart of durations for each coarse activity classification.
+    """
+
+    fontsize = 30
+    plt.figure()
+
+    #assert (self.coarse_activity_type_dict['walking'] == self.coarse_activity_type_dict['walking_overground'] + self.coarse_activity_type_dict['walking_treadmill'])
+
+    # Only plot certain motion classes
+    motions_to_plot = ['walking_overground', 'walking_treadmill', 'running', 'sit-to-stand',
+                       'stairs', 'jump', 'squat', 'lunge', 'standing', 'other']
+    #filtered_coarse_activity_type_dict = {key: value for key, value in coarse_activity_type_dict.items() if key in motions_to_plot}
+    filtered_coarse_activity_type_dict = {key: coarse_activity_type_dict[key] for key in motions_to_plot}
+
+    #plt.bar(motions_to_plot, sorted_vals, color='#006BA4', edgecolor='black', linewidth=4, zorder=1)
+    plt.bar(filtered_coarse_activity_type_dict.keys(), filtered_coarse_activity_type_dict.values(), color='#006BA4', edgecolor='black', linewidth=4, zorder=1)
+
+    plt.xlabel('activity type', fontsize=fontsize)
+    # plt.xticks(ticks=motions_to_plot, labels=['other', 'walking\noverground', 'walking\ntreadmill', 'running', 'sit-to-stand',
+    #                    'stairs', 'jump', 'squat', 'lunge', 'standing'], fontsize=fontsize)
+    plt.xticks(ticks=motions_to_plot, labels=['\n'.join(label.split('_')) if '_' in label else label for label in filtered_coarse_activity_type_dict.keys()], fontsize=fontsize)
+
+    plt.yticks(fontsize=fontsize)
+    plt.yticks([])  # remove y ticks
+    plt.xticks(rotation=45) # change orientation of labels
+
+    # Remove upper and right spine
+    plt.gca().spines['right'].set_visible(False)
+    plt.gca().spines['top'].set_visible(False)
+    plt.gca().spines['left'].set_visible(False)
+    # Remove ticks
+    plt.tick_params(axis='both', which='both', length=0)
+    # Remove tick labels
+    plt.tick_params(axis='both', which='both', labelleft=False)
+
+    plt.yscale('log')
+    # Add a horizontal red line for 2, 5, 10 and 20 minutes
+    line_color = '#CFCFCF'
+    text_color = 'black'
+    #plt.axhline(y=2, color=line_color, linestyle='--', linewidth=4)
+    plt.axhline(y=5, color=line_color, linestyle='--', linewidth=4, zorder=0)
+    plt.axhline(y=10, color=line_color, linestyle='--', linewidth=4, zorder=0)
+    plt.axhline(y=20, color=line_color, linestyle='--', linewidth=4, zorder=0)
+    plt.axhline(y=60, color=line_color, linestyle='--', linewidth=4, zorder=0)
+    plt.axhline(y=120, color=line_color, linestyle='--', linewidth=4, zorder=0)
+    plt.axhline(y=300, color=line_color, linestyle='--', linewidth=4, zorder=0)
+    plt.axhline(y=600, color=line_color, linestyle='--', linewidth=4, zorder=0)
+    plt.axhline(y=1200, color=line_color, linestyle='--', linewidth=4, zorder=0)
+
+    # add small text for each line indicating the 2,5,10 and 20 minutes, etc; a little above the y value for spacing
+    #plt.text(11.5, 2.1, '2 min', fontsize=fontsize, color=text_color)
+    x = 9.5
+    plt.text(x, 5.3, '5 min', fontsize=fontsize, color=text_color)
+    plt.text(x, 10.3, '10 min', fontsize=fontsize, color=text_color)
+    plt.text(x, 20.3, '20 min', fontsize=fontsize, color=text_color)
+    plt.text(x, 61.5, '1 h', fontsize=fontsize, color=text_color)
+    plt.text(x, 123.5, '2 h', fontsize=fontsize, color=text_color)
+    plt.text(x, 306.5, '5 h', fontsize=fontsize, color=text_color)
+    plt.text(x, 608.5, '10 h', fontsize=fontsize, color=text_color)
+    plt.text(x, 1208.5, '20 h', fontsize=fontsize, color=text_color)
+
+    # make figure much wider
+    fig = plt.gcf()
+    fig.set_size_inches(25, 12)
+
+    # make sure all labels are visible but limit white space
+    plt.tight_layout()
+
+    # save the figure
+    plt.savefig(os.path.join(out_dir, "coarse_activity_type_distribution.png"))
+
 def plot_histograms(datas: List[Sequence], num_bins: int, colors: List[str], labels: List[str], edgecolor: str, alpha: float,
                     ylabel: str, xlabel: str, outdir: str, outname: str, fontsize: int = 20, plot_log_scale: bool = False):
     """
@@ -464,7 +537,7 @@ class Dataset:
                                             'stairs': 2,
                                             'jump': 2,
                                             'squat': 2,
-                                            'lunge': 2,
+                                            'lunge': 0,
                                             'standing': 2
                                             }
                 self.scatter_trials_counter_dict = {
@@ -534,6 +607,11 @@ class Dataset:
             self.root_ang_acc_vs_totgrf_plots = ScatterPlots(num_rows=1, num_cols=1,
                                                                   num_plots=1, labels=[""], use_subplots=False)
 
+            self.jointpos_vs_firstdist_add_r_plots = ScatterPlots(num_rows=1, num_cols=1,
+                                                                  num_plots=1, labels=[""], use_subplots=False)
+            self.jointpos_vs_firstdist_add_l_plots = ScatterPlots(num_rows=1, num_cols=1,
+                                                                  num_plots=1, labels=[""], use_subplots=False)
+
         if self.output_errvfreq:
             self.grf_errs_v_freq: List[ndarray] = []  # list over all trials --> array of errors over frequencies
             self.grf_errs_v_freq_by_motion = {key: [] for key in self.motion_settings_dict}  # dict for each motion class
@@ -542,6 +620,12 @@ class Dataset:
         self.num_valid_subjs = 0  # keep track of subjects we eliminate because no valid trials
         self.num_valid_trials = 0  # keep track of total number of valid trials
         self.total_num_valid_frames = 0  # keep track of total number of valid frames
+        datasets_with_splits = ["Camargo2021", "Carter2023", "Han2023"]  # these datasets have multiple b3ds per subj
+        datasets_with_splits_seen_subjects = set()  # these datasets above all use diff subj IDs so can use a set to id unique subjs
+
+        # if self.scatter_random:
+        #     self.subj_paths = np.random.permutation(self.subj_paths)
+
         for subj_ix, subj_path in enumerate(self.subj_paths):
 
             # If plotting scatterplots and random sampling, stop looping once meet target trial counts
@@ -606,9 +690,11 @@ class Dataset:
             # Loop through all trials for each subject:
             for trial in range(num_trials):
 
+                trial_name = subject_on_disk.getTrialName(trial)
+
                 if self.output_scatterplots and self.scatter_random:  # get probability of selecting this trial
                     prob = np.random.rand()
-                    if prob < scatter_threshold:
+                    if ("lunge" not in trial_name.lower()) and (prob < scatter_threshold):  # too few lunge trials, so need to select
                         continue  # skip processing
 
                 init_trial_length = subject_on_disk.getTrialLength(trial)
@@ -637,10 +723,9 @@ class Dataset:
 
                     #print(f"Processing trial {trial + 1} of {num_trials}... (Subject {subj_ix+1} of {len(self.subj_paths)})")
                     frames = subject_on_disk.readFrames(trial=trial, startFrame=0, numFramesToRead=init_trial_length)
-                    trial_name = subject_on_disk.getTrialName(trial)
 
                     # # Get the motion classification # #
-                    # Manual classifications:
+                    # Default classifications:
                     if "Carter2023" in subj_path:
                         if "static" in trial_name.lower():
                             motion_class = "standing"
@@ -674,6 +759,7 @@ class Dataset:
                                 print(f"For trial {trial_name}: does not exist in dict, labeling motion class as unknown")
                         else:  # means no classification done yet for this subject
                             motion_class = "unknown"
+                            print(f"For trial {trial_name}: no class dict and not defaulted, labeling motion class as unknown")
 
                         if "transition" in motion_class:  # relabel transition as other
                             motion_class = "other"
@@ -805,7 +891,7 @@ class Dataset:
                                 print(f"Selected trial {trial + 1} of motion class {trial_data.coarse_motion_class} from {subj_path} with prob of {prob}")
                                 self.scatter_trials_counter_dict[trial_data.coarse_motion_class] += 1
                                 print(f"trials counter: {self.scatter_trials_counter_dict}")
-                                mkr_size = 30
+                                mkr_size = 35
                                 alpha = 0.75
                                 random = True
                                 update_plots = True
@@ -840,7 +926,7 @@ class Dataset:
                                                                              trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random)
                             # joint positions vs. vertical component of GRF distribution on first listed contact body
                             self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                          trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random)
+                                                                          trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random, in_degrees=True)
                             # Joint positions vs. total GRF norm
                             self.jointpos_vs_totgrf_norm_plots.update_plots(np.linalg.norm(trial_data.total_grf[::self.downsample_size, :] / mass, axis = -1), trial_data.joint_pos_kin[::self.downsample_size],
                                                                        trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
@@ -862,7 +948,7 @@ class Dataset:
                             self.comacc_vs_totgrf_x_plots.update_plots(trial_data.total_grf[::self.downsample_size, 0] / mass, trial_data.com_acc_kin[::self.downsample_size, 0].reshape(-1,1),
                                                                        trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             self.comacc_vs_totgrf_y_plots.update_plots(trial_data.total_grf[::self.downsample_size,1] / mass, trial_data.com_acc_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random, cache_data=True)
                             self.comacc_vs_totgrf_z_plots.update_plots(trial_data.total_grf[::self.downsample_size,2] / mass, trial_data.com_acc_kin[::self.downsample_size,2].reshape(-1,1),
                                                                        trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
 
@@ -878,13 +964,22 @@ class Dataset:
 
                             # Linear and angular velocities and accelerations vs. tot GRF in y direction
                             self.root_lin_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_lin_vel_kin[::self.downsample_size,1].reshape(-1,1),
-                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
+                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random, cache_data=True)
                             self.root_ang_vel_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_ang_vel_kin[::self.downsample_size,1].reshape(-1,1),
                                                                            trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             self.root_lin_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_lin_acc_kin[::self.downsample_size,1].reshape(-1,1),
                                                                            trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
                             self.root_ang_acc_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.root_ang_acc_kin[::self.downsample_size,1].reshape(-1,1),
                                                                            trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
+
+                            # Make individual plots for these for CVPR paper:
+                            self.jointpos_vs_firstdist_add_r_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size, 7].reshape(-1,1),
+                                                                          trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random, cache_data=True, in_degrees=True)
+                            self.jointpos_vs_firstdist_add_l_plots.update_plots(
+                                trial_data.grf_dist[::self.downsample_size, 1],
+                                trial_data.joint_pos_kin[::self.downsample_size, 14].reshape(-1, 1),
+                                trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False,
+                                mkr_size=mkr_size, alpha=alpha, random=random, cache_data=True, in_degrees=True)
 
                     if (not self.raw_data) and self.output_errvfreq:
                         grf_err_v_freq = self.compute_err_v_freq(order=2, dt=subject_on_disk.getTrialTimestep(trial),
@@ -936,19 +1031,17 @@ class Dataset:
                     print(f"Sex unknown for {subj_path}")
 
                 # Add to subject-specific storage
-                datasets_with_splits = ["Camargo2021", "Carter2023", "Han2023"]
-                datasets_with_splits_seen_subjects = set()  # these datasets all use diff subj IDs
-                # Get the number of valid subjects
                 if any(dataset in subj_path for dataset in datasets_with_splits):  # we have multiple .b3ds for each subject for these datasets
                     unique_id = subj_id.split('_')[0]  # first part, without the split
                     if unique_id not in datasets_with_splits_seen_subjects:
+                        print("Incrementing num valid subjs...")
                         self.num_valid_subjs += 1
                         self.dataset_n_dict[dataset_name] += 1  # store num subjs per dataset
                         self.ages.append(age)
                         self.bmis.append(bmi)
                         self.sexes.append(sex_int)
                         datasets_with_splits_seen_subjects.add(unique_id)
-                else:
+                else:  # don't need to worry about duplicates
                     self.num_valid_subjs += 1
                     self.dataset_n_dict[dataset_name] += 1  # store num subjs per dataset
                     self.ages.append(age)
@@ -1042,6 +1135,9 @@ class Dataset:
         self.root_ang_vel_vs_totgrf_plots.save_plot(self.out_dir, "root_ang_vel_vs_totgrf.png", self.num_valid_trials)
         self.root_lin_acc_vs_totgrf_plots.save_plot(self.out_dir, "root_lin_acc_vs_totgrf.png", self.num_valid_trials)
         self.root_ang_acc_vs_totgrf_plots.save_plot(self.out_dir, "root_ang_acc_vs_totgrf.png", self.num_valid_trials)
+
+        self.jointpos_vs_firstdist_add_r_plots.save_plot(self.out_dir, "hip_add_r_vs_dist.png", self.num_valid_trials)
+        self.jointpos_vs_firstdist_add_l_plots.save_plot(self.out_dir, "hip_add_l_vs_dist.png", self.num_valid_trials)
 
     def plot_demographics_histograms(self):
         """
@@ -1140,75 +1236,8 @@ class Dataset:
 
         plt.savefig(os.path.join(self.out_dir, "contact_pie_chart.png"))
 
-    def plot_activity_classification(self):
-        """
-        Bar chart of durations for each coarse activity classification.
-        Using code from Tom!
-        """
-
-        fontsize = 30
-        plt.figure()
-
-        #assert (self.coarse_activity_type_dict['walking'] == self.coarse_activity_type_dict['walking_overground'] + self.coarse_activity_type_dict['walking_treadmill'])
-
-        # Only plot certain motion classes
-        motions_to_plot = ['other', 'walking_overground', 'walking_treadmill', 'running', 'sit-to-stand',
-                           'stairs', 'jump', 'squat', 'lunge', 'standing']
-        filtered_coarse_activity_type_dict = {key: value for key, value in self.coarse_activity_type_dict.items() if key in motions_to_plot}
-
-        plt.bar(filtered_coarse_activity_type_dict.keys(), filtered_coarse_activity_type_dict.values(), color='#006BA4')
-        #plt.bar(self.coarse_activity_type_dict.keys(), self.coarse_activity_type_dict.values(), color='#006BA4')
-        plt.xlabel('activity type', fontsize=fontsize)
-        #plt.xticks(fontsize=fontsize)
-        plt.xticks(ticks=motions_to_plot, labels=['other', 'walking\noverground', 'walking\ntreadmill', 'running', 'sit-to-stand',
-                           'stairs', 'jump', 'squat', 'lunge', 'standing'], fontsize=fontsize)
-        plt.yticks(fontsize=fontsize)
-        plt.yticks([])  # remove y ticks
-        plt.xticks(rotation=45) # change orientation of labels
-
-        # Remove upper and right spine
-        plt.gca().spines['right'].set_visible(False)
-        plt.gca().spines['top'].set_visible(False)
-        plt.gca().spines['left'].set_visible(False)
-        # Remove ticks
-        plt.tick_params(axis='both', which='both', length=0)
-        # Remove tick labels
-        plt.tick_params(axis='both', which='both', labelleft=False)
-
-        plt.yscale('log')
-        # Add a horizontal red line for 2, 5, 10 and 20 minutes
-        line_color = '#CFCFCF'
-        text_color = 'black'
-        #plt.axhline(y=2, color=line_color, linestyle='--', linewidth=4)
-        plt.axhline(y=5, color=line_color, linestyle='--', linewidth=4)
-        plt.axhline(y=10, color=line_color, linestyle='--', linewidth=4)
-        plt.axhline(y=20, color=line_color, linestyle='--', linewidth=4)
-        plt.axhline(y=60, color=line_color, linestyle='--', linewidth=4)
-        plt.axhline(y=120, color=line_color, linestyle='--', linewidth=4)
-        plt.axhline(y=300, color=line_color, linestyle='--', linewidth=4)
-        plt.axhline(y=600, color=line_color, linestyle='--', linewidth=4)
-        plt.axhline(y=1200, color=line_color, linestyle='--', linewidth=4)
-        # add small text for each line indicating the 2,5,10 and 20 minutes, etc; a little above the y value for spacing
-        #plt.text(11.5, 2.1, '2 min', fontsize=fontsize, color=text_color)
-        x = 9.5
-        plt.text(x, 5.3, '5 min', fontsize=fontsize, color=text_color)
-        plt.text(x, 10.3, '10 min', fontsize=fontsize, color=text_color)
-        plt.text(x, 20.3, '20 min', fontsize=fontsize, color=text_color)
-        plt.text(x, 61.5, '1 h', fontsize=fontsize, color=text_color)
-        plt.text(x, 123.5, '2 h', fontsize=fontsize, color=text_color)
-        plt.text(x, 306.5, '5 h', fontsize=fontsize, color=text_color)
-        plt.text(x, 608.5, '10 h', fontsize=fontsize, color=text_color)
-        plt.text(x, 1208.5, '20 h', fontsize=fontsize, color=text_color)
-
-        # make figure much wider
-        fig = plt.gcf()
-        fig.set_size_inches(25, 12)
-
-        # make sure all labels are visible but limit white space
-        plt.tight_layout()
-
-        # save the figure
-        plt.savefig(os.path.join(self.out_dir, "coarse_activity_type_distribution.png"))
+    def make_activity_classification_plot(self):
+        plot_activity_classification(self.coarse_activity_type_dict, self.out_dir)
 
     def make_err_v_freq_plots(self):
         """
@@ -1301,34 +1330,54 @@ class Dataset:
         Save data used to make plots so don't have to process whole dataset to tweak figs
         """
         if self.save_histo_data:
-            print(f"activity class dict: {self.coarse_activity_type_dict}")
-            # Activity classification bar chart
-            with open(os.path.join(self.out_dir, "activity_class.pkl"), "wb") as file:
-                pickle.dump(self.coarse_activity_type_dict, file)
+        #     print(f"activity class dict: {self.coarse_activity_type_dict}")
+        #     # Activity classification bar chart
+        #     with open(os.path.join(self.out_dir, "activity_class.pkl"), "wb") as file:
+        #         pickle.dump(self.coarse_activity_type_dict, file)
 
             # For speeds histo
-            with open(os.path.join(self.out_dir, "speeds_kin.pkl"), "wb") as file:
-                pickle.dump(self.all_speeds_kin, file)
-            # with open(os.path.join(self.out_dir, "speeds_dyn.pkl"), "wb") as file:
-            #     pickle.dump(self.all_speeds_dyn, file)
-            with open(os.path.join(self.out_dir, "ankle_l_pos.pkl"), "wb") as file:
-                pickle.dump(self.ankle_l_pos_all, file)
-            with open(os.path.join(self.out_dir, "ankle_r_pos.pkl"), "wb") as file:
-                pickle.dump(self.ankle_r_pos_all, file)
-            with open(os.path.join(self.out_dir, "contacts.pkl"), "wb") as file:
-                pickle.dump(self.contacts_all, file)
-            with open(os.path.join(self.out_dir, "timesteps.pkl"), "wb") as file:
-                pickle.dump(self.timesteps_all, file)
+            with open(os.path.join(self.out_dir, "norm_speeds.pkl"), "wb") as file:
+                pickle.dump(self.norm_speeds, file)
+            # with open(os.path.join(self.out_dir, "speeds_kin.pkl"), "wb") as file:
+            #     pickle.dump(self.all_speeds_kin, file)
+            # # with open(os.path.join(self.out_dir, "speeds_dyn.pkl"), "wb") as file:
+            # #     pickle.dump(self.all_speeds_dyn, file)
+            # with open(os.path.join(self.out_dir, "ankle_l_pos.pkl"), "wb") as file:
+            #     pickle.dump(self.ankle_l_pos_all, file)
+            # with open(os.path.join(self.out_dir, "ankle_r_pos.pkl"), "wb") as file:
+            #     pickle.dump(self.ankle_r_pos_all, file)
+            # with open(os.path.join(self.out_dir, "contacts.pkl"), "wb") as file:
+            #     pickle.dump(self.contacts_all, file)
+            # with open(os.path.join(self.out_dir, "timesteps.pkl"), "wb") as file:
+            #     pickle.dump(self.timesteps_all, file)
+            #
+            # # Trial lengths
+            # with open(os.path.join(self.out_dir, "total_trial_lengths.pkl"), "wb") as file:
+            #     pickle.dump(self.trial_lengths_total, file)
+            # with open(os.path.join(self.out_dir, "grf_trial_lengths.pkl"), "wb") as file:
+            #     pickle.dump(self.trial_lengths_grf, file)
+            # with open(os.path.join(self.out_dir, "opt_trial_lengths.pkl"), "wb") as file:
+            #     pickle.dump(self.trial_lengths_opt, file)
 
-            # Trial lengths
-            with open(os.path.join(self.out_dir, "total_trial_lengths.pkl"), "wb") as file:
-                pickle.dump(self.trial_lengths_total, file)
-            with open(os.path.join(self.out_dir, "grf_trial_lengths.pkl"), "wb") as file:
-                pickle.dump(self.trial_lengths_grf, file)
-            with open(os.path.join(self.out_dir, "opt_trial_lengths.pkl"), "wb") as file:
-                pickle.dump(self.trial_lengths_opt, file)
-
-        #if self.save_scatter_data:
+        if self.save_scatter_data:
+            with open(os.path.join(self.out_dir, "scatter_motion_classes.pkl"), "wb") as file:
+                pickle.dump(self.jointpos_vs_firstdist_add_r_plots.motion_classes, file)  # doesn't matter from which, same indices
+            with open(os.path.join(self.out_dir, "add_r_x_data.pkl"), "wb") as file:
+                pickle.dump(self.jointpos_vs_firstdist_add_r_plots.x_data, file)
+            with open(os.path.join(self.out_dir, "add_r_y_data.pkl"), "wb") as file:
+                pickle.dump(self.jointpos_vs_firstdist_add_r_plots.y_data, file)
+            with open(os.path.join(self.out_dir, "add_l_x_data.pkl"), "wb") as file:
+                pickle.dump(self.jointpos_vs_firstdist_add_l_plots.x_data, file)
+            with open(os.path.join(self.out_dir, "add_l_y_data.pkl"), "wb") as file:
+                pickle.dump(self.jointpos_vs_firstdist_add_l_plots.y_data, file)
+            with open(os.path.join(self.out_dir, "com_x_data.pkl"), "wb") as file:
+                pickle.dump(self.comacc_vs_totgrf_y_plots.x_data, file)
+            with open(os.path.join(self.out_dir, "com_y_data.pkl"), "wb") as file:
+                pickle.dump(self.comacc_vs_totgrf_y_plots.y_data, file)
+            with open(os.path.join(self.out_dir, "vel_x_data.pkl"), "wb") as file:
+                pickle.dump(self.root_lin_vel_vs_totgrf_plots.x_data, file)
+            with open(os.path.join(self.out_dir, "vel_y_data.pkl"), "wb") as file:
+                pickle.dump(self.root_lin_vel_vs_totgrf_plots.y_data, file)
 
 
 class Trial:
@@ -1699,7 +1748,12 @@ class ScatterPlots:
         else:
             self.fig, self.axs = plt.subplots(figsize=(8, 8))
 
-    def update_plots(self, x: ndarray, y: ndarray, motion_class: str, settings: dict, corr_type: str, scale_x: bool = False, scale_y: bool = False,  mkr_size: int = 20, alpha: float = 1, random: bool = False):
+        # For cacheing
+        self.x_data: List[ndarray] = []
+        self.y_data: List[ndarray] = []
+        self.motion_classes: List[str] = []
+
+    def update_plots(self, x: ndarray, y: ndarray, motion_class: str, settings: dict, corr_type: str, scale_x: bool = False, scale_y: bool = False,  mkr_size: int = 20, alpha: float = 1, random: bool = False, cache_data: bool = False, in_degrees: bool = False):
         for i in range(self.num_plots):
 
             # Standardize the vars
@@ -1713,6 +1767,9 @@ class ScatterPlots:
                 np.nan_to_num(y_scaled, nan=0.0, copy=False)
             else:
                 y_scaled = y[:, i]
+
+            if in_degrees:
+                y_scaled = np.degrees(y_scaled)
 
             # Store the correlation coefficient
             if self.display_corr:
@@ -1729,10 +1786,11 @@ class ScatterPlots:
                     self.corrs[i] = 0  # TODO: better way to address?
 
             # Plot
-            if random:
-                marker = settings[motion_class]['marker']
-            else:
-                marker = '.'
+            # if random:
+            #     marker = settings[motion_class]['marker']
+            # else:
+            #     marker = '.'
+            marker = '.'
 
             if self.use_subplots:
                 row = i // self.num_cols
@@ -1745,6 +1803,11 @@ class ScatterPlots:
                 ax.set_box_aspect(1)  # for formatting
             else:
                 self.axs.scatter(x_scaled, y_scaled, s=mkr_size, alpha=alpha, color=settings[motion_class]['color'], marker=marker)
+
+            if (not self.use_subplots) and cache_data:  # only for single subplot ones
+                self.x_data.append(x_scaled)
+                self.y_data.append(y_scaled)
+                self.motion_classes.append(motion_class)
 
     def save_plot(self, plots_outdir: str, outname: str, num_trials: int):
 
@@ -1767,6 +1830,10 @@ class ScatterPlots:
                 for i, ax in enumerate(self.axs.flat):
                     if i >= self.num_plots:
                         ax.axis("off")  # remove empty plots
+
+        else:  # no subplots
+            self.axs.tick_params(axis='x', labelsize=35)  # Increase x-axis tick font size to 12
+            self.axs.tick_params(axis='y', labelsize=35)  #
 
         plt.tight_layout()
         self.fig.savefig(os.path.join(plots_outdir, outname))
