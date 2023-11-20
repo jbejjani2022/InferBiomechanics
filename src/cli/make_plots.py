@@ -93,7 +93,7 @@ def plot_activity_classification(coarse_activity_type_dict: dict, out_dir: str):
     Bar chart of durations for each coarse activity classification.
     """
 
-    fontsize = 30
+    fontsize = 35
     plt.figure()
 
     #assert (self.coarse_activity_type_dict['walking'] == self.coarse_activity_type_dict['walking_overground'] + self.coarse_activity_type_dict['walking_treadmill'])
@@ -107,7 +107,7 @@ def plot_activity_classification(coarse_activity_type_dict: dict, out_dir: str):
     #plt.bar(motions_to_plot, sorted_vals, color='#006BA4', edgecolor='black', linewidth=4, zorder=1)
     plt.bar(filtered_coarse_activity_type_dict.keys(), filtered_coarse_activity_type_dict.values(), color='#006BA4', edgecolor='black', linewidth=4, zorder=1)
 
-    plt.xlabel('activity type', fontsize=fontsize)
+    #plt.xlabel('activity type', fontsize=fontsize)
     # plt.xticks(ticks=motions_to_plot, labels=['other', 'walking\noverground', 'walking\ntreadmill', 'running', 'sit-to-stand',
     #                    'stairs', 'jump', 'squat', 'lunge', 'standing'], fontsize=fontsize)
     plt.xticks(ticks=motions_to_plot, labels=['\n'.join(label.split('_')) if '_' in label else label for label in filtered_coarse_activity_type_dict.keys()], fontsize=fontsize)
@@ -162,7 +162,7 @@ def plot_activity_classification(coarse_activity_type_dict: dict, out_dir: str):
     plt.savefig(os.path.join(out_dir, "coarse_activity_type_distribution.png"))
 
 def plot_histograms(datas: List[Sequence], num_bins: int, colors: List[str], labels: List[str], edgecolor: str, alpha: float,
-                    ylabel: str, xlabel: str, outdir: str, outname: str, fontsize: int = 20, plot_log_scale: bool = False):
+                    ylabel: str, xlabel: str, outdir: str, outname: str, fontsize: int = 20, plot_log_scale: bool = False, manual_bins = False):
     """
     Create a single histogram or overlaid histograms of the given input data with given plotting settings
     """
@@ -176,7 +176,10 @@ def plot_histograms(datas: List[Sequence], num_bins: int, colors: List[str], lab
 
     plt.ylabel(ylabel, fontsize=fontsize)
     plt.xlabel(xlabel, fontsize=fontsize)
-    plt.xticks(fontsize=fontsize)
+    if manual_bins:
+        plt.xticks([0, 500, 1000, 1500, 2000], labels =['0', '500', '1000', '1500', '2000'], fontsize=fontsize)
+    else:
+        plt.xticks(fontsize=fontsize)
     plt.yticks(fontsize=fontsize)
     if len(labels) != 0: plt.legend(loc="best", fontsize=fontsize)
     plt.tight_layout()
