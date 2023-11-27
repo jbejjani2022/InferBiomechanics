@@ -464,15 +464,15 @@ class Dataset:
         self.dataset_hours_dict = {key: {'total': 0.0, 'grf': 0.0, 'opt': 0.0} for key in self.dataset_names}
         self.dataset_n_dict = {key: 0 for key in self.dataset_names}
 
-        # Set up plotting settings
+        # Set up plotting settings (colors from final CVPR submission)
         self.motion_settings_dict = {
             'unknown': {'color': '#FFD92F', 'marker': '|'},
-            'other': {'color': '#A6CEE3', 'marker': '_'},
+            'other': {'color': '#FF800E', 'marker': '_'},  # changed other to orange for Supp; but "other" not in scatters
             'bad': {'color': '#a65628', 'marker': '^'},
-            'walking': {'color': '#377eb8', 'marker': 'D'},
-            'running': {'color': '#ff7f00', 'marker': 'p'},
+            'walking': {'color': '#999999', 'marker': 'D'},
+            'running': {'color': '#377eb8', 'marker': 'p'},
             'sit-to-stand': {'color': '#984ea3', 'marker': '*'},
-            'stairs': {'color': '#999999', 'marker': 'H'},
+            'stairs': {'color': '#A6CEE3', 'marker': 'H'},
             'jump': {'color': '#e41a1c', 'marker': '.'},
             'squat': {'color': '#f781bf', 'marker': 'x'},
             'lunge': {'color': '#B3DE69', 'marker': 'o'},
@@ -649,7 +649,7 @@ class Dataset:
                 if subject_on_disk.getProcessingPassType(proc_pass) == nimble.biomechanics.ProcessingPassType.KINEMATICS:
                     skel_pass_ix = 0
                     break
-            skel = subject_on_disk.readSkel(skel_pass_ix, "/Volumes/Extreme SSD/Geometry/")
+            skel = subject_on_disk.readSkel(skel_pass_ix, "/Volumes/Extreme Pro/Geometry/")
 
             # Get the subject info needed for trial processing
             num_trials = subject_on_disk.getNumTrials()
@@ -920,19 +920,19 @@ class Dataset:
 
                             # joint positions vs. vertical component of COM acc
                             self.jointpos_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random, in_degrees=True)
                             # joint positions vs. vertical component of total GRF
                             self.jointpos_vs_totgrf_plots.update_plots(trial_data.total_grf[::self.downsample_size, 1] / mass, trial_data.joint_pos_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random, in_degrees=True)
                             # joint positions vs. contact classification of first listed contact body
                             self.jointpos_vs_firstcontact_plots.update_plots(trial_data.contact[::self.downsample_size, 0], trial_data.joint_pos_kin[::self.downsample_size],
-                                                                             trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random)
+                                                                             trial_data.coarse_motion_class, self.motion_settings_dict, "biserial", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random, in_degrees=True)
                             # joint positions vs. vertical component of GRF distribution on first listed contact body
                             self.jointpos_vs_firstdist_plots.update_plots(trial_data.grf_dist[::self.downsample_size, 1], trial_data.joint_pos_kin[::self.downsample_size],
                                                                           trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", scale_x=False, mkr_size=mkr_size, alpha=alpha, random=random, in_degrees=True)
                             # Joint positions vs. total GRF norm
                             self.jointpos_vs_totgrf_norm_plots.update_plots(np.linalg.norm(trial_data.total_grf[::self.downsample_size, :] / mass, axis = -1), trial_data.joint_pos_kin[::self.downsample_size],
-                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random)
+                                                                       trial_data.coarse_motion_class, self.motion_settings_dict, "pearson", mkr_size=mkr_size, alpha=alpha, random=random, in_degrees=True)
 
                             # joint torques vs. vertical component of COM acc
                             self.jointtau_vs_comacc_plots.update_plots(trial_data.com_acc_dyn[::self.downsample_size, 1], trial_data.joint_tau_dyn[::self.downsample_size],
@@ -1249,12 +1249,12 @@ class Dataset:
         self.prepare_data_for_plotting()
 
         self.plot_err_v_freq(errors=[self.grf_errs_v_freq],
-                             outname='err_vs_freq.png', colors=['#006BA4'], plot_std=False)
+                             outname='err_vs_freq.png', colors=['black'], plot_std=False)
 
         # Sort alphabetically to pass as lists to function
         sorted_motions = sorted(self.grf_errs_v_freq_by_motion.keys())
-        sorted_errs = [self.grf_errs_v_freq_by_motion[motion] for motion in sorted_motions if motion not in ["unknown", "other", "bad"]]
-        sorted_colors = [self.motion_settings_dict[motion]['color'] for motion in sorted_motions if motion not in ["unknown", "other", "bad"]]
+        sorted_errs = [self.grf_errs_v_freq_by_motion[motion] for motion in sorted_motions if motion not in ["unknown", "bad"]]
+        sorted_colors = [self.motion_settings_dict[motion]['color'] for motion in sorted_motions if motion not in ["unknown", "bad"]]
 
         self.plot_err_v_freq(errors=sorted_errs,
                              outname='err_vs_freq_by_motion.png', colors=sorted_colors, plot_std=False)
@@ -1273,7 +1273,7 @@ class Dataset:
 
         # Calculate summary metrics
         print(f"AGE: MEAN = {np.mean(ages_filtered)}, MEDIAN = {np.median(ages_filtered)}, STD = {np.std(ages_filtered)}, MIN = {np.min(ages_filtered)}, MAX = {np.max(ages_filtered)}")
-        print(f"BMI: MEAN = {np.mean(bmis_filtered)}, MEDIAN = {np.median(ages_filtered)}, STD = {np.std(bmis_filtered)}, MIN = {np.min(bmis_filtered)}, MAX = {np.max(bmis_filtered)}")
+        print(f"BMI: MEAN = {np.mean(bmis_filtered)}, MEDIAN = {np.median(bmis_filtered)}, STD = {np.std(bmis_filtered)}, MIN = {np.min(bmis_filtered)}, MAX = {np.max(bmis_filtered)}")
 
         num_males = np.count_nonzero(self.sexes == 0)
         num_females = np.count_nonzero(self.sexes == 1)
