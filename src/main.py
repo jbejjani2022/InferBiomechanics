@@ -11,6 +11,7 @@ from cli.sanity_check import SanityCheckCommand
 from cli.make_plots import MakePlotsCommand
 from cli.review_file import ReviewFileCommand
 from cli.pickle_data import PickleDataCommand
+from cli.save_prediction_csv import SavePredictionCSVCommand
 import nimblephysics as nimble
 import logging
 
@@ -23,7 +24,8 @@ def main():
                 SanityCheckCommand(),
                 MakePlotsCommand(),
                 ReviewFileCommand(),
-                PickleDataCommand()]
+                PickleDataCommand(),
+                SavePredictionCSVCommand()]
 
     # Create an ArgumentParser object
     parser = argparse.ArgumentParser(
