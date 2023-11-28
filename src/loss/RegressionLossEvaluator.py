@@ -64,6 +64,7 @@ class RegressionLossEvaluator:
         self.moment_reported_metrics = []
         self.cop_reported_metrics = []
         self.wrench_reported_metrics = []
+        self.wrench_moment_reported_metrics = []
         self.tau_reported_metrics = []
         self.com_acc_reported_metrics = []
 
@@ -231,6 +232,17 @@ class RegressionLossEvaluator:
                 outputs[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] * cop_mask_tensor,
                 labels[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] * cop_mask_tensor
             ).item()
+            wrench_moment_reported_metric_1: float = RegressionLossEvaluator.get_mean_norm_error(
+                outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][:, :, :3],
+                labels[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][:, :, :3],
+                vec_size=3
+            ).item()
+            wrench_moment_reported_metric_2: float = RegressionLossEvaluator.get_mean_norm_error(
+                outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][:, :, 6:9],
+                labels[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][:, :, 6:9],
+                vec_size=3
+            ).item()
+            wrench_moment_reported_metric: float = (wrench_moment_reported_metric_1 + wrench_moment_reported_metric_2) / 2.0
             wrench_reported_metric: float = RegressionLossEvaluator.get_mean_norm_error(
                 outputs[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME],
                 labels[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME],
@@ -268,6 +280,7 @@ class RegressionLossEvaluator:
             self.moment_reported_metrics.append(moment_reported_metric)
             self.cop_reported_metrics.append(cop_reported_metric)
             self.wrench_reported_metrics.append(wrench_reported_metric)
+            self.wrench_moment_reported_metrics.append(wrench_moment_reported_metric)
             self.com_acc_reported_metrics.append(com_acc_reported_metric)
 
         ############################################################################
@@ -352,6 +365,7 @@ class RegressionLossEvaluator:
         moment_reported_metric: Optional[float] = np.mean(self.moment_reported_metrics) if len(self.moment_reported_metrics) > 0 else None
         cop_reported_metric: Optional[float] = np.mean(self.cop_reported_metrics) if len(self.cop_reported_metrics) > 0 else None
         wrench_reported_metric: Optional[float] = np.mean(self.wrench_reported_metrics) if len(self.wrench_reported_metrics) > 0 else None
+        wrench_moment_reported_metric: Optional[float] = np.mean(self.wrench_moment_reported_metrics) if len(self.wrench_moment_reported_metrics) > 0 else None
         tau_reported_metric: Optional[float] = np.mean(self.tau_reported_metrics) if len(self.tau_reported_metrics) > 0 else None
         com_acc_reported_metric: Optional[float] = np.mean(self.com_acc_reported_metrics) if len(self.com_acc_reported_metrics) > 0 else None
 
@@ -381,6 +395,7 @@ class RegressionLossEvaluator:
             print(f'\tCoP Avg Err: {cop_reported_metric} m')
             print(f'\tMoment Avg Err: {moment_reported_metric} Nm / kg')
             print(f'\tWrench Avg Err: {wrench_reported_metric} N+Nm / kg')
+            print(f'\tWrench Moment Avg Err: {wrench_moment_reported_metric} Nm / kg')
             print(
                 f'\tNon-root Joint Torques (Inverse Dynamics) Avg Err: {tau_reported_metric} Nm / kg')
 
