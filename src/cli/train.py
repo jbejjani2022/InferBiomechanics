@@ -131,7 +131,7 @@ class TrainCommand(AbstractCommand):
             logging.info('Initializing wandb...')
             wandb.init(
                 # set the wandb project where this run will be logged
-                project="shpd1",
+                project="addbiomechanics-baseline",
 
                 # track hyperparameters and run metadata
                 config=config
