@@ -11,13 +11,13 @@ class CreateSplitsCommand(AbstractCommand):
         super().__init__()
 
     def register_subcommand(self, subparsers: argparse._SubParsersAction):
-        subparser = subparsers.add_parser('create-splits', help='Turn a processed/ folder in train/ and dev/ splits.')
+        subparser = subparsers.add_parser('create-splits', help='Turn a processed/ folder in train/ and test/ splits.')
         subparser.add_argument('--data-folder', default='../data', type=str, help='The folder where the processed/ folder lives.')
 
     def run(self, args: argparse.Namespace):
         """
         Iterate over all *.b3d files in a directory hierarchy,
-        compute file hash, and move to train or dev directories.
+        compute file hash, and move to train or test directories.
         """
         if 'command' in args and args.command != 'create-splits':
             return False
@@ -25,9 +25,10 @@ class CreateSplitsCommand(AbstractCommand):
         data_folder: str = os.path.abspath(args.data_folder)
 
         # Modify these paths as needed
+        DEV = 'test'
         base_dir = os.path.join(data_folder, 'processed')
         train_dir = os.path.join(data_folder, 'train')
-        dev_dir = os.path.join(data_folder, 'dev')
+        dev_dir = os.path.join(data_folder, DEV)
 
         if not os.path.exists(base_dir):
             print('ERROR: Could not find processed/ folder in ' + data_folder)

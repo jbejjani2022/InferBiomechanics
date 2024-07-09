@@ -35,9 +35,10 @@ class PickleDataCommand(AbstractCommand):
         stride: int = args.stride
 
         # Create an instance of the dataset
+        DEV = 'test'
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
         train_output_folder: str = os.path.abspath(os.path.join(dataset_home, 'train_pickled'))
-        dev_dataset_path = os.path.abspath(os.path.join(dataset_home, 'dev'))
+        dev_dataset_path = os.path.abspath(os.path.join(dataset_home, DEV))
         dev_output_folder: str = os.path.abspath(os.path.join(dataset_home, 'dev_pickled'))
         logging.info('## Loading training dataset without skeleton:')
         train_dataset = AddBiomechanicsDataset(

@@ -70,8 +70,9 @@ class AnalyzeCommand(AbstractCommand):
         geometry = self.ensure_geometry(args.geometry_folder)
 
         # Create an instance of the dataset
+        DEV = 'test'
         train_dataset_path = os.path.abspath(os.path.join(args.dataset_home, 'train'))
-        dev_dataset_path = os.path.abspath(os.path.join(args.dataset_home, 'dev'))
+        dev_dataset_path = os.path.abspath(os.path.join(args.dataset_home, DEV))
         logging.info('## Loading dev dataset with skeletons:')
         dev_dataset = AddBiomechanicsDataset(dev_dataset_path,
                                              history_len,
@@ -102,7 +103,7 @@ class AnalyzeCommand(AbstractCommand):
         components = {0: "left-x", 1: "left-y", 2: "left-z", 3: "right-x", 4: "right-y", 5: "right-z"}
 
         # At the end of each epoch, evaluate the model on the dev set
-        dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split='dev')
+        dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV)
         dev_dataloader = DataLoader(dev_dataset, batch_size=1, shuffle=False, num_workers=data_loading_workers)
 
         with torch.no_grad():
