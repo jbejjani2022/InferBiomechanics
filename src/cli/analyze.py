@@ -7,11 +7,14 @@ from models.FeedForwardRegressionBaseline import FeedForwardBaseline
 from loss.RegressionLossEvaluator import RegressionLossEvaluator
 from typing import Any, Dict, Tuple, List
 from cli.abstract_command import AbstractCommand
+from cli.utilities import get_git_hash, has_uncommitted_changes
 import os
 import time
 import logging
 import numpy as np
 import csv
+import wandb
+
 
 class AnalyzeCommand(AbstractCommand):
     def __init__(self):
@@ -21,6 +24,8 @@ class AnalyzeCommand(AbstractCommand):
         subparser = subparsers.add_parser('analyze', help='Evaluate the performance of a model on dataset.')
         subparser.add_argument('--dataset-home', type=str, default='../data', help='The path to the AddBiomechanics dataset.')
         subparser.add_argument('--model-type', type=str, default='feedforward', help='The model to train.')
+        subparser.add_argument('--no-wandb', action='store_true', default=False,
+                               help='Log this analysis to Weights and Biases.')
         subparser.add_argument('--output-data-format', type=str, default='all_frames', choices=['all_frames', 'last_frame'], 
                                help='Output for all frames in a window or only the last frame.')
         subparser.add_argument('--checkpoint-dir', type=str, default='../checkpoints', help='The path to a model checkpoint to save during training. Also, starts from the latest checkpoint in this directory.')
@@ -59,6 +64,7 @@ class AnalyzeCommand(AbstractCommand):
         root_history_len: int = 10
         activation: str = args.activation
         output_data_format: str = args.output_data_format
+        log_to_wandb: bool = not args.no_wandb
 
         train_plot_path_root: str = os.path.join(checkpoint_dir, "analysis/plots/train")
         dev_plot_path_root: str = os.path.join(checkpoint_dir, "analysis/plots/dev")
@@ -106,6 +112,31 @@ class AnalyzeCommand(AbstractCommand):
         dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV)
         dev_dataloader = DataLoader(dev_dataset, batch_size=1, shuffle=False, num_workers=data_loading_workers)
 
+        has_uncommitted = has_uncommitted_changes()
+        if has_uncommitted:
+            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            logging.error(
+                "ERROR: UNCOMMITTED CHANGES IN REPO! THIS WILL MAKE IT HARD TO REPLICATE THIS EXPERIMENT LATER")
+            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
+        if log_to_wandb:
+            # Grab all cmd args and add current git hash
+            config = args.__dict__
+            config["git_hash"] = get_git_hash
+
+            logging.info('Initializing wandb...')
+            wandb.init(
+                # set the wandb project where this run will be logged
+                project="addbiomechanics-baseline",
+
+                # track hyperparameters and run metadata
+                config=config
+            )
+
         with torch.no_grad():
             for i, batch in enumerate(dev_dataloader):
                 inputs: Dict[str, torch.Tensor]
@@ -145,9 +176,9 @@ class AnalyzeCommand(AbstractCommand):
                 if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
                     logging.info('  - Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
                 if (i + 1) % 1000 == 0 or i == len(dev_dataloader) - 1:
-                    dev_loss_evaluator.print_report(args, reset=False)
+                    dev_loss_evaluator.print_report(args, reset=False, log_to_wandb=log_to_wandb)
         print('Final dev results:')
-        dev_loss_evaluator.print_report()
+        dev_loss_evaluator.print_report(log_to_wandb=log_to_wandb)
 
         logging.info('## Loading dev dataset with skeletons:')
         train_dataset = AddBiomechanicsDataset(train_dataset_path,
@@ -205,10 +236,10 @@ class AnalyzeCommand(AbstractCommand):
             if (i + 1) % 100 == 0 or i == len(train_dataloader) - 1:
                 logging.info('  - Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
             if (i + 1) % 1000 == 0 or i == len(train_dataloader) - 1:
-                loss_evaluator.print_report(args, reset=False)
+                loss_evaluator.print_report(args, reset=False, log_to_wandb=log_to_wandb)
         print('Final train results:')
-        loss_evaluator.print_report()
-
+        loss_evaluator.print_report(log_to_wandb=log_to_wandb)
 
         return True
 
+# python3 main.py analyze --model analytical --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --dataset-home "/n/holyscratch01/pslade_lab/cbrownpinilla/paper_reimplementation/data/addb_dataset"
