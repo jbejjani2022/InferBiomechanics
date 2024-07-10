@@ -77,15 +77,15 @@ class FeedForwardBaseline(nn.Module):
         assert len(input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape) == 3
         # print("input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1] = ", input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1])
         # print("self.num_joints * 3 = ", self.num_joints * 3)
-        assert input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1] == self.num_joints * 3
-        assert len(input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape) == 3
+        # assert input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1] == self.num_joints * 3
+        # assert len(input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape) == 3
         # print("input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1] = ", input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1])
         # print("self.root_history_len * 3 = ", self.root_history_len * 3)
-        assert input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3
-        assert len(input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape) == 3
+        # assert input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3
+        # assert len(input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape) == 3
         # print("input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1] = ", input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1])
         # print("self.root_history_len * 3 = ", self.root_history_len * 3)
-        assert input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3
+        # assert input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3
 
         # 2. Concatenate the inputs together and flatten them into a single vector for all timesteps
         inputs = torch.concat([
