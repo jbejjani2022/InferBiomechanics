@@ -5,6 +5,7 @@ from data.AddBiomechanicsDataset import InputDataKeys, OutputDataKeys
 import nimblephysics as nimble
 import logging
 
+
 ACTIVATION_FUNCS = {
     "relu": nn.ReLU(),
     "tanh": nn.Tanh(),
@@ -38,16 +39,18 @@ class FeedForwardBaseline(nn.Module):
         self.num_joints = num_joints
         self.history_len = history_len
         self.root_history_len = root_history_len
-        print('num dofs: ' + str(num_dofs) + ', num joints: ' + str(num_joints)+', history len: ' + str(history_len), f"{stride=}")
+        
+        # print('num dofs: ' + str(num_dofs) + ', num joints: ' + str(num_joints)+', history len: ' + str(history_len), ', root history len: ' + str(root_history_len), f"{stride=}")
 
         # Compute input and output sizes
-
         # For input, we need each dof, for position and velocity and acceleration, for each frame in the window, and
         # then also the COM acceleration for each frame in the window
+        # TEST
+        num_joints = 2
         self.input_size = (num_dofs * 3 + 12 + num_joints * 3 + root_history_len * 6) * (history_len // stride)
         # For output, we have four foot-ground contact classes (foot 1, foot 2, both, neither)
         self.num_output_frames = (history_len // stride) if output_data_format == 'all_frames' else 1
-        self.output_size = 30 *  self.num_output_frames
+        self.output_size = 30 * self.num_output_frames
 
         self.net = []
         dims = [self.input_size] + hidden_dims + [self.output_size]
@@ -65,17 +68,23 @@ class FeedForwardBaseline(nn.Module):
         
     def forward(self, input: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # 1. Check input shape matches our assumptions.
-        # assert len(input[InputDataKeys.POS].shape) == 3
+        assert len(input[InputDataKeys.POS].shape) == 3
         assert input[InputDataKeys.POS].shape[-1] == self.num_dofs
-        # assert len(input[InputDataKeys.VEL].shape) == 3
+        assert len(input[InputDataKeys.VEL].shape) == 3
         assert input[InputDataKeys.VEL].shape[-1] == self.num_dofs
-        # assert len(input[InputDataKeys.ACC].shape) == 3
+        assert len(input[InputDataKeys.ACC].shape) == 3
         assert input[InputDataKeys.ACC].shape[-1] == self.num_dofs
-        # assert len(input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape) == 3
+        assert len(input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape) == 3
+        # print("input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1] = ", input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1])
+        # print("self.num_joints * 3 = ", self.num_joints * 3)
         assert input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1] == self.num_joints * 3
-        # assert len(input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape) == 3
+        assert len(input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape) == 3
+        # print("input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1] = ", input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1])
+        # print("self.root_history_len * 3 = ", self.root_history_len * 3)
         assert input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3
-        # assert len(input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape) == 3
+        assert len(input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape) == 3
+        # print("input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1] = ", input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1])
+        # print("self.root_history_len * 3 = ", self.root_history_len * 3)
         assert input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3
 
         # 2. Concatenate the inputs together and flatten them into a single vector for all timesteps

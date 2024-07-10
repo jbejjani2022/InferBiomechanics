@@ -81,7 +81,10 @@ class AddBiomechanicsDataset(Dataset):
         self.contact_bodies = []
         self.skeletons = []
         self.skeletons_contact_bodies = []
+        print("window_size = ", self.window_size)
 
+        # Walk the folder path, and check for any with the ".b3d" extension (indicating that they are
+        # AddBiomechanics binary data files)
         if os.path.isdir(data_path):
             for root, dirs, files in os.walk(data_path):
                 for file in files:
@@ -94,12 +97,8 @@ class AddBiomechanicsDataset(Dataset):
         if testing_with_short_dataset:
             self.subject_paths = self.subject_paths[11:12]
         self.subject_indices = {subject_path: i for i, subject_path in enumerate(self.subject_paths)}
-
-        # Walk the folder path, and check for any with the ".b3d" extension (indicating that they are
-        # AddBiomechanics binary data files)
+        
         if len(self.subject_paths) > 0:
-            # Create a subject object for each file. This will load just the header from this file, and keep that
-            # around in memory
             subject = nimble.biomechanics.SubjectOnDisk(
                 self.subject_paths[0])
             # Get the number of degrees of freedom for this subject
@@ -113,11 +112,27 @@ class AddBiomechanicsDataset(Dataset):
                     continue
                 if body not in self.contact_bodies:
                     self.contact_bodies.append(body)
+                    
+        def see_subject_data():
+            for i in range(len(self.subject_paths)):
+                subject = nimble.biomechanics.SubjectOnDisk(
+                    self.subject_paths[i])
+                # Get the number of degrees of freedom for this subject
+                num_dofs = subject.getNumDofs()
+                # Get the number of joints for this subject
+                num_joints = subject.getNumJoints()
+                # Get the contact bodies for this subject, and put them into a consistent order for the dataset
+                contact_bodies = subject.getGroundForceBodies()
+                print(f"Subject {i + 1}:\n num_dofs={num_dofs}\n num_joints={num_joints}\n contact_bodies={contact_bodies}")
+                
+        # see_subject_data()
 
+        # Create a subject object for each file. This will load just the header from this file, and keep that
+         # around in memory
         for i, subject_path in enumerate(self.subject_paths):
-            # Add the skeleton to the list of skeletons
             subject = nimble.biomechanics.SubjectOnDisk(subject_path)
             if not skip_loading_skeletons:
+                # Add the skeleton to the list of skeletons
                 print('Loading skeleton ' + str(i + 1) + '/' + str(
                     len(self.subject_paths)) + f' for subject {subject_path}')
                 skeleton = subject.readSkel(subject.getNumProcessingPasses() - 1, geometry_folder)

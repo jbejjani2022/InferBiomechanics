@@ -121,7 +121,7 @@ class TrainCommand(AbstractCommand):
         DEV = 'test'
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, DEV))
-        logging.info('## Loading datasets with skeletons:')
+
         train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
         train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train')
@@ -150,7 +150,7 @@ class TrainCommand(AbstractCommand):
                                device=device)
 
         params_to_optimize = filter(lambda p: p.requires_grad, model.parameters())
-        if not any(params_to_optimize):
+        if not list(params_to_optimize):
             print("No parameters to optimize. Skipping training loop.")
             return False
         
@@ -261,4 +261,4 @@ class TrainCommand(AbstractCommand):
 
 # python3 main.py train --model feedforward --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --hidden-dims 32 32 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "../data" --epochs 500
 
-# python3 main.py train --model feedforward --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --hidden-dims 32 32 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "/n/holyscratch01/pslade_lab/cbrownpinilla/paper_reimplementation/data/addb_dataset" --epochs 500
+# python3 main.py train --model feedforward --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --hidden-dims 32 32 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "/n/holyscratch01/pslade_lab/cbrownpinilla/paper_reimplementation/data/addb_dataset" --epochs 500 --short
