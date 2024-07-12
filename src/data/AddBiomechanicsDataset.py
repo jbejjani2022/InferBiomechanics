@@ -24,6 +24,16 @@ class InputDataKeys:
     ROOT_POS_HISTORY_IN_ROOT_FRAME = 'rootPosHistoryInRootFrame'
     ROOT_EULER_HISTORY_IN_ROOT_FRAME = 'rootEulerHistoryInRootFrame'
 
+class MotionInputDataKeys:
+    CONTACT = 'contact'
+
+    POS = 'pos'
+    VEL = 'vel'
+    ACC = 'acc'
+
+    COM_POS = 'comPos'
+    COM_VEL = 'comVel'
+    COM_ACC = 'comAcc'
 
 class OutputDataKeys:
     TAU = 'tau'
@@ -41,6 +51,17 @@ class OutputDataKeys:
     GROUND_CONTACT_FORCES_IN_ROOT_FRAME = 'groundContactForceInRootFrame'
 
 
+class MotionOutputDataKeys:
+    CONTACT = 'contact'
+
+    POS = 'pos'
+    VEL = 'vel'
+    ACC = 'acc'
+
+    COM_POS = 'comPos'
+    COM_VEL = 'comVel'
+    COM_ACC = 'comAcc'
+    
 class AddBiomechanicsDataset(Dataset):
     stride: int
     data_path: str
