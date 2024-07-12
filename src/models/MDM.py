@@ -7,7 +7,7 @@ from typing import Dict
 
 class MDM(nn.Module):
     def __init__(self, dofs: int, window_size=50, history_len=5, stride=1, latent_dim=256, ff_size=1024,
-                 num_layers=8, num_heads=4, dropout=0.1, activation='gelu', dtype=torch.float64):
+                 num_layers=8, num_heads=4, dropout=0.1, activation='gelu', dtype=torch.float32):
         super().__init__()
 
         self.ff_size = ff_size
@@ -60,13 +60,13 @@ class MDM(nn.Module):
             x[InputDataKeys.COM_POS],
             x[InputDataKeys.COM_VEL],
             x[InputDataKeys.COM_ACC]],
-            dim=-1).to(torch.float64)
+            dim=-1).to(self.dtype)
         x = self.input_process(input_vecs)
         
 
         emb = self.embed_timestep(timesteps)
         xseq = torch.cat((x, emb), axis=0)
-        xseq = self.positional_encoding(xseq).to(torch.float64)
+        xseq = self.positional_encoding(xseq).to(self.dtype)
         output = self.seqTransEncoder(xseq)[1:]
         output_decoder = nn.Linear(self.latent_dim, self.output_vector_dim, dtype=self.dtype)
         output = output_decoder(output)
@@ -119,7 +119,7 @@ class TimestepEmbedder(nn.Module):
         return self.time_embed(self.pos_encoder.pe[:, :timesteps, :])
     
 class TemporalEmbedding(nn.Module):
-    def __init__(self, window_size, embedding_dim, dtype=torch.float64):
+    def __init__(self, window_size, embedding_dim, dtype=torch.float32):
         super().__init__()
         self.embedding = nn.Embedding(window_size, embedding_dim, dtype=dtype)
 
@@ -129,7 +129,7 @@ class TemporalEmbedding(nn.Module):
     
 class InputProcess(nn.Module):
     # Linear layer to project feature dimension to latent space
-    def __init__(self, features, latent_dim, dtype=torch.float64):
+    def __init__(self, features, latent_dim, dtype=torch.float32):
         super().__init__()
         self.linear = nn.Linear(features, latent_dim, dtype=dtype)
 
