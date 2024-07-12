@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset, InputDataKeys, OutputDataKeys
 from models.FeedForwardRegressionBaseline import FeedForwardBaseline
-from loss.RegressionLossEvaluator import RegressionLossEvaluator
+from src.loss.dynamics.RegressionLossEvaluator import RegressionLossEvaluator
 from typing import Dict, Tuple, List
 from cli.abstract_command import AbstractCommand
 import os

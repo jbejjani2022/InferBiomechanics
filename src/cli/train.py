@@ -5,7 +5,7 @@ import torch.multiprocessing as mp
 from torch.utils.data import DataLoader
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset, InputDataKeys, OutputDataKeys
 from models.FeedForwardRegressionBaseline import FeedForwardBaseline
-from loss.RegressionLossEvaluator import RegressionLossEvaluator
+from src.loss.dynamics.RegressionLossEvaluator import RegressionLossEvaluator
 from cli.utilities import get_git_hash, has_uncommitted_changes
 from typing import Dict, Tuple, List
 from cli.abstract_command import AbstractCommand
