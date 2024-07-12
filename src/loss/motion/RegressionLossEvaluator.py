@@ -1,6 +1,6 @@
 import torch
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset
-from data.AddBiomechanicsDataset import  MotionOutputDataKeys, MotionInputDataKeys as OutputDataKeys, InputDataKeys
+from data.AddBiomechanicsDataset import OutputDataKeys, InputDataKeys
 from typing import Dict, List, Optional
 import numpy as np
 import wandb

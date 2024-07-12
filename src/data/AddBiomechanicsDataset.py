@@ -7,9 +7,15 @@ import os
 
 class InputDataKeys:
     # These are the joint quantities for the joints that we are observing
+    CONTACT = 'contact'
+
     POS = 'pos'
     VEL = 'vel'
     ACC = 'acc'
+
+    COM_POS = 'comPos'
+    COM_VEL = 'comVel'
+    COM_ACC = 'comAcc'
 
     # The location of the joint centers, in the root frame
     JOINT_CENTERS_IN_ROOT_FRAME = 'jointCentersInRootFrame'
@@ -24,16 +30,6 @@ class InputDataKeys:
     ROOT_POS_HISTORY_IN_ROOT_FRAME = 'rootPosHistoryInRootFrame'
     ROOT_EULER_HISTORY_IN_ROOT_FRAME = 'rootEulerHistoryInRootFrame'
 
-class MotionInputDataKeys:
-    CONTACT = 'contact'
-
-    POS = 'pos'
-    VEL = 'vel'
-    ACC = 'acc'
-
-    COM_POS = 'comPos'
-    COM_VEL = 'comVel'
-    COM_ACC = 'comAcc'
 
 class OutputDataKeys:
     TAU = 'tau'
@@ -50,10 +46,6 @@ class OutputDataKeys:
     GROUND_CONTACT_TORQUES_IN_ROOT_FRAME = 'groundContactTorqueInRootFrame'
     GROUND_CONTACT_FORCES_IN_ROOT_FRAME = 'groundContactForceInRootFrame'
 
-
-class MotionOutputDataKeys:
-    CONTACT = 'contact'
-
     POS = 'pos'
     VEL = 'vel'
     ACC = 'acc'
@@ -61,6 +53,7 @@ class MotionOutputDataKeys:
     COM_POS = 'comPos'
     COM_VEL = 'comVel'
     COM_ACC = 'comAcc'
+    
     
 class AddBiomechanicsDataset(Dataset):
     stride: int
@@ -202,6 +195,18 @@ class AddBiomechanicsDataset(Dataset):
             input_dict[InputDataKeys.ACC] = torch.row_stack([
                 torch.tensor(p.acc, dtype=self.dtype).detach() for p in first_passes
             ])
+            input_dict[InputDataKeys.COM_POS] = torch.row_stack([
+                torch.tensor(p.comPos, dtype=self.dtype).detach() for p in first_passes
+            ])
+            input_dict[InputDataKeys.COM_VEL] = torch.row_stack([
+                torch.tensor(p.comVel, dtype=self.dtype).detach() for p in first_passes
+            ])
+            input_dict[InputDataKeys.COM_ACC] = torch.row_stack([
+                torch.tensor(p.comAcc, dtype=self.dtype).detach() for p in first_passes
+            ])
+            input_dict[InputDataKeys.CONTACT] = torch.row_stack([
+                torch.tensor(p.contact, dtype=self.dtype).detach() for p in first_passes
+            ])
             input_dict[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME] = torch.row_stack([
                 torch.tensor(p.jointCentersInRootFrame, dtype=self.dtype).detach() for p in first_passes
             ])
@@ -228,6 +233,27 @@ class AddBiomechanicsDataset(Dataset):
             # else it contains outputs for all the frames in first_passes
             mass = subject.getMassKg()
             start_index = 0 if self.output_data_format == 'all_frames' else -1
+            label_dict[OutputDataKeys.CONTACT] = torch.row_stack([
+                torch.tensor(p.contact, dtype=self.dtype).detach() for p in output_passes[start_index:]
+            ])
+            label_dict[OutputDataKeys.COM_ACC] = torch.row_stack([
+                torch.tensor(p.comAcc, dtype=self.dtype).detach() for p in output_passes[start_index:]
+            ])
+            label_dict[OutputDataKeys.COM_POS] = torch.row_stack([
+                torch.tensor(p.comPos, dtype=self.dtype).detach() for p in output_passes[start_index:]
+            ])
+            label_dict[OutputDataKeys.COM_VEL] = torch.row_stack([
+                torch.tensor(p.comVel, dtype=self.dtype).detach() for p in output_passes[start_index:]
+            ])
+            label_dict[OutputDataKeys.ACC] = torch.row_stack([
+                torch.tensor(p.acc, dtype=self.dtype).detach() for p in output_passes[start_index:]
+            ])
+            label_dict[OutputDataKeys.POS] = torch.row_stack([
+                torch.tensor(p.pos, dtype=self.dtype).detach() for p in output_passes[start_index:]
+            ])
+            label_dict[OutputDataKeys.VEL] = torch.row_stack([
+                torch.tensor(p.vel, dtype=self.dtype).detach() for p in output_passes[start_index:]
+            ])
             label_dict[OutputDataKeys.TAU] = torch.row_stack([
                 torch.tensor(p.tau, dtype=self.dtype).detach() for p in output_passes[start_index:]
             ])
