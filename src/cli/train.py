@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset, InputDataKeys, OutputDataKeys
 from models.FeedForwardRegressionBaseline import FeedForwardBaseline
 from loss.dynamics.RegressionLossEvaluator import RegressionLossEvaluator
+from loss.motion.RegressionLossEvaluator import RegressionLossEvaluator as MotionLoss
 from cli.utilities import get_git_hash, has_uncommitted_changes
 from typing import Dict, Tuple, List
 from cli.abstract_command import AbstractCommand
@@ -119,18 +120,23 @@ class TrainCommand(AbstractCommand):
 
         # Create an instance of the dataset
         DEV = 'test'
+
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, DEV))
 
         train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
-        train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train')
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=data_loading_workers, persistent_workers=True)
 
         dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                              geometry_folder=geometry, testing_with_short_dataset=short)
-        dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV)
         dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True)
+        
+        # Choose the correct evaluator
+        LossEvaluator = MotionLoss if model_type == 'mdm' else RegressionLossEvaluator
+
+        train_loss_evaluator = LossEvaluator(dataset=train_dataset, split='train')
+        dev_loss_evaluator = LossEvaluator(dataset=dev_dataset, split=DEV)
 
         mp.set_start_method('spawn')  # 'spawn' or 'fork' or 'forkserver'
 
