@@ -4,6 +4,7 @@ import torch
 from models.FeedForwardRegressionBaseline import FeedForwardBaseline
 from models.Groundlink import Groundlink
 from models.AnalyticalBaseline import AnalyticalBaseline
+from models.MDM import MDM
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset
 from typing import List
 import logging
@@ -76,6 +77,10 @@ class AbstractCommand:
                 num_joints,
                 root_history_len,
                 output_data_format
+            )
+        elif model_type == 'mdm':
+            model = MDM(
+                num_dofs
             )
         else:
             assert(model_type == 'analytical')
