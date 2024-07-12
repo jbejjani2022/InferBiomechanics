@@ -1,5 +1,5 @@
 from models.FeedForwardRegressionBaseline import FeedForwardBaseline
-from src.loss.dynamics.RegressionLossEvaluator import RegressionLossEvaluator
+from loss.dynamics.RegressionLossEvaluator import RegressionLossEvaluator
 import torch
 import os
 import argparse

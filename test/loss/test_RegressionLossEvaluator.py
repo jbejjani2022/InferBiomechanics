@@ -1,6 +1,6 @@
 import unittest
 import torch
-from src.loss.dynamics.RegressionLossEvaluator import RegressionLossEvaluator
+from loss.dynamics.RegressionLossEvaluator import RegressionLossEvaluator
 
 
 class TestRegressionLossEvaluator(unittest.TestCase):

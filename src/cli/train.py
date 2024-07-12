@@ -5,7 +5,7 @@ import torch.multiprocessing as mp
 from torch.utils.data import DataLoader
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset, InputDataKeys, OutputDataKeys
 from models.FeedForwardRegressionBaseline import FeedForwardBaseline
-from src.loss.dynamics.RegressionLossEvaluator import RegressionLossEvaluator
+from loss.dynamics.RegressionLossEvaluator import RegressionLossEvaluator
 from cli.utilities import get_git_hash, has_uncommitted_changes
 from typing import Dict, Tuple, List
 from cli.abstract_command import AbstractCommand
@@ -26,13 +26,13 @@ class TrainCommand(AbstractCommand):
                                help='The path to the AddBiomechanics dataset.')
         subparser.add_argument('--no-wandb', action='store_true', default=False,
                                help='Log this run to Weights and Biases.')
-        subparser.add_argument('--model-type', type=str, default='feedforward', choices=['analytical', 'feedforward', 'groundlink'], help='The model to train.')
+        subparser.add_argument('--model-type', type=str, default='feedforward', choices=['analytical', 'feedforward', 'groundlink', 'mdm'], help='The model to train.')
         subparser.add_argument('--output-data-format', type=str, default='all_frames', choices=['all_frames', 'last_frame'], help='Output for all frames in a window or only the last frame.')
         subparser.add_argument('--device', type=str, default='cpu', help='Where to run the code, either cpu or gpu.')
         subparser.add_argument('--checkpoint-dir', type=str, default='../checkpoints',
                                help='The path to a model checkpoint to save during training. Also, starts from the '
                                     'latest checkpoint in this directory.')
-        subparser.add_argument('--geometry-folder', type=str, default=None,
+        subparser.add_argument('--geometry-folder', type=str, default='../Geometry',
                                help='Path to the Geometry folder with bone mesh data.')
         subparser.add_argument('--history-len', type=int, default=50,
                                help='The number of timesteps of context to show when constructing the inputs.')
@@ -258,6 +258,7 @@ class TrainCommand(AbstractCommand):
             train_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
         return True
 
+# python main.py train --model mdm --checkpoint-dir "../checkpoints/init_mdm_test" --opt-type adagrad -- dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --short
 
 # python3 main.py train --model feedforward --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --hidden-dims 32 32 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "../data" --epochs 500
 
