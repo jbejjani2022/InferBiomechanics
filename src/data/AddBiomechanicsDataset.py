@@ -113,6 +113,9 @@ class AddBiomechanicsDataset(Dataset):
                 if body not in self.contact_bodies:
                     self.contact_bodies.append(body)
                     
+        # TEST
+        self.num_joints = 2
+                    
         def see_subject_data():
             for i in range(len(self.subject_paths)):
                 subject = nimble.biomechanics.SubjectOnDisk(

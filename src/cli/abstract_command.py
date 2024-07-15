@@ -47,7 +47,7 @@ class AbstractCommand:
                   model_type: str = 'feedforward',
                   history_len: int = 5,
                   stride: int = 1,
-                  hidden_dims: List[int] = [512],
+                  hidden_dims: List[int] = [512, 512],
                   activation: str = 'relu',
                   batchnorm: bool = False,
                   dropout: bool = False,

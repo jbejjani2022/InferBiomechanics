@@ -70,6 +70,7 @@ class RegressionLossEvaluator:
 
     @staticmethod
     def get_squared_diff_mean_vector(output_tensor: torch.Tensor, label_tensor: torch.Tensor) -> torch.Tensor:
+        print(f'Label tensor: {label_tensor.shape}\n Output tensor: {output_tensor.shape}')
         if output_tensor.shape != label_tensor.shape:
             raise ValueError('Output and label tensors must have the same shape')
         if len(output_tensor.shape) != 3:

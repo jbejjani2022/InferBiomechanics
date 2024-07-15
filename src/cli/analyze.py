@@ -242,4 +242,4 @@ class AnalyzeCommand(AbstractCommand):
 
         return True
 
-# python3 main.py analyze --model analytical --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --dataset-home "/n/holyscratch01/pslade_lab/cbrownpinilla/paper_reimplementation/data/addb_dataset"
+# python3 main.py analyze --model feedforward --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --dataset-home "/n/holyscratch01/pslade_lab/cbrownpinilla/paper_reimplementation/data/addb_dataset" --hidden-dims 1470 32
