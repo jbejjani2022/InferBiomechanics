@@ -16,6 +16,7 @@ class MDM(nn.Module):
         self.activation = activation
         self.dropout = dropout
         self.dtype = dtype
+        self.device = "cuda:0" if torch.cuda.is_available() else 'cpu'
 
         # Compute the size of the input vector to the model, which is the concatenation
         # of input keys
@@ -52,7 +53,6 @@ class MDM(nn.Module):
         timesteps = x[InputDataKeys.POS].size(1)
 
         # This concatenates (q, dq, ddq, com_pos, com_vel, com_acc) into a single vector per timestep
-
         input_vecs = torch.cat([
             x[InputDataKeys.POS],
             x[InputDataKeys.VEL],
@@ -61,6 +61,7 @@ class MDM(nn.Module):
             x[InputDataKeys.COM_VEL],
             x[InputDataKeys.COM_ACC]],
             dim=-1).to(self.dtype)
+        x = input_vecs.to(self.device)
         x = self.input_process(input_vecs)
         
 

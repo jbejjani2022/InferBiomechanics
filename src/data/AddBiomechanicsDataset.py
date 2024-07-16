@@ -82,7 +82,7 @@ class AddBiomechanicsDataset(Dataset):
                  testing_with_short_dataset: bool = False,
                  stride: int = 1,
                  output_data_format: str = 'last_frame',
-                 skip_loading_skeletons: bool = False):
+                 skip_loading_skeletons: bool = True):
         self.stride = stride
         self.output_data_format = output_data_format
         self.subject_paths = []
@@ -203,9 +203,6 @@ class AddBiomechanicsDataset(Dataset):
             ])
             input_dict[InputDataKeys.COM_ACC] = torch.row_stack([
                 torch.tensor(p.comAcc, dtype=self.dtype).detach() for p in first_passes
-            ])
-            input_dict[InputDataKeys.CONTACT] = torch.row_stack([
-                torch.tensor(p.contact, dtype=self.dtype).detach() for p in first_passes
             ])
             input_dict[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME] = torch.row_stack([
                 torch.tensor(p.jointCentersInRootFrame, dtype=self.dtype).detach() for p in first_passes
