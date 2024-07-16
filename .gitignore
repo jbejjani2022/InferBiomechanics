@@ -8,3 +8,4 @@ b3d-venv-py311
 __pycache__
 .idea/
 figures
+feedforward_checkpoints_v1/
