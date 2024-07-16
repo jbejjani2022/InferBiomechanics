@@ -230,9 +230,6 @@ class AddBiomechanicsDataset(Dataset):
             # else it contains outputs for all the frames in first_passes
             mass = subject.getMassKg()
             start_index = 0 if self.output_data_format == 'all_frames' else -1
-            label_dict[OutputDataKeys.CONTACT] = torch.row_stack([
-                torch.tensor(p.contact, dtype=self.dtype).detach() for p in output_passes[start_index:]
-            ])
             label_dict[OutputDataKeys.COM_ACC] = torch.row_stack([
                 torch.tensor(p.comAcc, dtype=self.dtype).detach() for p in output_passes[start_index:]
             ])
