@@ -33,7 +33,7 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--checkpoint-dir', type=str, default='../checkpoints',
                                help='The path to a model checkpoint to save during training. Also, starts from the '
                                     'latest checkpoint in this directory.')
-        subparser.add_argument('--geometry-folder', type=str, default='../Geometry',
+        subparser.add_argument('--geometry-folder', type=str, 
                                help='Path to the Geometry folder with bone mesh data.')
         subparser.add_argument('--history-len', type=int, default=50,
                                help='The number of timesteps of context to show when constructing the inputs.')
@@ -112,7 +112,7 @@ class TrainCommand(AbstractCommand):
             logging.info('Initializing wandb...')
             wandb.init(
                 # set the wandb project where this run will be logged
-                project="addbiomechanics-baseline",
+                project="MotionGeneration",
 
                 # track hyperparameters and run metadata
                 config=config
@@ -135,8 +135,11 @@ class TrainCommand(AbstractCommand):
         # Choose the correct evaluator
         LossEvaluator = MotionLoss if model_type == 'mdm' else RegressionLossEvaluator
 
-        train_loss_evaluator = LossEvaluator(dataset=train_dataset, split='train')
-        dev_loss_evaluator = LossEvaluator(dataset=dev_dataset, split=DEV)
+        # After loading data, perform computations on GPU
+        device = "cuda:0" if torch.cuda.is_available() else 'cpu'
+
+        train_loss_evaluator = LossEvaluator(dataset=train_dataset, split='train', device=device)
+        dev_loss_evaluator = LossEvaluator(dataset=dev_dataset, split=DEV, device=device)
 
         mp.set_start_method('spawn')  # 'spawn' or 'fork' or 'forkserver'
 
@@ -152,8 +155,7 @@ class TrainCommand(AbstractCommand):
                                dropout=dropout,
                                dropout_prob=dropout_prob,
                                root_history_len=root_history_len,
-                               output_data_format=output_data_format,
-                               device=device)
+                               output_data_format=output_data_format).to(device)
 
         params_to_optimize = filter(lambda p: p.requires_grad, model.parameters())
         if not list(params_to_optimize):
@@ -179,6 +181,8 @@ class TrainCommand(AbstractCommand):
 
         self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir, optimizer=optimizer)
 
+
+        model.to(device)
         for epoch in range(epochs):
             # Iterate over the entire training dataset
 
@@ -186,7 +190,7 @@ class TrainCommand(AbstractCommand):
             with torch.no_grad():
                 model.eval()  # Turn dropout off
                 for i, batch in enumerate(dev_dataloader):
-                    # print(f"batch iter: {i=}")
+                    # print(f"eval batch iter: {i=}")
                     inputs: Dict[str, torch.Tensor]
                     labels: Dict[str, torch.Tensor]
                     batch_subject_indices: List[int]
@@ -216,7 +220,7 @@ class TrainCommand(AbstractCommand):
             print('Running Train Epoch '+str(epoch))
             model.train()  # Turn dropout back on
             for i, batch in enumerate(train_dataloader):
-                # print(f"batch iter: {i=}")
+                print(f"train batch iter: {i=}")
                 inputs: Dict[str, torch.Tensor]
                 labels: Dict[str, torch.Tensor]
                 batch_subject_indices: List[int]
