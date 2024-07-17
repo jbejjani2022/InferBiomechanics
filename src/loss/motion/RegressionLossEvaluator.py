@@ -8,6 +8,8 @@ import argparse
 import os
 import sys
 
+import torch.distributed as dist
+
 
 components = {
     0: "left-x",
@@ -53,6 +55,7 @@ class RegressionLossEvaluator:
         self.dataset = dataset
         self.split = split
         self.device = device
+        self.rank = dist.get_rank()
 
         # Aggregating losses across batches for dev set evaluation
         self.losses = []
@@ -255,7 +258,7 @@ class RegressionLossEvaluator:
         # Step 3:  Log reports to WandB and plot results if requested
         ############################################################################
 
-        if log_reports_to_wandb:
+        if log_reports_to_wandb and self.rank == 0:
             self.log_to_wandb(args,
                               pos_loss,
                               vel_loss,

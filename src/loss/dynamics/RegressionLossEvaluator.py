@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import os
 import argparse
 
+import torch.distributed as dist
+
 
 components = {
     0: "left-x",
@@ -51,6 +53,8 @@ class RegressionLossEvaluator:
     def __init__(self, dataset: AddBiomechanicsDataset, split: str):
         self.dataset = dataset
         self.split = split
+        
+        self.rank = dist.get_rank()
 
         # Aggregating losses across batches for dev set evaluation
         self.losses = []
@@ -288,7 +292,7 @@ class RegressionLossEvaluator:
         ############################################################################
 
         # 3.1. If requested, log the reports to Weights and Biases
-        if log_reports_to_wandb:
+        if log_reports_to_wandb and self.rank == 0:
             self.log_to_wandb(args,
                               force_loss,
                               cop_loss,
