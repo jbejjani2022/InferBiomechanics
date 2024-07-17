@@ -14,10 +14,11 @@ import os
 import time
 import wandb
 import numpy as np
-import logging
+import logging 
 
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
+from datetime import timedelta
 
 
 class TrainCommand(AbstractCommand):
@@ -97,7 +98,7 @@ class TrainCommand(AbstractCommand):
         geometry = self.ensure_geometry(args.geometry_folder)
 
         # Initialize multiprocessing
-        dist.init_process_group(backend="nccl")
+        dist.init_process_group(backend="nccl", timeout=timedelta(hours=1))
         rank = dist.get_rank()
         device = rank % torch.cuda.device_count()
         torch.cuda.set_device(device)
@@ -219,7 +220,7 @@ class TrainCommand(AbstractCommand):
                                             args,
                                             compute_report=True)
                         loss_time = time.time() - loss_time
-                        # logging.info(f"{data_time=}, {forward_time=}, {loss_time}")
+                        logging.info(f"Data load time:{data_time}\nForward pass time:{forward_time}\n Loss eval time:{loss_time}")
                         if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
                             print('  - Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
             # Report dev loss on this epoch

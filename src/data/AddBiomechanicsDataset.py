@@ -82,7 +82,7 @@ class AddBiomechanicsDataset(Dataset):
                  testing_with_short_dataset: bool = False,
                  stride: int = 1,
                  output_data_format: str = 'last_frame',
-                 skip_loading_skeletons: bool = True):
+                 skip_loading_skeletons: bool = False):
         self.stride = stride
         self.output_data_format = output_data_format
         self.subject_paths = []
