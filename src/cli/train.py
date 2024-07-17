@@ -16,6 +16,9 @@ import wandb
 import numpy as np
 import logging
 
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+
 
 class TrainCommand(AbstractCommand):
     def __init__(self):
@@ -93,18 +96,14 @@ class TrainCommand(AbstractCommand):
 
         geometry = self.ensure_geometry(args.geometry_folder)
 
-        has_uncommitted = has_uncommitted_changes()
-        if has_uncommitted:
-            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            logging.error(
-                "ERROR: UNCOMMITTED CHANGES IN REPO! THIS WILL MAKE IT HARD TO REPLICATE THIS EXPERIMENT LATER")
-            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        # Initialize multiprocessing
+        dist.init_process_group("nccl")
+        rank = dist.get_rank()
+        print(f"Start running basic DDP example on rank {rank}.")
 
-        if log_to_wandb:
+        device = rank % torch.cuda.device_count()
+
+        if log_to_wandb and rank == 0:
             # Grab all cmd args and add current git hash
             config = args.__dict__
             config["git_hash"] = get_git_hash
@@ -117,6 +116,7 @@ class TrainCommand(AbstractCommand):
                 # track hyperparameters and run metadata
                 config=config
             )
+
 
         # Create an instance of the dataset
         DEV = 'test'
@@ -136,7 +136,6 @@ class TrainCommand(AbstractCommand):
         LossEvaluator = MotionLoss if model_type == 'mdm' else RegressionLossEvaluator
 
         # After loading data, perform computations on GPU
-        device = "cuda:0" if torch.cuda.is_available() else 'cpu'
 
         train_loss_evaluator = LossEvaluator(dataset=train_dataset, split='train', device=device)
         dev_loss_evaluator = LossEvaluator(dataset=dev_dataset, split=DEV, device=device)
@@ -157,6 +156,9 @@ class TrainCommand(AbstractCommand):
                                root_history_len=root_history_len,
                                output_data_format=output_data_format,
                                device=device).to(device) 
+
+        # Wrap model in DDP class
+        ddp_model = DDP(model, device_ids=[device])
 
         params_to_optimize = filter(lambda p: p.requires_grad, model.parameters())
         if not list(params_to_optimize):
@@ -180,53 +182,53 @@ class TrainCommand(AbstractCommand):
             logging.error('Invalid optimizer type: ' + opt_type)
             assert (False)
 
-        self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir, optimizer=optimizer)
+        self.load_latest_checkpoint(ddp_model, checkpoint_dir=checkpoint_dir, optimizer=optimizer)
 
 
-        model.to(device)
         for epoch in range(epochs):
             # Iterate over the entire training dataset
+            # For multiprocessing, ensure this is only done on rank 0 process to avoid redundancy
+            if rank == 0:
+                print(f'Evaluating Dev Set before {epoch=}')
+                with torch.no_grad():
+                    ddp_model.eval()  # Turn dropout off
+                    for i, batch in enumerate(dev_dataloader):
+                        # print(f"eval batch iter: {i=}")
+                        inputs: Dict[str, torch.Tensor]
+                        labels: Dict[str, torch.Tensor]
+                        batch_subject_indices: List[int]
+                        batch_trial_indices: List[int]
+                        data_time = time.time()
+                        inputs, labels, batch_subject_indices, batch_trial_indices = batch
 
-            print(f'Evaluating Dev Set before {epoch=}')
-            with torch.no_grad():
-                model.eval()  # Turn dropout off
-                for i, batch in enumerate(dev_dataloader):
-                    # print(f"eval batch iter: {i=}")
-                    inputs: Dict[str, torch.Tensor]
-                    labels: Dict[str, torch.Tensor]
-                    batch_subject_indices: List[int]
-                    batch_trial_indices: List[int]
-                    data_time = time.time()
-                    inputs, labels, batch_subject_indices, batch_trial_indices = batch
+                        # Move data to GPU
+                        for key, val in inputs.items():
+                            inputs[key] = inputs[key].to(device)
+                        for key, val in labels.items():
+                            labels[key] = labels[key].to(device)
 
-                    # Move data to GPU
-                    for key, val in inputs.items():
-                        inputs[key] = inputs[key].to(device)
-                    for key, val in labels.items():
-                        labels[key] = labels[key].to(device)
-
-                    data_time = time.time() - data_time
-                    forward_time = time.time()
-                    outputs = model(inputs)
-                    forward_time = time.time() - forward_time
-                    loss_time = time.time()
-                    dev_loss_evaluator(inputs,
-                                        outputs,
-                                        labels,
-                                        batch_subject_indices,
-                                        batch_trial_indices,
-                                        args,
-                                        compute_report=True)
-                    loss_time = time.time() - loss_time
-                    # logging.info(f"{data_time=}, {forward_time=}, {loss_time}")
-                    if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
-                        print('  - Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
+                        data_time = time.time() - data_time
+                        forward_time = time.time()
+                        outputs = ddp_model(inputs)
+                        forward_time = time.time() - forward_time
+                        loss_time = time.time()
+                        dev_loss_evaluator(inputs,
+                                            outputs,
+                                            labels,
+                                            batch_subject_indices,
+                                            batch_trial_indices,
+                                            args,
+                                            compute_report=True)
+                        loss_time = time.time() - loss_time
+                        # logging.info(f"{data_time=}, {forward_time=}, {loss_time}")
+                        if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
+                            print('  - Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
             # Report dev loss on this epoch
             logging.info('Dev Set Evaluation: ')
             dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb)
 
             print('Running Train Epoch '+str(epoch))
-            model.train()  # Turn dropout back on
+            ddp_model.train()  # Turn dropout back on
             for i, batch in enumerate(train_dataloader):
                 inputs: Dict[str, torch.Tensor]
                 labels: Dict[str, torch.Tensor]
@@ -243,7 +245,7 @@ class TrainCommand(AbstractCommand):
                 optimizer.zero_grad()
 
                 # Forward pass
-                outputs = model(inputs)
+                outputs = ddp_model(inputs)
 
                 # Compute the loss
                 compute_report = i % 100 == 0
@@ -263,17 +265,22 @@ class TrainCommand(AbstractCommand):
                     model_path = f"{checkpoint_dir}/epoch_{epoch}_batch_{i}.pt"
                     if not os.path.exists(os.path.dirname(model_path)):
                         os.makedirs(os.path.dirname(model_path))
-                    torch.save({
-                        'epoch': epoch,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                    }, model_path)
+                    if rank == 0: # Avoid redundant saving across processes
+                        torch.save({
+                            'epoch': epoch,
+                            'model_state_dict': model.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
+                        }, model_path)
 
                 # Backward pass
                 loss.backward()
 
                 # Update the model's parameters
                 optimizer.step()
+
+                # Destroy processes
+                dist.destroy_process_group()
+                
             # Report training loss on this epoch
             logging.info(f"{epoch=} / {epochs}")
             logging.info('Training Set Evaluation: ')
