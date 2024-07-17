@@ -155,7 +155,8 @@ class TrainCommand(AbstractCommand):
                                dropout=dropout,
                                dropout_prob=dropout_prob,
                                root_history_len=root_history_len,
-                               output_data_format=output_data_format).to(device)
+                               output_data_format=output_data_format,
+                               device=device).to(device) 
 
         params_to_optimize = filter(lambda p: p.requires_grad, model.parameters())
         if not list(params_to_optimize):
@@ -197,6 +198,13 @@ class TrainCommand(AbstractCommand):
                     batch_trial_indices: List[int]
                     data_time = time.time()
                     inputs, labels, batch_subject_indices, batch_trial_indices = batch
+
+                    # Move data to GPU
+                    for key, val in inputs.items():
+                        inputs[key] = inputs[key].to(device)
+                    for key, val in labels.items():
+                        labels[key] = labels[key].to(device)
+
                     data_time = time.time() - data_time
                     forward_time = time.time()
                     outputs = model(inputs)
@@ -220,12 +228,16 @@ class TrainCommand(AbstractCommand):
             print('Running Train Epoch '+str(epoch))
             model.train()  # Turn dropout back on
             for i, batch in enumerate(train_dataloader):
-                print(f"train batch iter: {i=}")
                 inputs: Dict[str, torch.Tensor]
                 labels: Dict[str, torch.Tensor]
                 batch_subject_indices: List[int]
                 batch_trial_indices: List[int]
                 inputs, labels, batch_subject_indices, batch_trial_indices = batch
+                # Move data to GPU
+                for key, val in inputs.items():
+                    inputs[key] = inputs[key].to(device)
+                for key, val in labels.items():
+                    labels[key] = labels[key].to(device)
 
                 # Clear the gradients
                 optimizer.zero_grad()

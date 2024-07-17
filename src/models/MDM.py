@@ -7,7 +7,7 @@ from typing import Dict
 
 class MDM(nn.Module):
     def __init__(self, dofs: int, window_size=50, history_len=5, stride=1, latent_dim=256, ff_size=1024,
-                 num_layers=8, num_heads=4, dropout=0.1, activation='gelu', dtype=torch.float32):
+                 num_layers=8, num_heads=4, dropout=0.1, activation='gelu', dtype=torch.float32, device='cpu'):
         super().__init__()
 
         self.ff_size = ff_size
@@ -16,7 +16,7 @@ class MDM(nn.Module):
         self.activation = activation
         self.dropout = dropout
         self.dtype = dtype
-        self.device = "cuda:0" if torch.cuda.is_available() else 'cpu'
+        self.device = device
 
         # Compute the size of the input vector to the model, which is the concatenation
         # of input keys
@@ -61,15 +61,14 @@ class MDM(nn.Module):
             x[InputDataKeys.COM_VEL],
             x[InputDataKeys.COM_ACC]],
             dim=-1).to(self.dtype)
-        x = input_vecs.to(self.device)
         x = self.input_process(input_vecs)
         
 
         emb = self.embed_timestep(timesteps)
         xseq = torch.cat((x, emb), axis=0)
         xseq = self.positional_encoding(xseq).to(self.dtype)
-        output = self.seqTransEncoder(xseq)[1:]
-        output_decoder = nn.Linear(self.latent_dim, self.output_vector_dim, dtype=self.dtype)
+        output = self.seqTransEncoder(xseq)[1:].to(self.device)
+        output_decoder = nn.Linear(self.latent_dim, self.output_vector_dim, dtype=self.dtype, device=self.device)
         output = output_decoder(output)
 
 
