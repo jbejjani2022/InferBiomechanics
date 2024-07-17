@@ -97,11 +97,11 @@ class TrainCommand(AbstractCommand):
         geometry = self.ensure_geometry(args.geometry_folder)
 
         # Initialize multiprocessing
-        dist.init_process_group("nccl")
+        dist.init_process_group(backend="nccl")
         rank = dist.get_rank()
-        print(f"Start running basic DDP example on rank {rank}.")
-
         device = rank % torch.cuda.device_count()
+        torch.cuda.set_device(device)
+
 
         if log_to_wandb and rank == 0:
             # Grab all cmd args and add current git hash
@@ -140,7 +140,6 @@ class TrainCommand(AbstractCommand):
         train_loss_evaluator = LossEvaluator(dataset=train_dataset, split='train', device=device)
         dev_loss_evaluator = LossEvaluator(dataset=dev_dataset, split=DEV, device=device)
 
-        mp.set_start_method('spawn')  # 'spawn' or 'fork' or 'forkserver'
 
         # Create an instance of the model
         model = self.get_model(train_dataset.num_dofs,
@@ -155,10 +154,10 @@ class TrainCommand(AbstractCommand):
                                dropout_prob=dropout_prob,
                                root_history_len=root_history_len,
                                output_data_format=output_data_format,
-                               device=device).to(device) 
+                               device=rank)
 
         # Wrap model in DDP class
-        ddp_model = DDP(model, device_ids=[device])
+        ddp_model = DDP(model.to(device), device_ids=[device], find_unused_parameters=True)
 
         params_to_optimize = filter(lambda p: p.requires_grad, model.parameters())
         if not list(params_to_optimize):
@@ -278,13 +277,13 @@ class TrainCommand(AbstractCommand):
                 # Update the model's parameters
                 optimizer.step()
 
-                # Destroy processes
-                dist.destroy_process_group()
                 
             # Report training loss on this epoch
             logging.info(f"{epoch=} / {epochs}")
             logging.info('Training Set Evaluation: ')
             train_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
+        # Destroy processes
+        dist.destroy_process_group()
         return True
 
 # python main.py train --model mdm --checkpoint-dir "../checkpoints/init_mdm_test" --opt-type adagrad -- dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --short
