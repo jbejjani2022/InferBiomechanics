@@ -50,10 +50,10 @@ class RegressionLossEvaluator:
     tau_reported_metrics: List[float]
     com_acc_reported_metrics: List[float]
 
-    def __init__(self, dataset: AddBiomechanicsDataset, split: str):
+    def __init__(self, dataset: AddBiomechanicsDataset, split: str, device='cpu'):
         self.dataset = dataset
         self.split = split
-        
+        self.device = device
         self.rank = dist.get_rank()
 
         # Aggregating losses across batches for dev set evaluation
@@ -174,6 +174,13 @@ class RegressionLossEvaluator:
         ############################################################################
         # Step 1: Compute the loss
         ############################################################################
+
+        # Perform all computations on GPU
+        for key, _ in labels.items():
+            labels[key] = labels[key].to(self.device)
+        
+        for key, _ in outputs.items():
+            outputs[key] = outputs[key].to(self.device)
 
         # 1.1. Compute the force loss, as a single vector of length 3*N
         force_loss = RegressionLossEvaluator.get_squared_diff_mean_vector(
