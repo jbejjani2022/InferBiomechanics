@@ -361,7 +361,7 @@ class RegressionLossEvaluator:
                               com_vel_reported_metric,
                               com_acc_reported_metric)
                             #   contact_reported_metric)
-        if pos_reported_metric is not None:
+        if pos_reported_metric is not None and dist.get_rank() == 0:
             print(f'\tPos Avg Err: {pos_reported_metric}')
             print(f'\tVel Avg Err: {vel_reported_metric}')
             print(f'\tAcc Avg Err: {acc_reported_metric}')
