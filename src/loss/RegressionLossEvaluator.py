@@ -69,7 +69,7 @@ class RegressionLossEvaluator:
         self.tau_reported_metrics = []
         self.com_acc_reported_metrics = []
         
-        # get device
+        # Get device
         self.rank = dist.get_rank()
 
     @staticmethod

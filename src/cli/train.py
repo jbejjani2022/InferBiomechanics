@@ -80,7 +80,8 @@ class TrainCommand(AbstractCommand):
         hidden_dims: List[int] = args.hidden_dims
         learning_rate: float = args.learning_rate
         epochs: int = args.epochs
-        batch_size: int = args.batch_size
+        device_count : int = torch.cuda.device_count()
+        batch_size: int = args.batch_size // device_count # ESSENTIAL: ensure that batch size is evenly split along parallel processes
         short: bool = args.short
         dataset_home: str = args.dataset_home
         log_to_wandb: bool = not args.no_wandb
@@ -93,10 +94,15 @@ class TrainCommand(AbstractCommand):
 
         geometry = self.ensure_geometry(args.geometry_folder)
         
-        # Initialize multiprocessing
+        # Initialize multiprocessing on GPU
         dist.init_process_group(backend="nccl", timeout=timedelta(hours=1))
-        rank = dist.get_rank() # rank is GPU index
-        print(f"Running DDP on rank {rank}.")
+        rank = dist.get_rank()  # rank is GPU index
+        local_rank = int(os.environ["LOCAL_RANK"])
+        device = local_rank % device_count
+        torch.cuda.set_device(device)
+        
+        print(f"Running on {device_count} GPUs.")
+        print(f"Current device being used for model training and loss evaluation: {device}.")
 
         has_uncommitted = has_uncommitted_changes()
         if has_uncommitted:
@@ -127,7 +133,7 @@ class TrainCommand(AbstractCommand):
 
         # Get dataloaders for train and test sets
         print("Initializing datasets...")
-        data_device = 'cpu'     # device where data will be loaded
+        data_device = device     # device where data will be loaded
         train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(data_device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
         train_sampler = DS(train_dataset, drop_last=True)
@@ -143,12 +149,6 @@ class TrainCommand(AbstractCommand):
         # Get loss evaluators
         train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train')
         dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV)
-        
-        # Get GPU
-        device_count = torch.cuda.device_count()
-        print(f"torch.cuda.device_count = {device_count}")
-        device = rank % torch.cuda.device_count()
-        print(f"Current device being used for model training and loss evaluation: {device}")
         
         # Create an instance of the model
         print("Initializing model...")
@@ -206,20 +206,12 @@ class TrainCommand(AbstractCommand):
                     batch_trial_indices: List[int]
                     data_time = time.time()
                     inputs, labels, batch_subject_indices, batch_trial_indices = batch
-                    # Move tensors in inputs and label dictionaries to GPU
-                    for key, _ in inputs.items():
-                        inputs[key] = inputs[key].to(device)
-                    for key, _ in labels.items():
-                        labels[key] = labels[key].to(device)
                     data_time = time.time() - data_time
                     forward_time = time.time()
                     outputs = model(inputs)
                     forward_time = time.time() - forward_time
                     loss_time = time.time()
                     
-                    # Ensure logging is only done on rank 0 process
-                    # and that calculation is synchronized
-                    dist.barrier()
                     dev_loss_evaluator(inputs,
                                         outputs,
                                         labels,
@@ -232,7 +224,8 @@ class TrainCommand(AbstractCommand):
                     if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
                         print('  - Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
             
-                # Report dev loss on this epoch
+                # Report dev loss on this epoch, ensuring that
+                # logging is only done on rank 0 process and calculation is synchronized
                 if rank == 0:
                     print('Dev Set Evaluation: ')
                     dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb)
@@ -250,12 +243,7 @@ class TrainCommand(AbstractCommand):
                 batch_subject_indices: List[int]
                 batch_trial_indices: List[int]
                 inputs, labels, batch_subject_indices, batch_trial_indices = batch
-                # Move tensors in inputs and label dictionaries to GPU
-                for key, _ in inputs.items():
-                    inputs[key] = inputs[key].to(device)
-                for key, _ in labels.items():
-                    labels[key] = labels[key].to(device)
-                    
+
                 # Clear the gradients
                 optimizer.zero_grad()
 
@@ -274,10 +262,10 @@ class TrainCommand(AbstractCommand):
                                             log_reports_to_wandb=log_to_wandb)
 
                 if (i + 1) % 100 == 0 or i == len(train_dataloader) - 1:
-                    logging.info('  - Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
+                    logging.info(f'  - [{rank=}] Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
                 
                 if (i + 1) % 1000 == 0 or i == len(train_dataloader) - 1:
-                    logging.info(f'Epoch {epoch} Batch {i} Training Set Evaluation: ')
+                    logging.info(f'[{rank=}] Batch {i} Training Set Evaluation: ')
                     train_loss_evaluator.print_report(args, reset=False)
                     
                     if rank == 0: # Avoid redundant saving across processes
