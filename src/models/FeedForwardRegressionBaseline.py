@@ -38,7 +38,9 @@ class FeedForwardBaseline(nn.Module):
         self.num_joints = num_joints
         self.history_len = history_len
         self.root_history_len = root_history_len
-        print('num dofs: ' + str(num_dofs) + ', num joints: ' + str(num_joints)+', history len: ' + str(history_len), f"{stride=}")
+        self.device = device
+        
+        # print('num dofs: ' + str(num_dofs) + ', num joints: ' + str(num_joints)+', history len: ' + str(history_len), ', root history len: ' + str(root_history_len), f"{stride=}")
 
         # Compute input and output sizes
 
@@ -51,13 +53,14 @@ class FeedForwardBaseline(nn.Module):
 
         self.net = []
         dims = [self.input_size] + hidden_dims + [self.output_size]
+        print(f"MODEL DIMENSIONS: input size = {self.input_size}, hidden dims = {hidden_dims}, output size = {self.output_size}")
         for i, (h0, h1) in enumerate(zip(dims[:-1], dims[1:])):
             if dropout:
                 self.net.append(nn.Dropout(dropout_prob))
             if batchnorm:
                 self.net.append(nn.BatchNorm1d(h0))
-            self.net.append(nn.Linear(h0, h1, dtype=torch.float32, device=device))
-            if i < len(dims)-2:
+            self.net.append(nn.Linear(h0, h1, dtype=torch.float32, device=self.device))
+            if i < len(dims) - 2:
                 self.net.append(ACTIVATION_FUNCS[self.activation])
         
         self.net = nn.Sequential(*self.net)
@@ -90,7 +93,7 @@ class FeedForwardBaseline(nn.Module):
             input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME],
             input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME],
             input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME]
-        ], dim=-1).reshape((input[InputDataKeys.POS].shape[0], -1))
+        ], dim=-1).reshape((input[InputDataKeys.POS].shape[0], -1)).to(self.device)
 
         batch_size = inputs.shape[0]
         # 3. Actually run the forward pass
