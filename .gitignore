@@ -1,6 +1,7 @@
 *.DS_Store
 ./data/
-slurm/
+slurm/error
+slurm/output
 Geometry/
 outputs/
 checkpoints/

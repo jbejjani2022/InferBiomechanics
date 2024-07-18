@@ -84,8 +84,8 @@ class TrainCommand(AbstractCommand):
         hidden_dims: List[int] = args.hidden_dims
         learning_rate: float = args.learning_rate
         epochs: int = args.epochs
-        batch_size: int = args.batch_size
-        device: str = args.device
+        batch_size: int = args.batch_size // torch.cuda.device_count()          # ESSENTIAL: ensure that batch size is evenly split along 
+        device: str = args.device                                               #            parallel processes
         short: bool = args.short
         dataset_home: str = args.dataset_home
         log_to_wandb: bool = not args.no_wandb
@@ -101,7 +101,8 @@ class TrainCommand(AbstractCommand):
         # Initialize multiprocessing
         dist.init_process_group(backend="nccl", timeout=timedelta(hours=1))
         rank = dist.get_rank()
-        device = rank % torch.cuda.device_count()
+        local_rank = int(os.environ["LOCAL_RANK"])
+        device = local_rank % torch.cuda.device_count()
         torch.cuda.set_device(device)
 
 
@@ -126,6 +127,7 @@ class TrainCommand(AbstractCommand):
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, DEV))
 
+        print(f'Running on {torch.cuda.device_count()} gpus')
         print('Initializing datasets...')
         train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
@@ -199,17 +201,10 @@ class TrainCommand(AbstractCommand):
                     batch_trial_indices: List[int]
                     inputs, labels, batch_subject_indices, batch_trial_indices = batch
 
-                    # Move data to GPU
-                    for key, val in inputs.items():
-                        inputs[key] = inputs[key].to(device)
-                    for key, val in labels.items():
-                        labels[key] = labels[key].to(device)
                     outputs = ddp_model(inputs)
-
 
                     # Ensure logging is only done on rank 0 process and calculation
                     # is synchronized
-                    dist.barrier()
                     dev_loss_evaluator(inputs,
                                         outputs,
                                         labels,
@@ -232,11 +227,6 @@ class TrainCommand(AbstractCommand):
                 batch_subject_indices: List[int]
                 batch_trial_indices: List[int]
                 inputs, labels, batch_subject_indices, batch_trial_indices = batch
-                # Move data to GPU
-                for key, val in inputs.items():
-                    inputs[key] = inputs[key].to(device)
-                for key, val in labels.items():
-                    labels[key] = labels[key].to(device)
 
                 # Clear the gradients
                 optimizer.zero_grad()
@@ -255,10 +245,10 @@ class TrainCommand(AbstractCommand):
                                             compute_report,
                                             log_reports_to_wandb=log_to_wandb)
                 if (i + 1) % 100 == 0 or i == len(train_dataloader) - 1:
-                    logging.info('  - Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
+                    logging.info(f'  - [{rank=}]Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
 
                 if (i + 1) % 1000 == 0 or i == len(train_dataloader) - 1:
-                    logging.info(f'Epoch {epoch} batch {i} Training Set Evaluation:')
+                    logging.info(f'[{rank=}]batch {i} Training Set Evaluation:')
                     train_loss_evaluator.print_report(args, reset=False)
 
                     if rank == 0:

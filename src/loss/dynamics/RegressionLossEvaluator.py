@@ -393,7 +393,7 @@ class RegressionLossEvaluator:
                               wrench_reported_metric,
                               tau_reported_metric)
 
-        if force_reported_metric is not None:
+        if force_reported_metric is not None and self.rank == 0:
             print(f'\tForce Avg Err: {force_reported_metric} N / kg')
             print(f'\tCOM Acc Avg Err: {com_acc_reported_metric} m / s^2')
             print(f'\tCoP Avg Err: {cop_reported_metric} m')
