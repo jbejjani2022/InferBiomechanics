@@ -1,4 +1,5 @@
 import torch
+import torch.distributed as dist
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset, OutputDataKeys, InputDataKeys
 from typing import Dict, List, Optional
 import numpy as np
@@ -67,6 +68,9 @@ class RegressionLossEvaluator:
         self.wrench_moment_reported_metrics = []
         self.tau_reported_metrics = []
         self.com_acc_reported_metrics = []
+        
+        # get device
+        self.rank = dist.get_rank()
 
     @staticmethod
     def get_squared_diff_mean_vector(output_tensor: torch.Tensor, label_tensor: torch.Tensor) -> torch.Tensor:
@@ -171,7 +175,7 @@ class RegressionLossEvaluator:
         ############################################################################
         # Step 1: Compute the loss
         ############################################################################
-
+        
         # 1.1. Compute the force loss, as a single vector of length 3*N
         force_loss = RegressionLossEvaluator.get_squared_diff_mean_vector(
             outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME],
@@ -289,7 +293,7 @@ class RegressionLossEvaluator:
         ############################################################################
 
         # 3.1. If requested, log the reports to Weights and Biases
-        if log_reports_to_wandb:
+        if log_reports_to_wandb and self.rank == 0:
             self.log_to_wandb(args,
                               force_loss,
                               cop_loss,
@@ -354,7 +358,7 @@ class RegressionLossEvaluator:
             report[f'{self.split}/reports/Wrench Avg Err (N+Nm per kg)'] = wrench_reported_metric
         if tau_reported_metric is not None:
             report[f'{self.split}/reports/Non-root Joint Torques (Inverse Dynamics) Avg Err (Nm per kg)'] = tau_reported_metric
-        # print(report)
+
         wandb.log(report)
 
     def print_report(self,
@@ -370,7 +374,7 @@ class RegressionLossEvaluator:
         tau_reported_metric: Optional[float] = np.mean(self.tau_reported_metrics) if len(self.tau_reported_metrics) > 0 else None
         com_acc_reported_metric: Optional[float] = np.mean(self.com_acc_reported_metrics) if len(self.com_acc_reported_metrics) > 0 else None
 
-        if log_to_wandb and len(self.force_losses) > 0:
+        if log_to_wandb and len(self.force_losses) > 0 and self.rank == 0:
             assert(args is not None)
             aggregate_force_loss = torch.mean(torch.vstack(self.force_losses), dim=0)
             aggregate_cop_loss = torch.mean(torch.vstack(self.cop_losses), dim=0)

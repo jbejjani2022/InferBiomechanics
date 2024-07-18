@@ -1,19 +1,20 @@
-import argparse
-
-import torch
-import torch.multiprocessing as mp
-from torch.utils.data import DataLoader
-from data.AddBiomechanicsDataset import AddBiomechanicsDataset, InputDataKeys, OutputDataKeys
-from models.FeedForwardRegressionBaseline import FeedForwardBaseline
-from loss.RegressionLossEvaluator import RegressionLossEvaluator
-from cli.utilities import get_git_hash, has_uncommitted_changes
-from typing import Dict, Tuple, List
-from cli.abstract_command import AbstractCommand
 import os
 import time
 import wandb
-import numpy as np
 import logging
+from datetime import timedelta
+import argparse
+import torch
+import torch.multiprocessing as mp
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader
+from data.AddBiomechanicsDataset import AddBiomechanicsDataset
+from models.FeedForwardRegressionBaseline import FeedForwardBaseline
+from loss.RegressionLossEvaluator import RegressionLossEvaluator
+from cli.utilities import get_git_hash, has_uncommitted_changes
+from typing import Dict, List
+from cli.abstract_command import AbstractCommand
 
 
 class TrainCommand(AbstractCommand):
@@ -28,7 +29,6 @@ class TrainCommand(AbstractCommand):
                                help='Log this run to Weights and Biases.')
         subparser.add_argument('--model-type', type=str, default='feedforward', choices=['analytical', 'feedforward', 'groundlink'], help='The model to train.')
         subparser.add_argument('--output-data-format', type=str, default='all_frames', choices=['all_frames', 'last_frame'], help='Output for all frames in a window or only the last frame.')
-        subparser.add_argument('--device', type=str, default='cpu', help='Where to run the code, either cpu or gpu.')
         subparser.add_argument('--checkpoint-dir', type=str, default='../checkpoints',
                                help='The path to a model checkpoint to save during training. Also, starts from the '
                                     'latest checkpoint in this directory.')
@@ -79,7 +79,6 @@ class TrainCommand(AbstractCommand):
         learning_rate: float = args.learning_rate
         epochs: int = args.epochs
         batch_size: int = args.batch_size
-        device: str = args.device
         short: bool = args.short
         dataset_home: str = args.dataset_home
         log_to_wandb: bool = not args.no_wandb
@@ -91,19 +90,22 @@ class TrainCommand(AbstractCommand):
         activation: str = args.activation
 
         geometry = self.ensure_geometry(args.geometry_folder)
+        
+        # Initialize multiprocessing
+        dist.init_process_group(backend="nccl", timeout=timedelta(hours=1))
+        rank = dist.get_rank() # rank is GPU index
+        print(f"Running DDP on rank {rank}.")
 
         has_uncommitted = has_uncommitted_changes()
         if has_uncommitted:
-            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             logging.error(
                 "ERROR: UNCOMMITTED CHANGES IN REPO! THIS WILL MAKE IT HARD TO REPLICATE THIS EXPERIMENT LATER")
             logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
-        if log_to_wandb:
+        if log_to_wandb and rank == 0:
             # Grab all cmd args and add current git hash
             config = args.__dict__
             config["git_hash"] = get_git_hash
@@ -122,18 +124,28 @@ class TrainCommand(AbstractCommand):
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, DEV))
 
-        train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
+        # Get dataloaders for train and test sets
+        data_device = 'cpu'     # device where data will be loaded
+        train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(data_device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
-        train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train')
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=data_loading_workers, persistent_workers=True)
 
-        dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
+        dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(data_device), stride=stride, output_data_format=output_data_format,
                                              geometry_folder=geometry, testing_with_short_dataset=short)
-        dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV)
         dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True)
 
         mp.set_start_method('spawn')  # 'spawn' or 'fork' or 'forkserver'
-
+        
+        # Get loss evaluators
+        train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train')
+        dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV)
+        
+        # Get GPU
+        device_count = torch.cuda.device_count()
+        print(f"torch.cuda.device_count = {device_count}")
+        device = rank % torch.cuda.device_count()
+        print(f"Current device being used for model training and loss evaluation: {device}")
+        
         # Create an instance of the model
         model = self.get_model(train_dataset.num_dofs,
                                train_dataset.num_joints,
@@ -147,7 +159,10 @@ class TrainCommand(AbstractCommand):
                                dropout_prob=dropout_prob,
                                root_history_len=root_history_len,
                                output_data_format=output_data_format,
-                               device=device)
+                               device=device).to(device)
+        
+        # Wrap model in DDP class
+        model = DDP(model, device_ids=[device])
 
         params_to_optimize = filter(lambda p: p.requires_grad, model.parameters())
         if not list(params_to_optimize):
@@ -174,40 +189,47 @@ class TrainCommand(AbstractCommand):
         self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir, optimizer=optimizer)
 
         for epoch in range(epochs):
-            # Iterate over the entire training dataset
+            # For multiprocessing, ensure dev set evaluation is only done on rank 0 process to avoid redundancy
+            if rank == 0:
+                print(f'Evaluating Dev Set Before {epoch=}')
+                with torch.no_grad():
+                    model.eval()  # Turn dropout off
+                    for i, batch in enumerate(dev_dataloader):
+                        # print(f"batch iter: {i=}")
+                        inputs: Dict[str, torch.Tensor]
+                        labels: Dict[str, torch.Tensor]
+                        batch_subject_indices: List[int]
+                        batch_trial_indices: List[int]
+                        data_time = time.time()
+                        inputs, labels, batch_subject_indices, batch_trial_indices = batch
+                        # Move tensors in inputs and label dictionaries to GPU
+                        for key, _ in inputs.items():
+                            inputs[key] = inputs[key].to(device)
+                        for key, _ in labels.items():
+                            labels[key] = labels[key].to(device)
 
-            print(f'Evaluating Dev Set before {epoch=}')
-            with torch.no_grad():
-                model.eval()  # Turn dropout off
-                for i, batch in enumerate(dev_dataloader):
-                    # print(f"batch iter: {i=}")
-                    inputs: Dict[str, torch.Tensor]
-                    labels: Dict[str, torch.Tensor]
-                    batch_subject_indices: List[int]
-                    batch_trial_indices: List[int]
-                    data_time = time.time()
-                    inputs, labels, batch_subject_indices, batch_trial_indices = batch
-                    data_time = time.time() - data_time
-                    forward_time = time.time()
-                    outputs = model(inputs)
-                    forward_time = time.time() - forward_time
-                    loss_time = time.time()
-                    dev_loss_evaluator(inputs,
-                                        outputs,
-                                        labels,
-                                        batch_subject_indices,
-                                        batch_trial_indices,
-                                        args,
-                                        compute_report=True)
-                    loss_time = time.time() - loss_time
-                    # logging.info(f"{data_time=}, {forward_time=}, {loss_time}")
-                    if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
-                        print('  - Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
+                        data_time = time.time() - data_time
+                        forward_time = time.time()
+                        outputs = model(inputs)
+                        forward_time = time.time() - forward_time
+                        loss_time = time.time()
+                        dev_loss_evaluator(inputs,
+                                            outputs,
+                                            labels,
+                                            batch_subject_indices,
+                                            batch_trial_indices,
+                                            args,
+                                            compute_report=True)
+                        loss_time = time.time() - loss_time
+                        # logging.info(f"{data_time=}, {forward_time=}, {loss_time}")
+                        if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
+                            print('  - Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
             # Report dev loss on this epoch
             logging.info('Dev Set Evaluation: ')
             dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb)
 
-            print('Running Train Epoch '+str(epoch))
+            # Iterate over the entire training dataset
+            print('Running Train Epoch ' + str(epoch))
             model.train()  # Turn dropout back on
             for i, batch in enumerate(train_dataloader):
                 # print(f"batch iter: {i=}")
@@ -216,7 +238,12 @@ class TrainCommand(AbstractCommand):
                 batch_subject_indices: List[int]
                 batch_trial_indices: List[int]
                 inputs, labels, batch_subject_indices, batch_trial_indices = batch
-
+                # Move tensors in inputs and label dictionaries to GPU
+                for key, _ in inputs.items():
+                    inputs[key] = inputs[key].to(device)
+                for key, _ in labels.items():
+                    labels[key] = labels[key].to(device)
+                    
                 # Clear the gradients
                 optimizer.zero_grad()
 
@@ -241,21 +268,26 @@ class TrainCommand(AbstractCommand):
                     model_path = f"{checkpoint_dir}/epoch_{epoch}_batch_{i}.pt"
                     if not os.path.exists(os.path.dirname(model_path)):
                         os.makedirs(os.path.dirname(model_path))
-                    torch.save({
-                        'epoch': epoch,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                    }, model_path)
+                    if rank == 0: # Avoid redundant saving across processes
+                        torch.save({
+                            'epoch': epoch,
+                            'model_state_dict': model.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
+                        }, model_path)
 
                 # Backward pass
                 loss.backward()
 
                 # Update the model's parameters
                 optimizer.step()
+                
             # Report training loss on this epoch
             logging.info(f"{epoch=} / {epochs}")
             logging.info('Training Set Evaluation: ')
             train_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
+            
+        # Destroy processes
+        dist.destroy_process_group()
         return True
 
 
@@ -263,4 +295,11 @@ class TrainCommand(AbstractCommand):
 
 # python3 main.py train --model feedforward --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --hidden-dims 32 32 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --epochs 500 --short
 
-# python3 main.py train --model feedforward --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --hidden-dims 32 32 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --epochs 300
+# python3 main.py train --model feedforward --checkpoint-dir "../checkpoints3/checkpoint-gait-ly-only" --hidden-dims 32 32 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --epochs 300 --short
+
+
+# Increased batch size to speed up training. Added multiprocessing. Switched from adagrad to adam. Increased hidden layer dim from 32 to 512.
+
+# export MASTER_ADDR=$(scontrol show hostname ${SLURM_NODELIST} | head -n 1)
+# export NCCL_DEBUG=INFO
+# torchrun --nnodes=1 --nproc_per_node=4 --rdzv_id=100 --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR:29400 main.py train --model feedforward --checkpoint-dir "../short-feedforward-batchsize-128/checkpoint-gait-ly-only" --hidden-dims 512 512 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adam --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --epochs 300 --short --batch-size 128

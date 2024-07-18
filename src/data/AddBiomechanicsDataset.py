@@ -81,7 +81,6 @@ class AddBiomechanicsDataset(Dataset):
         self.contact_bodies = []
         self.skeletons = []
         self.skeletons_contact_bodies = []
-        print("window_size = ", self.window_size)
 
         # Walk the folder path, and check for any with the ".b3d" extension (indicating that they are
         # AddBiomechanics binary data files)
