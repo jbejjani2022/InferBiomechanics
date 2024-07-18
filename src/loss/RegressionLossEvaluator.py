@@ -373,7 +373,7 @@ class RegressionLossEvaluator:
         tau_reported_metric: Optional[float] = np.mean(self.tau_reported_metrics) if len(self.tau_reported_metrics) > 0 else None
         com_acc_reported_metric: Optional[float] = np.mean(self.com_acc_reported_metrics) if len(self.com_acc_reported_metrics) > 0 else None
 
-        if log_to_wandb and len(self.force_losses) > 0 and self.rank == 0:
+        if log_to_wandb and len(self.force_losses) > 0:
             assert(args is not None)
             aggregate_force_loss = torch.mean(torch.vstack(self.force_losses), dim=0)
             aggregate_cop_loss = torch.mean(torch.vstack(self.cop_losses), dim=0)
@@ -393,7 +393,7 @@ class RegressionLossEvaluator:
                               wrench_reported_metric,
                               tau_reported_metric)
 
-        if force_reported_metric is not None:
+        if force_reported_metric is not None and self.rank == 0:
             print(f'\tForce Avg Err: {force_reported_metric} N / kg')
             print(f'\tCOM Acc Avg Err: {com_acc_reported_metric} m / s^2')
             print(f'\tCoP Avg Err: {cop_reported_metric} m')
