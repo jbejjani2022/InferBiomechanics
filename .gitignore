@@ -1,6 +1,5 @@
 *.DS_Store
 ./data/
-slurm/
 Geometry/
 outputs/
 checkpoints/
@@ -9,4 +8,7 @@ b3d-venv-py311
 __pycache__
 .idea/
 figures
-feedforward_checkpoints_v1/
+full-feedforward-batchsize-128-ddp/
+full-feedforward-checkpoints/
+old_checkpoints/
+slurm-feedforward/
