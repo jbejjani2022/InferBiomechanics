@@ -88,7 +88,7 @@ class AbstractCommand:
 
         return model
 
-    def load_latest_checkpoint(self, model, optimizer=None, checkpoint_dir="../checkpoints"):
+    def load_latest_checkpoint(self, model, optimizer=None, checkpoint_dir="../checkpoints", map_location=None):
         if not os.path.exists(checkpoint_dir):
             print("Checkpoint directory does not exist!")
             return
@@ -112,7 +112,7 @@ class AbstractCommand:
         checkpoint = torch.load(latest_checkpoint)
 
         # Load the model and optimizer states
-        model.load_state_dict(checkpoint['model_state_dict'])
+        model.load_state_dict(checkpoint['model_state_dict'], map_location=map_location)
         if optimizer is not None:
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 

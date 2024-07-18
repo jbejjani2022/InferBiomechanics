@@ -84,8 +84,8 @@ class TrainCommand(AbstractCommand):
         hidden_dims: List[int] = args.hidden_dims
         learning_rate: float = args.learning_rate
         epochs: int = args.epochs
-        batch_size: int = args.batch_size // torch.cuda.device_count()          # ESSENTIAL: ensure that batch size is evenly split along 
-        device: str = args.device                                               #            parallel processes
+        batch_size: int = args.batch_size    
+        device: str = args.device                                               
         short: bool = args.short
         dataset_home: str = args.dataset_home
         log_to_wandb: bool = not args.no_wandb
@@ -100,9 +100,11 @@ class TrainCommand(AbstractCommand):
 
         # Initialize multiprocessing
         dist.init_process_group(backend="nccl", timeout=timedelta(hours=1))
+        world_size = int(os.environ["WORLD_SIZE"])  
         rank = dist.get_rank()
         local_rank = int(os.environ["LOCAL_RANK"])
         device = local_rank % torch.cuda.device_count()
+        batch_size = batch_size // world_size                                   # ESSENTIAL: ensure that batch size is evenly split along parallel processes
         torch.cuda.set_device(device)
 
 
@@ -131,7 +133,7 @@ class TrainCommand(AbstractCommand):
         print('Initializing datasets...')
         train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
-        train_sampler = DS(train_dataset, drop_last=True)
+        train_sampler = DS(train_dataset, drop_last=True, num_replicas=world_size, rank=rank)
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=train_sampler)
 
         dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
@@ -159,10 +161,10 @@ class TrainCommand(AbstractCommand):
                                dropout_prob=dropout_prob,
                                root_history_len=root_history_len,
                                output_data_format=output_data_format,
-                               device=rank)
+                               device=rank).to(device)
 
         # Wrap model in DDP class
-        ddp_model = DDP(model.to(device), device_ids=[device], find_unused_parameters=True)
+        ddp_model = DDP(model, device_ids=[device], find_unused_parameters=True)
 
         params_to_optimize = filter(lambda p: p.requires_grad, model.parameters())
         if not list(params_to_optimize):
