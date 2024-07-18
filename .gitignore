@@ -1,6 +1,7 @@
 *.DS_Store
 ./data/
 Geometry/
+slurm/
 outputs/
 checkpoints/
 .DS_Store
