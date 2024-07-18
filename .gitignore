@@ -1,7 +1,5 @@
 *.DS_Store
 ./data/
-slurm/error
-slurm/output
 Geometry/
 outputs/
 checkpoints/
@@ -10,4 +8,5 @@ b3d-venv-py311
 __pycache__
 .idea/
 figures
-feedforward_checkpoints_v1/
+old_checkpoints/
+slurm-feedforward/
