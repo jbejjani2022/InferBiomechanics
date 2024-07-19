@@ -55,7 +55,7 @@ class TrainCommand(AbstractCommand):
                                help='The batch size to use when training the model.')
         subparser.add_argument('--short', action='store_true',
                                help='Use very short datasets to test without loading a bunch of data.')
-        subparser.add_argument('--data-loading-workers', type=int, default=3,
+        subparser.add_argument('--data-loading-workers', type=int, default=2,  # set num_workers to 0 for distributed training
                                help='Number of separate processes to spawn to load data in parallel.')
         subparser.add_argument('--predict-grf-components', type=int, nargs='+', default=[i for i in range(6)],
                                help='Which grf components to train.')
@@ -80,8 +80,8 @@ class TrainCommand(AbstractCommand):
         hidden_dims: List[int] = args.hidden_dims
         learning_rate: float = args.learning_rate
         epochs: int = args.epochs
-        device_count : int = torch.cuda.device_count()
-        batch_size: int = args.batch_size // device_count # ESSENTIAL: ensure that batch size is evenly split along parallel processes
+        world_size : int = torch.cuda.device_count()
+        batch_size: int = args.batch_size // world_size # ESSENTIAL: ensure that batch size is evenly split along parallel processes
         short: bool = args.short
         dataset_home: str = args.dataset_home
         log_to_wandb: bool = not args.no_wandb
@@ -97,11 +97,10 @@ class TrainCommand(AbstractCommand):
         # Initialize multiprocessing on GPU
         dist.init_process_group(backend="nccl", timeout=timedelta(hours=1))
         rank = dist.get_rank()  # rank is GPU index
-        local_rank = int(os.environ["LOCAL_RANK"])
-        device = local_rank % device_count
+        device = rank % world_size
         torch.cuda.set_device(device)
         
-        print(f"Running on {device_count} GPUs.")
+        print(f"Running on {world_size} GPUs.")
         print(f"Current device being used for model training and loss evaluation: {device}.")
 
         has_uncommitted = has_uncommitted_changes()
@@ -132,16 +131,17 @@ class TrainCommand(AbstractCommand):
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, DEV))
 
         # Get dataloaders for train and test sets
-        print("Initializing datasets...")
+        print("Initializing training set...")
         data_device = device     # device where data will be loaded
         train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(data_device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
-        train_sampler = DS(train_dataset, drop_last=True)
+        train_sampler = DS(train_dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=True)
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=train_sampler)
 
+        print("Initializing dev set...")
         dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(data_device), stride=stride, output_data_format=output_data_format,
                                              geometry_folder=geometry, testing_with_short_dataset=short)
-        dev_sampler = DS(dev_dataset, shuffle=False, drop_last=True)
+        dev_sampler = DS(dev_dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=True)
         dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=dev_sampler)
 
         mp.set_start_method('spawn')  # 'spawn' or 'fork' or 'forkserver'
@@ -167,7 +167,7 @@ class TrainCommand(AbstractCommand):
                                device=device).to(device)
         
         # Wrap model in DDP class
-        model = DDP(model, device_ids=[device])
+        model = DDP(model, device_ids=[device], output_device=device, find_unused_parameters=True)
 
         params_to_optimize = filter(lambda p: p.requires_grad, model.parameters())
         if not any(params_to_optimize):
@@ -194,12 +194,12 @@ class TrainCommand(AbstractCommand):
         self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir, optimizer=optimizer)
 
         for epoch in range(epochs):
-            train_sampler.set_epoch(epoch)
+            dev_dataloader.sampler.set_epoch(epoch)
+            train_dataloader.sampler.set_epoch(epoch)
             print(f'Evaluating Dev Set Before Epoch {epoch}')
             with torch.no_grad():
                 model.eval()  # Turn dropout off
                 for i, batch in enumerate(dev_dataloader):
-                    # print(f"batch iter: {i=}")
                     inputs: Dict[str, torch.Tensor]
                     labels: Dict[str, torch.Tensor]
                     batch_subject_indices: List[int]
@@ -222,22 +222,21 @@ class TrainCommand(AbstractCommand):
                     loss_time = time.time() - loss_time
                     # logging.info(f"{data_time=}, {forward_time=}, {loss_time}")
                     if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
-                        print('  - Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
+                        print('  - Dev Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
             
                 # Report dev loss on this epoch, ensuring that
-                # logging is only done on rank 0 process and calculation is synchronized
+                # logging is only done on rank 0 process
                 if rank == 0:
                     print('Dev Set Evaluation: ')
                     dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb)
             dist.barrier()
             
             if rank == 0:
-                print('Running Train Epoch ' + str(epoch))
+                print('Running Training Epoch ' + str(epoch))
             model.train()  # Turn dropout back on
            
             # Iterate over training set
             for i, batch in enumerate(train_dataloader):
-                # print(f"batch iter: {i=}")
                 inputs: Dict[str, torch.Tensor]
                 labels: Dict[str, torch.Tensor]
                 batch_subject_indices: List[int]

@@ -1,6 +1,5 @@
 import argparse
-
-import nimblephysics_libs.biomechanics
+import logging
 
 from cli.train import TrainCommand
 from cli.visualize import VisualizeCommand
@@ -12,8 +11,7 @@ from cli.make_plots import MakePlotsCommand
 from cli.review_file import ReviewFileCommand
 from cli.pickle_data import PickleDataCommand
 from cli.save_prediction_csv import SavePredictionCSVCommand
-import nimblephysics as nimble
-import logging
+
 
 def main():
     commands = [TrainCommand(),
