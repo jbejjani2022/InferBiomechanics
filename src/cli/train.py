@@ -81,7 +81,7 @@ class TrainCommand(AbstractCommand):
         learning_rate: float = args.learning_rate
         epochs: int = args.epochs
         world_size : int = torch.cuda.device_count()
-        batch_size: int = args.batch_size // world_size # ESSENTIAL: ensure that batch size is evenly split along parallel processes
+        batch_size: int = args.batch_size  # size of batch for any given process
         short: bool = args.short
         dataset_home: str = args.dataset_home
         log_to_wandb: bool = not args.no_wandb
