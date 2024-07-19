@@ -103,7 +103,6 @@ class TrainCommand(AbstractCommand):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         device = rank % torch.cuda.device_count()
-        batch_size = batch_size // world_size                                   # ESSENTIAL: ensure that batch size is evenly split along parallel processes
         torch.cuda.set_device(device)
 
 
