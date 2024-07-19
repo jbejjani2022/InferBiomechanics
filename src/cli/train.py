@@ -71,6 +71,18 @@ class TrainCommand(AbstractCommand):
                                help='Which wrench components to train.')
         subparser.add_argument('--trial-filter', type=str, nargs='+', default=[""],
                                help='What kind of trials to train/test on.')
+        subparser.add_argument('--use-diffusion', action='store_true', help='Use diffusion?')
+        subparser.add_argument("--noise_schedule", default='cosine', choices=['linear', 'cosine'], type=str,
+                       help="Noise schedule type")
+        subparser.add_argument("--diffusion_steps", default=1000, type=int,
+                       help="Number of diffusion steps (denoted T in the paper)")
+        subparser.add_argument("--sigma_small", default=True, type=bool, help="Use smaller sigma values.")
+        subparser.add_argument('--schedule-smapler', default='uniform',
+                               choices=['uniform','loss-second-moment'], help='Diffusion timestep sampler')
+        subparser.add_argument("--lambda_rcxyz", default=0.0, type=float, help="Joint positions loss.")
+        subparser.add_argument("--lambda_vel", default=0.0, type=float, help="Joint velocity loss.")
+        subparser.add_argument("--lambda_fc", default=0.0, type=float, help="Foot contact loss.")
+
 
     def run(self, args: argparse.Namespace):
         if 'command' in args and args.command != 'train':
@@ -95,8 +107,16 @@ class TrainCommand(AbstractCommand):
         dropout: bool = args.dropout
         dropout_prob: float = args.dropout_prob
         activation: str = args.activation
-
         geometry = self.ensure_geometry(args.geometry_folder)
+
+        use_diffusion = args.use_diffusion
+        noise_schedule = args.noise_schedule
+        diffusion_steps = args.diffusion_steps
+        sigma_small = args.sigma_small
+        schedule_sampler = args.schedule_sampler
+        lambda_rcxyz = args.lambda_rcxyz
+        lambda_vel = args.lambda_vel
+        lambda_fc = args.lambda_fc
 
         # Initialize multiprocessing
         dist.init_process_group(backend="nccl", timeout=timedelta(hours=1))
@@ -162,6 +182,11 @@ class TrainCommand(AbstractCommand):
                                root_history_len=root_history_len,
                                output_data_format=output_data_format,
                                device=rank).to(device)
+        
+        if use_diffusion:
+            print('Initializing diffusion...')
+            diffusion = self.get_gaussian_diffusion(args)
+
 
         # Wrap model in DDP class
         ddp_model = DDP(model, device_ids=[device], find_unused_parameters=True)
