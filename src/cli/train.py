@@ -219,27 +219,12 @@ class TrainCommand(AbstractCommand):
             print(f'\nEvaluating Dev Set before epoch {epoch}')
             with torch.no_grad():
                 ddp_model.eval()  # Turn dropout off
-                # Accumulate batches seen throughout evaluation process
-                accumulated_batches = []
                 for i, batch in enumerate(dev_dataloader):
                     inputs: Dict[str, torch.Tensor]
                     labels: Dict[str, torch.Tensor]
                     batch_subject_indices: List[int]
                     batch_trial_indices: List[int]
                     inputs, labels, batch_subject_indices, batch_trial_indices = batch
-
-                    # Temporary list to gather batch subject indices from all processes
-                    gathered_batch_subject_indices = [None for _ in range(world_size)]
-                    
-                    # Gather indices from current process and synchronize into gathered object list
-                    # convert batch_subject_indices to a sorted tuple to ensure it is hashable and comparable
-                    dist.all_gather_object(gathered_batch_subject_indices, tuple(sorted(batch_subject_indices)))
-                    accumulated_batches.extend(gathered_batch_subject_indices)
-                    
-                    # Assert that the number of unique batches equals the number of gathered batches
-                    # i.e. assert that no batch across all processes has been 'seen' more than once
-                    assert len(set(accumulated_batches)) == len(accumulated_batches), f'Redundant batch evaluation detected across processes, in batch {i+1}/{len(dev_dataloader)} at rank {rank}. Current batch_subject_indices: {batch_subject_indices}'
-                    print(f'Rank {rank}, batch {i + 1}: All batches so far are unique.')
 
                     outputs = ddp_model(inputs)
 
@@ -258,32 +243,15 @@ class TrainCommand(AbstractCommand):
                 if rank == 0: 
                     print('Dev Set Evaluation:')
                     dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb)
-                    print(f'SUMMARY OF BATCHES SEEN DURING DEV EVALUATION:\n Num batches = {len(accumulated_batches)}. \n Num unique batches = {len(set(accumulated_batches))}. \n All batch subject indices:\n {batch_subject_indices}')
             dist.barrier()
             if rank == 0: print(f'Running Train Epoch {epoch}')        
             ddp_model.train()  # Turn dropout back on
-            
-            # Accumulate batches seen throughout training
-            accumulated_batches = []
             for i, batch in enumerate(train_dataloader):
                 inputs: Dict[str, torch.Tensor]
                 labels: Dict[str, torch.Tensor]
                 batch_subject_indices: List[int]
                 batch_trial_indices: List[int]
                 inputs, labels, batch_subject_indices, batch_trial_indices = batch
-
-                # Temporary list to gather batch subject indices from all processes
-                gathered_batch_subject_indices = [None for _ in range(world_size)]
-                
-                # Gather indices from current process and synchronize into gathered object list
-                # convert batch_subject_indices to a sorted tuple to ensure it is hashable and comparable
-                dist.all_gather_object(gathered_batch_subject_indices, tuple(sorted(batch_subject_indices)))
-                accumulated_batches.extend(gathered_batch_subject_indices)
-                
-                # Assert that the number of unique batches equals the number of gathered batches
-                # i.e. assert that no batch across all processes has been 'seen' more than once
-                assert len(set(accumulated_batches)) == len(accumulated_batches), f'Redundant batch training detected across processes, in batch {i+1}/{len(train_dataloader)} at rank {rank}. Current batch_subject_indices: {batch_subject_indices}'
-                print(f'Rank {rank}, batch {i + 1}: All batches so far are unique.')
 
                 # Clear the gradients
                 optimizer.zero_grad()
@@ -309,7 +277,6 @@ class TrainCommand(AbstractCommand):
                     train_loss_evaluator.print_report(args, reset=False)
 
                     if rank == 0:
-                        print(f'SUMMARY OF BATCHES SEEN DURING {epoch=} TRAINING:\n Num batches = {len(accumulated_batches)}. Num unique batches = {len(set(accumulated_batches))}\n All batch subject indices:\n {batch_subject_indices}')
                         model_path = f"{checkpoint_dir}/epoch_{epoch}_batch_{i}.pt"
                         if not os.path.exists(os.path.dirname(model_path)):
                             os.makedirs(os.path.dirname(model_path)) 
