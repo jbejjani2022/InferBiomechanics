@@ -71,6 +71,18 @@ class TrainCommand(AbstractCommand):
                                help='Which wrench components to train.')
         subparser.add_argument('--trial-filter', type=str, nargs='+', default=[""],
                                help='What kind of trials to train/test on.')
+        subparser.add_argument('--use-diffusion', action='store_true', help='Use diffusion?')
+        subparser.add_argument("--noise_schedule", default='cosine', choices=['linear', 'cosine'], type=str,
+                       help="Noise schedule type")
+        subparser.add_argument("--diffusion_steps", default=1000, type=int,
+                       help="Number of diffusion steps (denoted T in the paper)")
+        subparser.add_argument("--sigma_small", default=True, type=bool, help="Use smaller sigma values.")
+        subparser.add_argument('--schedule-smapler', default='uniform',
+                               choices=['uniform','loss-second-moment'], help='Diffusion timestep sampler')
+        subparser.add_argument("--lambda_rcxyz", default=0.0, type=float, help="Joint positions loss.")
+        subparser.add_argument("--lambda_vel", default=0.0, type=float, help="Joint velocity loss.")
+        subparser.add_argument("--lambda_fc", default=0.0, type=float, help="Foot contact loss.")
+
 
     def run(self, args: argparse.Namespace):
         if 'command' in args and args.command != 'train':
@@ -84,8 +96,8 @@ class TrainCommand(AbstractCommand):
         hidden_dims: List[int] = args.hidden_dims
         learning_rate: float = args.learning_rate
         epochs: int = args.epochs
-        batch_size: int = args.batch_size
-        device: str = args.device
+        batch_size: int = args.batch_size    
+        device: str = args.device                                               
         short: bool = args.short
         dataset_home: str = args.dataset_home
         log_to_wandb: bool = not args.no_wandb
@@ -95,11 +107,20 @@ class TrainCommand(AbstractCommand):
         dropout: bool = args.dropout
         dropout_prob: float = args.dropout_prob
         activation: str = args.activation
-
         geometry = self.ensure_geometry(args.geometry_folder)
+
+        use_diffusion = args.use_diffusion
+        noise_schedule = args.noise_schedule
+        diffusion_steps = args.diffusion_steps
+        sigma_small = args.sigma_small
+        schedule_sampler = args.schedule_sampler
+        lambda_rcxyz = args.lambda_rcxyz
+        lambda_vel = args.lambda_vel
+        lambda_fc = args.lambda_fc
 
         # Initialize multiprocessing
         dist.init_process_group(backend="nccl", timeout=timedelta(hours=1))
+        world_size = dist.get_world_size()
         rank = dist.get_rank()
         device = rank % torch.cuda.device_count()
         torch.cuda.set_device(device)
@@ -126,15 +147,16 @@ class TrainCommand(AbstractCommand):
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, DEV))
 
+        print(f'Running on {torch.cuda.device_count()} gpus')
         print('Initializing datasets...')
         train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
-        train_sampler = DS(train_dataset, drop_last=True)
+        train_sampler = DS(train_dataset, drop_last=True, num_replicas=world_size, rank=rank)
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=train_sampler)
 
         dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                              geometry_folder=geometry, testing_with_short_dataset=short)
-        dev_sampler = DS(dev_dataset, shuffle=False, drop_last=True)
+        dev_sampler = DS(dev_dataset, shuffle=False, drop_last=True, rank=rank)
         dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=dev_sampler)
         
         # Choose the correct evaluator
@@ -157,10 +179,15 @@ class TrainCommand(AbstractCommand):
                                dropout_prob=dropout_prob,
                                root_history_len=root_history_len,
                                output_data_format=output_data_format,
-                               device=rank)
+                               device=rank).to(device)
+        
+        if use_diffusion:
+            print('Initializing diffusion...')
+            diffusion = self.get_gaussian_diffusion(args)
+
 
         # Wrap model in DDP class
-        ddp_model = DDP(model.to(device), device_ids=[device], find_unused_parameters=True)
+        ddp_model = DDP(model, device_ids=[device], find_unused_parameters=True)
 
         params_to_optimize = filter(lambda p: p.requires_grad, model.parameters())
         if not list(params_to_optimize):
@@ -199,17 +226,10 @@ class TrainCommand(AbstractCommand):
                     batch_trial_indices: List[int]
                     inputs, labels, batch_subject_indices, batch_trial_indices = batch
 
-                    # Move data to GPU
-                    for key, val in inputs.items():
-                        inputs[key] = inputs[key].to(device)
-                    for key, val in labels.items():
-                        labels[key] = labels[key].to(device)
                     outputs = ddp_model(inputs)
-
 
                     # Ensure logging is only done on rank 0 process and calculation
                     # is synchronized
-                    dist.barrier()
                     dev_loss_evaluator(inputs,
                                         outputs,
                                         labels,
@@ -232,11 +252,6 @@ class TrainCommand(AbstractCommand):
                 batch_subject_indices: List[int]
                 batch_trial_indices: List[int]
                 inputs, labels, batch_subject_indices, batch_trial_indices = batch
-                # Move data to GPU
-                for key, val in inputs.items():
-                    inputs[key] = inputs[key].to(device)
-                for key, val in labels.items():
-                    labels[key] = labels[key].to(device)
 
                 # Clear the gradients
                 optimizer.zero_grad()
@@ -255,10 +270,10 @@ class TrainCommand(AbstractCommand):
                                             compute_report,
                                             log_reports_to_wandb=log_to_wandb)
                 if (i + 1) % 100 == 0 or i == len(train_dataloader) - 1:
-                    logging.info('  - Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
+                    logging.info(f'  - [{rank=}]Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
 
                 if (i + 1) % 1000 == 0 or i == len(train_dataloader) - 1:
-                    logging.info(f'Epoch {epoch} batch {i} Training Set Evaluation:')
+                    logging.info(f'[{rank=}]batch {i} Training Set Evaluation:')
                     train_loss_evaluator.print_report(args, reset=False)
 
                     if rank == 0:
