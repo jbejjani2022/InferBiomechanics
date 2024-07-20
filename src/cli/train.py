@@ -77,7 +77,7 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument("--diffusion_steps", default=1000, type=int,
                        help="Number of diffusion steps (denoted T in the paper)")
         subparser.add_argument("--sigma_small", default=True, type=bool, help="Use smaller sigma values.")
-        subparser.add_argument('--schedule-smapler', default='uniform',
+        subparser.add_argument('--schedule-sampler', default='uniform',
                                choices=['uniform','loss-second-moment'], help='Diffusion timestep sampler')
         subparser.add_argument("--lambda_rcxyz", default=0.0, type=float, help="Joint positions loss.")
         subparser.add_argument("--lambda_vel", default=0.0, type=float, help="Joint velocity loss.")
