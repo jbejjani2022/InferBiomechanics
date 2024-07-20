@@ -283,7 +283,7 @@ class TrainCommand(AbstractCommand):
                 # Assert that the number of unique batches equals the number of gathered batches
                 # i.e. assert that no batch across all processes has been 'seen' more than once
                 assert len(set(accumulated_batches)) == len(accumulated_batches), f'Redundant batch training detected across processes, in batch {i+1}/{len(train_dataloader)} at rank {rank}. Current batch_subject_indices: {batch_subject_indices}'
-                print(f'Rank {rank}, batch {i + 1}: All batches so far are unique.')
+                print(f'Rank {rank}, batch {i + 1}: {batch_subject_indices}\n All batches so far are unique.')
 
                 # Clear the gradients
                 optimizer.zero_grad()
