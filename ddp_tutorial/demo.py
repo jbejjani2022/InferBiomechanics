@@ -8,7 +8,7 @@ import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from utils import setup, cleanup
-from toy_model import ToyModel
+from ddp_tutorial.verbose_elastic_test.toy_model import ToyModel
 
 
 def demo_basic(rank, world_size):
