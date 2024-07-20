@@ -258,7 +258,7 @@ class TrainCommand(AbstractCommand):
                 if rank == 0: 
                     print('Dev Set Evaluation:')
                     dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb)
-                    print(f'SUMMARY OF BATCHES SEEN DURING DEV EVALUATION:\n Num batches = {len(accumulated_batches)}\n All batch subject indices:\n {batch_subject_indices}')
+                    print(f'SUMMARY OF BATCHES SEEN DURING DEV EVALUATION:\n Num batches = {len(accumulated_batches)}. \n Num unique batches = {len(set(accumulated_batches))}. \n All batch subject indices:\n {batch_subject_indices}')
             dist.barrier()
             if rank == 0: print(f'Running Train Epoch {epoch}')        
             ddp_model.train()  # Turn dropout back on
@@ -309,7 +309,7 @@ class TrainCommand(AbstractCommand):
                     train_loss_evaluator.print_report(args, reset=False)
 
                     if rank == 0:
-                        print(f'SUMMARY OF BATCHES SEEN DURING {epoch=} TRAINING:\n Num batches = {len(accumulated_batches)}\n All batch subject indices:\n {batch_subject_indices}')
+                        print(f'SUMMARY OF BATCHES SEEN DURING {epoch=} TRAINING:\n Num batches = {len(accumulated_batches)}. Num unique batches = {len(set(accumulated_batches))}\n All batch subject indices:\n {batch_subject_indices}')
                         model_path = f"{checkpoint_dir}/epoch_{epoch}_batch_{i}.pt"
                         if not os.path.exists(os.path.dirname(model_path)):
                             os.makedirs(os.path.dirname(model_path)) 
