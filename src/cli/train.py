@@ -134,7 +134,7 @@ class TrainCommand(AbstractCommand):
             logging.info('Initializing wandb...')
             wandb.init(
                 # set the wandb project where this run will be logged
-                project="MotionGeneration",
+                project="addbiomechanics-baseline",
 
                 # track hyperparameters and run metadata
                 config=config
@@ -327,7 +327,10 @@ class TrainCommand(AbstractCommand):
 
             # Report training loss on this epoch
             if rank == 0:
-                logging.info(f'Epoch {epoch} / {epochs} Training Set Evaluation: ')
+                logging.info(f"{epoch=} / {epochs}")
+                logging.info('-' * 80)
+                logging.info(f'Epoch {epoch} Training Set Evaluation: ')
+                logging.info('-' * 80)
                 train_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
 
 
