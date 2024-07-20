@@ -100,11 +100,9 @@ class TrainCommand(AbstractCommand):
 
         # Initialize multiprocessing
         dist.init_process_group(backend="nccl", timeout=timedelta(hours=1))
-        world_size = int(os.environ["WORLD_SIZE"])  
+        world_size = dist.get_world_size()  
         rank = dist.get_rank()
-        local_rank = int(os.environ["LOCAL_RANK"])
-        device = local_rank % torch.cuda.device_count()
-        batch_size = batch_size // world_size                                   # ESSENTIAL: ensure that batch size is evenly split along parallel processes
+        device = rank % torch.cuda.device_count()
         torch.cuda.set_device(device)
 
 
