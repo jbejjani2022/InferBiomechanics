@@ -167,7 +167,7 @@ class TrainCommand(AbstractCommand):
                                device=device).to(device)
         
         # Wrap model in DDP class
-        model = DDP(model, device_ids=[device], output_device=device, find_unused_parameters=True)
+        model = DDP(model, device_ids=[device], output_device=device)
 
         params_to_optimize = filter(lambda p: p.requires_grad, model.parameters())
         if not any(params_to_optimize):
