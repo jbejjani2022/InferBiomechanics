@@ -16,14 +16,24 @@ dict1 = {'a' : torch.tensor([[1, 2, 3],[7, 8, 9]]),
 dict2 = {'a' : torch.tensor([[1, 2, 3],[7, 8, 9]]),
          'b' : torch.tensor([[4, 5, 6],[10, 11, 12]])}
 
+dict3 = {'a' : torch.tensor([ [ [1, 2], [3, 4] ], [ [5, 6], [7, 8] ]]),
+         'b' : torch.tensor([ [ [1, 2], [3, 4] ], [ [5, 6], [7, 8] ]]),
+         'c' : torch.tensor([ [ [1, 2], [3, 4] ], [ [5, 6], [7, 8] ]])}
+dict4 = {'b' : torch.tensor([ [ [1, 2], [3, 4] ], [ [5, 6], [7, 8] ]]),
+         'c' : torch.tensor([ [ [1, 2], [3, 4] ], [ [5, 6], [7, 8] ]]),
+         'a' : torch.tensor([ [ [1, 2], [3, 4] ], [ [5, 6], [7, 8] ]])}
+
 def stacked_tensor_to_tuple(t):
     return tuple(tuple(l) for l in t.tolist())
 
 def convert_dict_to_hashable(d):
-    return frozenset((k, stacked_tensor_to_tuple(v)) for k, v in d.items())
+    def get_hashable_val(v):
+        return tuple(stacked_tensor_to_tuple(i) for i in v)
+
+    return frozenset((k, get_hashable_val(v)) for k, v in d.items())
 
 all_inputs = []
-gathered = [convert_dict_to_hashable(d) for d in [dict1, dict2]]
+gathered = [convert_dict_to_hashable(d) for d in [dict3, dict4]]
 all_inputs.extend(gathered)
 print(f'all inputs: {all_inputs}')
 print(f'set of inputs: {set(all_inputs)}')

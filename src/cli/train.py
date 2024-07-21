@@ -125,7 +125,6 @@ class TrainCommand(AbstractCommand):
         device = rank % torch.cuda.device_count()
         torch.cuda.set_device(device)
 
-
         if log_to_wandb and rank == 0:
             # Grab all cmd args and add current git hash
             config = args.__dict__
@@ -147,16 +146,16 @@ class TrainCommand(AbstractCommand):
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, DEV))
 
-        print(f'Running on {torch.cuda.device_count()} gpus')
+        print(f'Running on {torch.cuda.device_count()} GPUs on current machine. World size = {world_size}.')
         print('Initializing datasets...')
         train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
-        train_sampler = DS(train_dataset, drop_last=True, num_replicas=world_size, rank=rank)
+        train_sampler = DS(train_dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=True)
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=train_sampler)
 
         dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                              geometry_folder=geometry, testing_with_short_dataset=short)
-        dev_sampler = DS(dev_dataset, shuffle=False, drop_last=True, rank=rank)
+        dev_sampler = DS(dev_dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=True)
         dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=dev_sampler)
         
         # Choose the correct evaluator
@@ -219,7 +218,11 @@ class TrainCommand(AbstractCommand):
 
         # Helper for converting a dict with stacked tensors as values into a hashable type
         def convert_dict_to_hashable(d):
-            return frozenset((k, stacked_tensor_to_tuple(v)) for k, v in d.items())
+            # input d is a Dict[str, torch.Tensor]
+            # each val in the dict is a tensor that's a list of matrices
+            def get_hashable_val(v):
+                return tuple(stacked_tensor_to_tuple(i) for i in v)
+            return frozenset((k, get_hashable_val(v)) for k, v in d.items())
 
         for epoch in range(epochs):
             train_sampler.set_epoch(epoch)
@@ -238,6 +241,7 @@ class TrainCommand(AbstractCommand):
                     # Temporary list to gather batch subject indices from all processes
                     gathered_inputs = [None for _ in range(world_size)]
                     
+                    # print(f"Unmodified inputs dict: {inputs}")
                     # Gather inputs from current process and synchronize into gathered object list
                     hashable_input = convert_dict_to_hashable(inputs)
                     dist.all_gather_object(gathered_inputs, hashable_input)
@@ -265,7 +269,7 @@ class TrainCommand(AbstractCommand):
                 if rank == 0: 
                     print('Dev Set Evaluation:')
                     dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb)
-                    print(f'SUMMARY OF BATCHES SEEN DURING {epoch=} DEV EVALUATION:\n Num batches = {len(accumulated_batches)}. Num unique batches = {len(set(accumulated_batches))}.\n\n All batch inputs:\n {accumulated_batches}')
+                    print(f'SUMMARY OF BATCHES SEEN DURING {epoch=} DEV EVALUATION:\n Num batches = {len(accumulated_batches)}. Num unique batches = {len(set(accumulated_batches))}.')
             dist.barrier()
             if rank == 0: print(f'Running Train Epoch {epoch}')        
             ddp_model.train()  # Turn dropout back on
@@ -282,6 +286,7 @@ class TrainCommand(AbstractCommand):
                 # Temporary list to gather batch subject indices from all processes
                 gathered_inputs = [None for _ in range(world_size)]
                 
+                # print(f"Unmodified inputs dict: {inputs}")
                 # Gather inputs from current process and synchronize into gathered object list
                 hashable_input = convert_dict_to_hashable(inputs)
                 dist.all_gather_object(gathered_inputs, hashable_input)
@@ -316,7 +321,7 @@ class TrainCommand(AbstractCommand):
                     train_loss_evaluator.print_report(args, reset=False)
 
                     if rank == 0:
-                        print(f'SUMMARY OF BATCHES SEEN DURING {epoch=} TRAINING:\n Num batches = {len(accumulated_batches)}. Num unique batches = {len(set(accumulated_batches))}\n All batch inputs:\n {accumulated_batches}')
+                        print(f'SUMMARY OF BATCHES SEEN DURING {epoch=} TRAINING:\n Num batches = {len(accumulated_batches)}. Num unique batches = {len(set(accumulated_batches))}')
                         model_path = f"{checkpoint_dir}/epoch_{epoch}_batch_{i}.pt"
                         if not os.path.exists(os.path.dirname(model_path)):
                             os.makedirs(os.path.dirname(model_path)) 
