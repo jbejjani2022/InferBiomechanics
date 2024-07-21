@@ -249,8 +249,8 @@ class TrainCommand(AbstractCommand):
                     
                     # Assert that the number of unique batches equals the number of gathered batches
                     # i.e. assert that no batch across all processes has been 'seen' more than once
-                    assert len(set(accumulated_batches)) == len(accumulated_batches), f'Redundant batch evaluation detected across processes, in batch {i+1}/{len(dev_dataloader)} at rank {rank}. Input for this batch: {hashable_input}'
-                    print(f'Rank {rank}, batch {i + 1} inputs: {hashable_input}\n All batches so far are unique.')
+                    assert len(set(accumulated_batches)) == len(accumulated_batches), f'Redundant batch evaluation detected across processes, in batch {i+1}/{len(dev_dataloader)} at rank {rank}. Input for this batch: {hashable_input}\n'
+                    print(f'Rank {rank}, batch {i + 1} inputs: {hashable_input}\n All batches so far are unique.\n')
 
                     outputs = ddp_model(inputs)
 
@@ -294,8 +294,8 @@ class TrainCommand(AbstractCommand):
                 
                 # Assert that the number of unique batches equals the number of gathered batches
                 # i.e. assert that no batch across all processes has been 'seen' more than once
-                assert len(set(accumulated_batches)) == len(accumulated_batches), f'Redundant batch training detected across processes, in batch {i+1}/{len(train_dataloader)} at rank {rank}. Input for this batch: {hashable_input}'
-                print(f'Rank {rank}, batch {i + 1} inputs: {hashable_input}\n All batches so far are unique.')
+                assert len(set(accumulated_batches)) == len(accumulated_batches), f'Redundant batch training detected across processes, in batch {i+1}/{len(train_dataloader)} at rank {rank}. Input for this batch: {hashable_input}\n'
+                print(f'Rank {rank}, batch {i + 1} inputs: {hashable_input}\n All batches so far are unique.\n')
 
                 # Clear the gradients
                 optimizer.zero_grad()
