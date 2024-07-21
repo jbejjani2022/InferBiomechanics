@@ -143,8 +143,8 @@ class TrainCommand(AbstractCommand):
         dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=dev_sampler)
         
         # Get loss evaluators
-        train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train')
-        dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV)
+        train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train', device=device)
+        dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV, device=device)
         
         # Create an instance of the model
         print(f"[{rank=}] Initializing model...")
