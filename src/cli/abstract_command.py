@@ -150,10 +150,10 @@ class AbstractCommand:
 
         logging.info(f"{latest_checkpoint=}")
         # Load the checkpoint
-        checkpoint = torch.load(latest_checkpoint)
+        checkpoint = torch.load(latest_checkpoint, map_location=map_location)
 
         # Load the model and optimizer states
-        model.load_state_dict(checkpoint['model_state_dict'], map_location=map_location)
+        model.load_state_dict(checkpoint['model_state_dict'])
         if optimizer is not None:
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 

@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --time=2-00:00
-#SBATCH --mem=200G
+#SBATCH --time=0-01:00
+#SBATCH --mem=100G
 #SBATCH -p gpu
 #SBATCH --gres=gpu:4
 #SBATCH -o output/jobid_%j.out
