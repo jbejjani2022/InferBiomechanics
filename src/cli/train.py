@@ -55,7 +55,7 @@ class TrainCommand(AbstractCommand):
                                help='The batch size to use when training the model.')
         subparser.add_argument('--short', action='store_true',
                                help='Use very short datasets to test without loading a bunch of data.')
-        subparser.add_argument('--data-loading-workers', type=int, default=2,  # set num_workers to 0 for distributed training
+        subparser.add_argument('--data-loading-workers', type=int, default=3,
                                help='Number of separate processes to spawn to load data in parallel.')
         subparser.add_argument('--predict-grf-components', type=int, nargs='+', default=[i for i in range(6)],
                                help='Which grf components to train.')
@@ -80,7 +80,6 @@ class TrainCommand(AbstractCommand):
         hidden_dims: List[int] = args.hidden_dims
         learning_rate: float = args.learning_rate
         epochs: int = args.epochs
-        world_size : int = torch.cuda.device_count()
         batch_size: int = args.batch_size  # size of batch for any given process
         short: bool = args.short
         dataset_home: str = args.dataset_home
@@ -96,20 +95,18 @@ class TrainCommand(AbstractCommand):
         
         # Initialize multiprocessing on GPU
         dist.init_process_group(backend="nccl", timeout=timedelta(hours=1))
+        world_size = dist.get_world_size()
         rank = dist.get_rank()  # rank is GPU index
-        device = rank % world_size
+        device = rank % torch.cuda.device_count()
         torch.cuda.set_device(device)
         
-        print(f"Running on {world_size} GPUs.")
-        print(f"Current device being used for model training and loss evaluation: {device}.")
+        print(f'Running on {torch.cuda.device_count()} GPUs on current machine. World size = {world_size}.')
 
         has_uncommitted = has_uncommitted_changes()
         if has_uncommitted:
             logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             logging.error(
-                "ERROR: UNCOMMITTED CHANGES IN REPO! THIS WILL MAKE IT HARD TO REPLICATE THIS EXPERIMENT LATER")
-            logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                "WARNING: UNCOMMITTED CHANGES IN REPO! THIS WILL MAKE IT HARD TO REPLICATE THIS EXPERIMENT LATER")
             logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
         if log_to_wandb and rank == 0:
@@ -132,27 +129,25 @@ class TrainCommand(AbstractCommand):
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, DEV))
 
         # Get dataloaders for train and test sets
-        print("Initializing training set...")
+        print(f"[{rank=}] Initializing training set...")
         data_device = device     # device where data will be loaded
         train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(data_device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
         train_sampler = DS(train_dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=True)
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=train_sampler)
 
-        print("Initializing dev set...")
+        print(f"[{rank=}] Initializing dev set...")
         dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(data_device), stride=stride, output_data_format=output_data_format,
                                              geometry_folder=geometry, testing_with_short_dataset=short)
         dev_sampler = DS(dev_dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=True)
         dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=dev_sampler)
-
-        mp.set_start_method('spawn')  # 'spawn' or 'fork' or 'forkserver'
         
         # Get loss evaluators
         train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train')
         dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV)
         
         # Create an instance of the model
-        print("Initializing model...")
+        print(f"[{rank=}] Initializing model...")
         model = self.get_model(train_dataset.num_dofs,
                                train_dataset.num_joints,
                                model_type,
@@ -205,13 +200,9 @@ class TrainCommand(AbstractCommand):
                     labels: Dict[str, torch.Tensor]
                     batch_subject_indices: List[int]
                     batch_trial_indices: List[int]
-                    data_time = time.time()
+
                     inputs, labels, batch_subject_indices, batch_trial_indices = batch
-                    data_time = time.time() - data_time
-                    forward_time = time.time()
                     outputs = model(inputs)
-                    forward_time = time.time() - forward_time
-                    loss_time = time.time()
                     
                     dev_loss_evaluator(inputs,
                                         outputs,
@@ -220,10 +211,9 @@ class TrainCommand(AbstractCommand):
                                         batch_trial_indices,
                                         args,
                                         compute_report=True)
-                    loss_time = time.time() - loss_time
-                    # logging.info(f"{data_time=}, {forward_time=}, {loss_time}")
+
                     if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
-                        print('  - Dev Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
+                        print(f'  - [{rank=}] Dev Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
             
                 # Report dev loss on this epoch, ensuring that
                 # logging is only done on rank 0 process
@@ -232,8 +222,7 @@ class TrainCommand(AbstractCommand):
                     dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb)
             dist.barrier()
             
-            if rank == 0:
-                print('Running Training Epoch ' + str(epoch))
+            if rank == 0: print(f'Running Training Epoch {epoch}')
             model.train()  # Turn dropout back on
            
             # Iterate over training set
@@ -286,11 +275,11 @@ class TrainCommand(AbstractCommand):
             
             if rank == 0:
                 # Report training loss on this epoch
-                logging.info(f"{epoch=} / {epochs}")
-                logging.info('-' * os.get_terminal_size().columns)
-                logging.info(f'Epoch {epoch} Training Set Evaluation: ')
-                logging.info('-' * os.get_terminal_size().columns)
+                logging.info('-' * 80)
+                logging.info(f'Epoch {epoch}/{epochs} Training Set Evaluation: ')
+                logging.info('-' * 80)
                 train_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
+                logging.info('-' * 80)
             
         # Destroy processes
         dist.destroy_process_group()
@@ -303,9 +292,7 @@ class TrainCommand(AbstractCommand):
 
 # python3 main.py train --model feedforward --checkpoint-dir "../checkpoints3/checkpoint-gait-ly-only" --hidden-dims 32 32 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --epochs 300 --short
 
-
 # Increased batch size to speed up training. Added multiprocessing. Switched from adagrad to adam. Increased hidden layer dim from 32 to 512.
-
 # export MASTER_ADDR=$(scontrol show hostname ${SLURM_NODELIST} | head -n 1)
 # export NCCL_DEBUG=INFO
 # torchrun --nnodes=1 --nproc_per_node=4 --rdzv_id=100 --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR:29400 main.py train --model feedforward --checkpoint-dir "../short-feedforward-batchsize-128/checkpoint-gait-ly-only" --hidden-dims 512 512 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adam --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --epochs 300 --short --batch-size 128

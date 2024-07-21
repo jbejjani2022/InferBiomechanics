@@ -9,4 +9,4 @@ __pycache__
 .idea/
 figures
 old_checkpoints/
-slurm-feedforward/
+slurm/
