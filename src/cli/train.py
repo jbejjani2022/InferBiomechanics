@@ -147,8 +147,8 @@ class TrainCommand(AbstractCommand):
         mp.set_start_method('spawn')  # 'spawn' or 'fork' or 'forkserver'
         
         # Get loss evaluators
-        train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train')
-        dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV)
+        train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train', device=device)
+        dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV, device=device)
         
         # Create an instance of the model
         print("Initializing model...")
