@@ -3,6 +3,7 @@ import torch
 from torch.utils.data import Dataset
 from typing import List, Dict, Tuple
 import os
+from collections import defaultdict
 
 
 class InputDataKeys:
@@ -133,6 +134,23 @@ class AddBiomechanicsDataset(Dataset):
                     if not any(probably_missing[window_start:window_start + self.window_size:self.stride]):
                         assert window_start + self.window_size < trial_length
                         self.windows.append((i, trial_index, window_start))
+                        
+    def inspect_dof_indices(self):
+        index_to_dof = defaultdict(list)
+        num_skeletons = len(self.skeletons)
+        for i, skeleton in enumerate(self.skeletons):
+            print(f'Skeleton {i + 1}/{num_skeletons} joints:')
+            num_dofs = skeleton.getNumDofs()
+            for j in range(num_dofs):
+                dof_name = skeleton.getDofByIndex(j).getName()
+                print(f'  - Dof Index {j}/{num_dofs - 1}: {dof_name}')
+                index_to_dof[j].append(dof_name)
+        print('-' * 80)
+        assert len(index_to_dof) == 23, f'{len(index_to_dof)} unique dof indices found, expected 23'
+        for key, val in index_to_dof.items():
+            assert len(index_to_dof[key]) == num_skeletons, f'{len(index_to_dof[key])} entries found at dof index {key}, expected {num_skeletons}'
+            print(f' - Set of names at dof index {key}: {set(index_to_dof[key])}')
+            assert len(set(index_to_dof[key])) == 1, f'{len(set(index_to_dof[key]))} distinct dof names found at dof index {key}, expected 1'
 
     def __len__(self):
         return len(self.windows)
