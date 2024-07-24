@@ -12,4 +12,4 @@
 module load python/3.10.13-fasrc01
 source activate paper_reimplementation_env
 cd ../src
-python main.py train --model mdm --checkpoint-dir "../checkpoints/dffGsrV0" --opt-type adam --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --data-loading-workers 1 --dropout --dropout-prob 0.1 --epochs 300
+python main.py train --model mdm --checkpoint-dir "../checkpoints/diffusion_test" --opt-type adam --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --data-loading-workers 1 --dropout --dropout-prob 0.3 --epochs 5 --short --diffusion

@@ -15,5 +15,5 @@ cd ../src
 master_addr=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 export MASTER_ADDR=$master_addr-ib
 
-torchrun --standalone --nproc_per_node=4 main.py train --model mdm --checkpoint-dir "../checkpoints/dffGsrV0/multinode_test" --opt-type adam --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --data-loading-workers 4 --dropout --dropout-prob 0.1 --epochs 10 --batch-size 128 --learning-rate 8e-4 --short
+torchrun --standalone --nproc_per_node=4 main.py train --model mdm --checkpoint-dir "../checkpoints/dffGsrV0/diffusion_test" --opt-type adam --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --data-loading-workers 4 --dropout --dropout-prob 0.3 --epochs 10 --batch-size 128 --learning-rate 1e-4 --use-diffusion
 
