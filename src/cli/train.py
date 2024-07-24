@@ -15,6 +15,10 @@ import time
 import wandb
 import numpy as np
 import logging 
+import functools
+from diffusion.resample import LossAwareSampler, create_named_schedule_sampler
+from diffusion import gaussian_diffusion as gd
+from diffusion.respace import SpacedDiffusion, space_timesteps
 
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler as DS
@@ -79,9 +83,10 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument("--sigma_small", default=True, type=bool, help="Use smaller sigma values.")
         subparser.add_argument('--schedule-sampler', default='uniform',
                                choices=['uniform','loss-second-moment'], help='Diffusion timestep sampler')
-        subparser.add_argument("--lambda_rcxyz", default=0.0, type=float, help="Joint positions loss.")
-        subparser.add_argument("--lambda_vel", default=0.0, type=float, help="Joint velocity loss.")
-        subparser.add_argument("--lambda_fc", default=0.0, type=float, help="Foot contact loss.")
+        subparser.add_argument("--lambda_pos", default=1.0, type=float, help="Joint positions loss.")
+        subparser.add_argument("--lambda_vel", default=1.0, type=float, help="Joint velocity loss.")
+        subparser.add_argument("--lambda_acc", default=1.0, type=float, help="Joint acceleration loss")
+        subparser.add_argument("--lambda_fc", default=1.0, type=float, help="Foot contact loss.")
 
 
     def run(self, args: argparse.Namespace):
@@ -110,13 +115,15 @@ class TrainCommand(AbstractCommand):
         geometry = self.ensure_geometry(args.geometry_folder)
 
         use_diffusion = args.use_diffusion
-        noise_schedule = args.noise_schedule
-        diffusion_steps = args.diffusion_steps
-        sigma_small = args.sigma_small
-        schedule_sampler = args.schedule_sampler
-        lambda_rcxyz = args.lambda_rcxyz
-        lambda_vel = args.lambda_vel
-        lambda_fc = args.lambda_fc
+        self.noise_schedule = args.noise_schedule
+        self.diffusion_steps = args.diffusion_steps
+        self.sigma_small = args.sigma_small
+        self.lambda_pos = args.lambda_pos
+        self.lambda_vel = args.lambda_vel
+        self.lambda_fc = args.lambda_fc
+        self.lambda_acc = args.lambda_acc
+        self.batch_size = batch_size
+
 
         # Initialize multiprocessing
         dist.init_process_group(backend="nccl", timeout=timedelta(hours=1))
@@ -134,7 +141,7 @@ class TrainCommand(AbstractCommand):
             logging.info('Initializing wandb...')
             wandb.init(
                 # set the wandb project where this run will be logged
-                project="addbiomechanics-baseline",
+                project="motion-diffusion",
 
                 # track hyperparameters and run metadata
                 config=config
@@ -152,12 +159,12 @@ class TrainCommand(AbstractCommand):
         train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
         train_sampler = DS(train_dataset, drop_last=True, num_replicas=world_size, rank=rank)
-        train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=train_sampler)
+        train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=train_sampler, drop_last=True)
 
         dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                              geometry_folder=geometry, testing_with_short_dataset=short)
         dev_sampler = DS(dev_dataset, shuffle=False, drop_last=True, rank=rank)
-        dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=dev_sampler)
+        dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=dev_sampler, drop_last=True)
         
         # Choose the correct evaluator
         LossEvaluator = MotionLoss if model_type == 'mdm' else RegressionLossEvaluator
@@ -181,13 +188,18 @@ class TrainCommand(AbstractCommand):
                                output_data_format=output_data_format,
                                device=rank).to(device)
         
-        if use_diffusion:
-            print('Initializing diffusion...')
-            diffusion = self.get_gaussian_diffusion(args)
-
-
         # Wrap model in DDP class
         ddp_model = DDP(model, device_ids=[device], find_unused_parameters=True)
+
+        if use_diffusion:
+            print('Initializing diffusion...')
+            self.diffusion = self.get_gaussian_diffusion(args)
+            self.schedule_sampler  = create_named_schedule_sampler(args.schedule_sampler, self.diffusion)
+            self.device = device
+            self.ddp_model = ddp_model
+            self.rank = rank
+            self.log_to_wandb = log_to_wandb
+            self.train_data_len, self.dev_data_len = len(train_dataloader), len(dev_dataloader)
 
         params_to_optimize = filter(lambda p: p.requires_grad, model.parameters())
         if not list(params_to_optimize):
@@ -215,8 +227,65 @@ class TrainCommand(AbstractCommand):
 
 
         for epoch in range(epochs):
-            train_sampler.set_epoch(epoch)
+            print('-' * 80)
             print(f'\nEvaluating Dev Set before epoch {epoch}')
+            print('-' * 80)
+            train_sampler.set_epoch(epoch)
+            """
+            Diffusion Loop
+            """
+            if use_diffusion:
+                with torch.no_grad():
+                    ddp_model.eval()
+                    for i, batch in enumerate(dev_dataloader):
+                        inputs: Dict[str, torch.Tensor]
+                        labels: Dict[str, torch.Tensor]
+                        batch_subject_indices: List[int]
+                        batch_trial_indices: List[int]
+                        inputs, labels, batch_subject_indices, batch_trial_indices = batch
+
+                        # Run the forward and backward process
+                        self.diffusion_process(inputs, 'dev', i)
+                        if (i + 1) % 100 == 0 or i == len(train_dataloader) - 1:
+                            logging.info(f'  - [{rank=}] Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
+                            
+                dist.barrier()
+                ddp_model.train()
+                if rank == 0: 
+                    print('-' * 80)
+                    print(f'Running Train Epoch {epoch}')    
+                    print('-' * 80)   
+                for i, batch in enumerate(train_dataloader):
+                    optimizer.zero_grad()
+
+                    inputs: Dict[str, torch.Tensor]
+                    labels: Dict[str, torch.Tensor]
+                    batch_subject_indices: List[int]
+                    batch_trial_indices: List[int]
+                    inputs, labels, batch_subject_indices, batch_trial_indices = batch
+
+                    # Run the forward and backward process
+                    self.diffusion_process(inputs, 'train', i)
+                    if (i + 1) % 100 == 0 or i == len(train_dataloader) - 1:
+                        logging.info(f'  - [{rank=}] Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
+
+                    optimizer.step()
+
+                    if (i + 1) % 1000 == 0 or i == len(train_dataloader) - 1 and rank == 0:
+                        model_path = f"{checkpoint_dir}/epoch_{epoch}_batch_{i}.pt"
+                        if not os.path.exists(os.path.dirname(model_path)):
+                            os.makedirs(os.path.dirname(model_path)) 
+                        torch.save({
+                                    'epoch': epoch,
+                                    'model_state_dict': ddp_model.state_dict(),
+                                    'optimizer_state_dict': optimizer.state_dict()
+                                    }, model_path)
+                continue
+            
+
+            """
+            Normal Loop
+            """
             with torch.no_grad():
                 ddp_model.eval()  # Turn dropout off
                 for i, batch in enumerate(dev_dataloader):
@@ -297,13 +366,95 @@ class TrainCommand(AbstractCommand):
                 logging.info(f"{epoch=} / {epochs}")
                 logging.info('-' * 80)
                 logging.info(f'Epoch {epoch} Training Set Evaluation: ')
-                logging.info('-' * 80)
                 train_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
+                logging.info('-' * 80)
+                
 
 
         # Destroy processes
         dist.destroy_process_group()
         return True
+    
+    def diffusion_process(self, batch, split, iteration):
+        data_len = self.train_data_len if split == 'train' else self.dev_data_len
+        for i in range(0, self.batch_size):
+            t, weights = self.schedule_sampler.sample(self.batch_size, self.device)
+            compute_losses = functools.partial(
+                self.diffusion.training_losses,
+                self.ddp_model,
+                batch,  # [bs, ch, image_size, image_size]
+                t,
+                self.device  # [bs](int) sampled timesteps
+            )
+            with self.ddp_model.no_sync():
+                losses = compute_losses()
+            if isinstance(self.schedule_sampler, LossAwareSampler):
+                self.schedule_sampler.update_with_local_losses(
+                    t, losses["loss"].detach()
+                )
+
+            loss = (losses["loss"] * weights.to(self.device)).mean()
+            self.log_loss_dict(
+                self.diffusion, t, {k: v * weights for k, v in losses.items()}, split, iteration, self.log_to_wandb
+            )
+            if (iteration + 1) % 1000 == 0 or iteration == data_len - 1:
+                    logging.info(f'[{self.rank=}] Batch {iteration} {split} Set Evaluation:')
+                    for key, values in losses.items():
+                        logging.info(f' - {key} mean error: {values.mean().item()}')
+            loss.backward()
+
+    def log_loss_dict(self, diffusion, ts, losses, split, log_to_wandb=False):
+        if not log_to_wandb: pass
+        report = {}
+        quartile_report = {}
+        for key, values in losses.items():
+            report[f'{split}/reports/{key}'] = values.mean().item()
+            wandb.log(report)
+        # Log the quantiles (four quartiles, in particular).
+        for sub_t, sub_loss in zip(ts.cpu().numpy(), values.detach().cpu().numpy()):
+            quartile = int(4 * sub_t / diffusion.num_timesteps)
+            quartile_report[f'{split}/reports/{key}/q{quartile}'] = sub_loss
+            wandb.log(quartile_report)
+
+    def get_gaussian_diffusion(self, args):
+    # default params
+        predict_xstart = True  # we always predict x_start (a.k.a. x0), that's our deal!
+        steps = self.diffusion_steps
+        scale_beta = 1.  # no scaling
+        timestep_respacing = ''  # can be used for ddim sampling, we don't use it.
+        learn_sigma = False
+        rescale_timesteps = False
+
+        betas = gd.get_named_beta_schedule(self.noise_schedule, steps, scale_beta)
+        loss_type = gd.LossType.MSE
+
+        if not timestep_respacing:
+            timestep_respacing = [steps]
+
+        return SpacedDiffusion(
+            use_timesteps=space_timesteps(steps, timestep_respacing),
+            betas=betas,
+            model_mean_type=(
+                gd.ModelMeanType.EPSILON if not predict_xstart else gd.ModelMeanType.START_X
+            ),
+            model_var_type=(
+                (
+                    gd.ModelVarType.FIXED_LARGE
+                    if not self.sigma_small
+                    else gd.ModelVarType.FIXED_SMALL
+                )
+                if not learn_sigma
+                else gd.ModelVarType.LEARNED_RANGE
+            ),
+            loss_type=loss_type,
+            rescale_timesteps=rescale_timesteps,
+            lambda_vel=self.lambda_vel,
+            lambda_pos=self.lambda_pos,
+            lambda_acc=self.lambda_acc,
+            lambda_fc=self.lambda_fc,
+        )
+
+
 
 # python main.py train --model mdm --checkpoint-dir "../checkpoints/init_mdm_test" --opt-type adagrad -- dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --short
 
