@@ -20,21 +20,17 @@ class MDM(nn.Module):
 
         # Compute the size of the input vector to the model, which is the concatenation
         # of input keys
-        self.timestep_vector_dim = (dofs * 3) + (3 * 3) 
+        self.timestep_vector_dim = 2 + (dofs * 3) 
 
-        # Output vector is 2 foot-ground contact predictions, 9 COM predictions
-        # (acc, vel, pos) and 9 joint predictions (acc, vel, pos)
-
-        #Output vector is 2 contact labels, 3 3-component COM predictions, and 3 
-        # 23-component positional predictions
-        self.output_vector_dim = 2 + 3 * 3 + 3 * 23
+        # Output vector is 2 contact labels and three metrics per dof
+        self.output_vector_dim = 2 + (dofs * 3)
         self.window_size = window_size
         self.latent_dim = latent_dim
         self.num_output_frames = (history_len // stride)
 
 
         self.input_process = InputProcess(self.timestep_vector_dim, self.latent_dim)
-        self.positional_encoding  = PositionalEncoding(self.latent_dim, self.window_size)
+        self.positional_encoding  = PositionalEncoding(self.latent_dim)
         seqTransEncoderLayer = nn.TransformerEncoderLayer(d_model=self.latent_dim,
                                                           nhead=self.num_heads,
                                                           dim_feedforward=self.ff_size,
@@ -45,63 +41,47 @@ class MDM(nn.Module):
         self.embed_timestep = TimestepEmbedder(self.latent_dim, self.positional_encoding)
         self.temporal_embedding = TemporalEmbedding(
             window_size, latent_dim, dtype=dtype)
+        
     def parameters(self):
         return [p for name, p in self.named_parameters()]
 
-    def forward(self, x):
-        batch_size = x[InputDataKeys.POS].size(0)
-        timesteps = x[InputDataKeys.POS].size(1)
-
-        # This concatenates (q, dq, ddq, com_pos, com_vel, com_acc) into a single vector per timestep
-        input_vecs = torch.cat([
-            x[InputDataKeys.POS],
-            x[InputDataKeys.VEL],
-            x[InputDataKeys.ACC],
-            x[InputDataKeys.COM_POS],
-            x[InputDataKeys.COM_VEL],
-            x[InputDataKeys.COM_ACC]],
-            dim=-1).to(self.dtype)
-        x = self.input_process(input_vecs)
-        
-
+    def forward(self, x, timesteps):
+        x = self.input_process(x)
         emb = self.embed_timestep(timesteps)
-        xseq = torch.cat((x, emb), axis=0)
+        xseq = torch.cat((emb, x), axis=1)
         xseq = self.positional_encoding(xseq).to(self.dtype)
-        output = self.seqTransEncoder(xseq)[1:].to(self.device)
+        output = self.seqTransEncoder(xseq).to(self.device)
         output_decoder = nn.Linear(self.latent_dim, self.output_vector_dim, dtype=self.dtype, device=self.device)
-        output = output_decoder(output)
+        output = output_decoder(output)[:, 1:, :] #[bs, wlen+1, feats] -> [bs, wlen, feats]
 
 
         # Split output into different components
         output_dict: Dict[str, torch.Tensor] = {}
         
         output_dict[OutputDataKeys.CONTACT] = output[:, :, :2]
-        output_dict[OutputDataKeys.COM_ACC] = output[:, :, 2:5]
-        output_dict[OutputDataKeys.COM_VEL] = output[:, :, 5:8]
-        output_dict[OutputDataKeys.COM_POS] = output[:, :, 8:11]
-        output_dict[OutputDataKeys.ACC] = output[:, :, 11:34]
-        output_dict[OutputDataKeys.VEL] = output[:, :, 34:57]
-        output_dict[OutputDataKeys.POS] = output[:, :, 57:]
+        output_dict[OutputDataKeys.ACC] = output[:, :, 2:25]
+        output_dict[OutputDataKeys.VEL] = output[:, :, 25:48]
+        output_dict[OutputDataKeys.POS] = output[:, :, 48:71]
 
         return output_dict
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, latent_dim, window_size, dropout=0.1):
+
+    def __init__(self, latent_dim, dropout=0.1, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
 
-        pe = torch.zeros(window_size, latent_dim)
-        position = torch.arange(0, window_size, dtype=torch.float).unsqueeze(1)
+        pe = torch.zeros(max_len, latent_dim)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, latent_dim, 2).float() * (-np.log(10000.0) / latent_dim))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0) #Shape: [1, window_size, latent_dim]
-
-        self.register_buffer('pe', pe)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_parameter('pe', nn.Parameter(pe, requires_grad=False))
 
     def forward(self, x):
-        x = x + self.pe[:, :x.size(1)]
+        x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
 
 class TimestepEmbedder(nn.Module):
@@ -116,7 +96,7 @@ class TimestepEmbedder(nn.Module):
                                         nn.Linear(time_embed_dim, time_embed_dim))
         
     def forward(self, timesteps):
-        return self.time_embed(self.pos_encoder.pe[:, :timesteps, :])
+        return self.time_embed(self.pos_encoder.pe[timesteps])
     
 class TemporalEmbedding(nn.Module):
     def __init__(self, window_size, embedding_dim, dtype=torch.float32):
