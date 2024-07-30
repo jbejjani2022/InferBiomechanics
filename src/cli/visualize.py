@@ -124,7 +124,7 @@ class VisualizeCommand(AbstractCommand):
         world.setGravity([0, -9.81, 0])
 
         gui = NimbleGUI(world)
-        gui.serve(8100)
+        gui.serve(8888)
 
         ticker: nimble.realtime.Ticker = nimble.realtime.Ticker(
             0.04)

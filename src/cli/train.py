@@ -67,6 +67,8 @@ class TrainCommand(AbstractCommand):
                                help='Which wrench components to train.')
         subparser.add_argument('--trial-filter', type=str, nargs='+', default=[""],
                                help='What kind of trials to train/test on.')
+        subparser.add_argument('--compute-report', action='store_true', default=False,
+                               help='Compute inverse dynamics reports during loss evaluation.')
 
     def run(self, args: argparse.Namespace):
         if 'command' in args and args.command != 'train':
@@ -91,6 +93,7 @@ class TrainCommand(AbstractCommand):
         dropout: bool = args.dropout
         dropout_prob: float = args.dropout_prob
         activation: str = args.activation
+        compute_report: bool = args.compute_report
 
         geometry = self.ensure_geometry(args.geometry_folder)
         
@@ -112,18 +115,22 @@ class TrainCommand(AbstractCommand):
             logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
-        if log_to_wandb and rank == 0:
+            
+        if log_to_wandb:
             # Grab all cmd args and add current git hash
             config = args.__dict__
             config["git_hash"] = get_git_hash
 
-            logging.info('Initializing wandb...')
+            logging.info('[{rank=}] Initializing wandb...')
+            # Check if WANDB_RUN_GROUP environment variable exists
+            wandb_group = os.getenv('WANDB_RUN_GROUP', f'ddp_{wandb.util.generate_id()}')  # Default to 'DDP' if not set
             wandb.init(
                 # set the wandb project where this run will be logged
                 project="addbiomechanics-baseline",
 
                 # track hyperparameters and run metadata
-                config=config
+                config=config,
+                group=wandb_group
             )
 
         # Create an instance of the dataset
@@ -147,8 +154,8 @@ class TrainCommand(AbstractCommand):
         mp.set_start_method('spawn')  # 'spawn' or 'fork' or 'forkserver'
         
         # Get loss evaluators
-        train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train', device=device, ddp=True)
-        dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV, device=device, ddp=True)
+        train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train', device=device)
+        dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV, device=device)
         
         # Create an instance of the model
         print("Initializing model...")
@@ -196,7 +203,7 @@ class TrainCommand(AbstractCommand):
         for epoch in range(epoch_checkpoint + 1, epochs):
             dev_dataloader.sampler.set_epoch(epoch)
             train_dataloader.sampler.set_epoch(epoch)
-            print(f'Evaluating Dev Set Before Epoch {epoch}')
+            print(f'[{rank=}] Evaluating Dev Set Before Epoch {epoch}')
             with torch.no_grad():
                 model.eval()  # Turn dropout off
                 for i, batch in enumerate(dev_dataloader):
@@ -218,21 +225,17 @@ class TrainCommand(AbstractCommand):
                                         batch_subject_indices,
                                         batch_trial_indices,
                                         args,
-                                        compute_report=True)
-                    loss_time = time.time() - loss_time
-                    # logging.info(f"{data_time=}, {forward_time=}, {loss_time}")
+                                        compute_report=compute_report)
+
                     if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
                         print('  - Dev Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
             
-                # Report dev loss on this epoch, ensuring that
-                # logging is only done on rank 0 process
-                if rank == 0:
-                    print('Dev Set Evaluation: ')
-                    dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb)
-            dist.barrier()
+                # Report dev loss on this epoch
+                print(f'[{rank=}] Dev Set Evaluation: ')
+                dev_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
             
-            if rank == 0:
-                print('Running Training Epoch ' + str(epoch))
+            dist.barrier()
+            print(f'[{rank=}] Running Training Epoch {epoch}')
             model.train()  # Turn dropout back on
            
             # Iterate over training set
@@ -250,14 +253,13 @@ class TrainCommand(AbstractCommand):
                 outputs = model(inputs)
 
                 # Compute the loss
-                compute_report = i % 100 == 0
                 loss = train_loss_evaluator(inputs,
                                             outputs,
                                             labels,
                                             batch_subject_indices,
                                             batch_trial_indices,
                                             args,
-                                            compute_report,
+                                            compute_report = compute_report and (i % 100 == 0),
                                             log_reports_to_wandb=log_to_wandb)
 
                 if (i + 1) % 100 == 0 or i == len(train_dataloader) - 1:
@@ -283,15 +285,15 @@ class TrainCommand(AbstractCommand):
                 # Update the model's parameters
                 optimizer.step()
             
-            if rank == 0:
-                # Report training loss on this epoch
-                logging.info(f"{epoch=} / {epochs}")
-                logging.info('-' * os.get_terminal_size().columns)
-                logging.info(f'Epoch {epoch} Training Set Evaluation: ')
-                logging.info('-' * os.get_terminal_size().columns)
-                train_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
+            # Report training loss on this epoch
+            logging.info('-' * 80)
+            logging.info(f'[{rank=}] Epoch {epoch}/{epochs} Training Set Evaluation: ')
+            logging.info('-' * 80)
+            train_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
+            logging.info('-' * 80)
             
         # Destroy processes
+        wandb.finish()
         dist.destroy_process_group()
         return True
 
