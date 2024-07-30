@@ -74,6 +74,7 @@ class VisualizeCommand(AbstractCommand):
         dropout: bool = args.dropout
         output_data_format: str = args.output_data_format
         activation: str = args.activation
+        dataset_home: str = args.dataset_home
 
         geometry = self.ensure_geometry(args.geometry_folder)
 
@@ -88,8 +89,10 @@ class VisualizeCommand(AbstractCommand):
         #     output_data_format=output_data_format,
         #     stride=stride)
         print('## Loading DEV set:')
+        DEV = 'test'
+        dev_dataset_path = os.path.abspath(os.path.join(dataset_home, DEV))
         dev_dataset = AddBiomechanicsDataset(
-            os.path.abspath('../data/dev'),
+            dev_dataset_path,
             history_len,
             device=torch.device(device),
             geometry_folder=geometry,
@@ -115,13 +118,13 @@ class VisualizeCommand(AbstractCommand):
         model.eval()
 
         # Iterate over the entire training dataset
-        loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split='train')
+        loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV)
 
         world = nimble.simulation.World()
         world.setGravity([0, -9.81, 0])
 
         gui = NimbleGUI(world)
-        gui.serve(8080)
+        gui.serve(8100)
 
         ticker: nimble.realtime.Ticker = nimble.realtime.Ticker(
             0.04)
@@ -169,9 +172,14 @@ class VisualizeCommand(AbstractCommand):
                 for key in labels:
                     labels[key] = labels[key].unsqueeze(0)
 
-                # Forward pass
+                # Forward pass   
                 skel_and_contact_bodies = [(dev_dataset.skeletons[i], dev_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices]
-                outputs = model(inputs)
+                
+                if model_type == 'analytical':
+                    outputs = model(inputs, skel_and_contact_bodies)
+                else:
+                    outputs = model(inputs)
+                    
                 skel = skel_and_contact_bodies[0][0]
                 contact_bodies = skel_and_contact_bodies[0][1]
 
@@ -255,3 +263,4 @@ class VisualizeCommand(AbstractCommand):
         gui.blockWhileServing()
         return True
 
+# python3 main.py visualize --model analytical --checkpoint-dir "../checkpoints/analytical" --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset"
