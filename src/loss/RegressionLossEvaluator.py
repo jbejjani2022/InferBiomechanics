@@ -49,7 +49,7 @@ class RegressionLossEvaluator:
     tau_reported_metrics: List[float]
     com_acc_reported_metrics: List[float]
 
-    def __init__(self, dataset: AddBiomechanicsDataset, split: str, device='cpu', ddp=False):
+    def __init__(self, dataset: AddBiomechanicsDataset, split: str, device='cpu'):
         self.dataset = dataset
         self.split = split
 
@@ -71,10 +71,6 @@ class RegressionLossEvaluator:
         
         # Get device
         self.device = device
-        if ddp:
-            self.rank = dist.get_rank()
-        else:
-            self.rank = 0
 
     @staticmethod
     def get_squared_diff_mean_vector(output_tensor: torch.Tensor, label_tensor: torch.Tensor) -> torch.Tensor:
@@ -304,7 +300,7 @@ class RegressionLossEvaluator:
         ############################################################################
 
         # 3.1. If requested, log the reports to Weights and Biases
-        if log_reports_to_wandb and self.rank == 0:
+        if log_reports_to_wandb:
             self.log_to_wandb(args,
                               force_loss,
                               cop_loss,
@@ -405,7 +401,7 @@ class RegressionLossEvaluator:
                               wrench_reported_metric,
                               tau_reported_metric)
 
-        if force_reported_metric is not None and self.rank == 0:
+        if force_reported_metric is not None:
             print(f'\tForce Avg Err: {force_reported_metric} N / kg')
             print(f'\tCOM Acc Avg Err: {com_acc_reported_metric} m / s^2')
             print(f'\tCoP Avg Err: {cop_reported_metric} m')
