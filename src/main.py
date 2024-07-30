@@ -5,6 +5,7 @@ import nimblephysics_libs.biomechanics
 from cli.train import TrainCommand
 from cli.visualize import VisualizeCommand
 from cli.visualize_file import VisualizeFileCommand
+from cli.visualize_motion import VisualizeMotionCommand
 from cli.create_splits import CreateSplitsCommand
 from cli.analyze import AnalyzeCommand
 from cli.sanity_check import SanityCheckCommand
@@ -19,6 +20,7 @@ def main():
     commands = [TrainCommand(),
                 VisualizeCommand(),
                 VisualizeFileCommand(),
+                VisualizeMotionCommand(),
                 CreateSplitsCommand(),
                 AnalyzeCommand(),
                 SanityCheckCommand(),
