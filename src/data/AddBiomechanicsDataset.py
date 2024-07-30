@@ -188,7 +188,7 @@ class AddBiomechanicsDataset(Dataset):
         with torch.no_grad():
             input_dict[InputDataKeys.CONTACT] = torch.row_stack([
                 torch.tensor(p.contact, dtype=self.dtype).detach() for p in first_passes
-            ])
+            ])[:,:2]
             input_dict[InputDataKeys.POS] = torch.row_stack([
                 torch.tensor(p.pos, dtype=self.dtype).detach() for p in first_passes
             ])
@@ -235,7 +235,7 @@ class AddBiomechanicsDataset(Dataset):
             start_index = 0 if self.output_data_format == 'all_frames' else -1
             label_dict[OutputDataKeys.CONTACT] = torch.row_stack([
                 torch.tensor(p.contact, dtype=self.dtype).detach() for p in output_passes[start_index:]
-            ])
+            ])[:,:2]
             label_dict[OutputDataKeys.COM_ACC] = torch.row_stack([
                 torch.tensor(p.comAcc, dtype=self.dtype).detach() for p in output_passes[start_index:]
             ])

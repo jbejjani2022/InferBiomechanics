@@ -1546,6 +1546,5 @@ def _extract_into_tensor(arr, timesteps, broadcast_shape):
     res = th.from_numpy(arr).to(device=timesteps.device)[timesteps].float()
     while len(res.shape) < len(broadcast_shape):
         res = res[..., None]
-    assert res.size() == torch.Size([128, 1, 1]) and broadcast_shape == torch.Size([128, 10, 71]), f'res: {res.size()}, broad: {broadcast_shape}'
     res = res.expand(broadcast_shape)
     return res
