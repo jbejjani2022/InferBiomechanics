@@ -143,8 +143,8 @@ class TrainCommand(AbstractCommand):
         dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=dev_sampler)
         
         # Get loss evaluators
-        train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train', device=device)
-        dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV, device=device)
+        train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train', device=device, ddp=True)
+        dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV, device=device, ddp=True)
         
         # Create an instance of the model
         print(f"[{rank=}] Initializing model...")
@@ -187,9 +187,9 @@ class TrainCommand(AbstractCommand):
             logging.error('Invalid optimizer type: ' + opt_type)
             assert (False)
 
-        self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir, optimizer=optimizer)
+        epoch_checkpoint, batch_checkpoint = self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir, optimizer=optimizer)
 
-        for epoch in range(epochs):
+        for epoch in range(epoch_checkpoint + 1, epochs):
             dev_dataloader.sampler.set_epoch(epoch)
             train_dataloader.sampler.set_epoch(epoch)
             print(f'Evaluating Dev Set Before Epoch {epoch}')
