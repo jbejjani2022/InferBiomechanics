@@ -86,7 +86,7 @@ class AbstractCommand:
     def load_latest_checkpoint(self, model, optimizer=None, checkpoint_dir="../checkpoints"):
         if not os.path.exists(checkpoint_dir):
             print("Checkpoint directory does not exist!")
-            return
+            return -1, 0
 
         # Get all the checkpoint files
         checkpoints = [f for f in os.listdir(checkpoint_dir) if f.endswith(".pt")]
@@ -94,7 +94,7 @@ class AbstractCommand:
         # If there are no checkpoints, return
         if not checkpoints:
             print("No checkpoints available!")
-            return
+            return -1, 0
 
         # Sort the files based on the epoch and batch numbers in their filenames
         checkpoints.sort(key=lambda x: (int(x.split('_')[1]), int(x.split('_')[3].split('.')[0])))

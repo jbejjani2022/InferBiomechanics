@@ -49,7 +49,7 @@ class RegressionLossEvaluator:
     tau_reported_metrics: List[float]
     com_acc_reported_metrics: List[float]
 
-    def __init__(self, dataset: AddBiomechanicsDataset, split: str, device='cpu'):
+    def __init__(self, dataset: AddBiomechanicsDataset, split: str, device='cpu', ddp=False):
         self.dataset = dataset
         self.split = split
 
@@ -71,7 +71,10 @@ class RegressionLossEvaluator:
         
         # Get device
         self.device = device
-        self.rank = dist.get_rank()
+        if ddp:
+            self.rank = dist.get_rank()
+        else:
+            self.rank = 0
 
     @staticmethod
     def get_squared_diff_mean_vector(output_tensor: torch.Tensor, label_tensor: torch.Tensor) -> torch.Tensor:
