@@ -47,19 +47,19 @@ class FeedForwardBaseline(nn.Module):
         
         # 10 input features
         # For each frame in the window:
-        # We need each dof for each of position, velocity, and acceleration
-        # x, y, z for each of root linear vel in root frame, root linear acc in root frame, root angular vel in root frame, and root angular acc in root frame
-        # Root pos history in root frame and root euler history in root frame: each is the concatention of `stride` number of 3 vectors — representing the 'recent' history
-        # Joint centers in root frame has shape 36
-        self.input_size = (3 * num_dofs + 4*3 + 2*5*3 + 36) * (history_len // stride)  # = 1470 (for 23 dofs and window size 10)
+        # We need each DoF for each of position, velocity, and acceleration
+        # Need x, y, z coors for each of rootLinearVelInRootFrame, rootLinearAccInRootFrame, rootAngularVelInRootFrame, and rootAngularAccInRootFrame
+        # For rootPosHistoryInRootFrame and rootEulerHistoryInRootFrame: each is the concatention of `stride` number of 3 vectors — representing the 'recent' history
+        # For jointCentersInRootFrame: need x, y, z coors for each of 12 joints
+        self.input_size = (3 * num_dofs + 4 * 3 + 2 * stride * 3 + 12 * 3) * (history_len // stride)  # = 1470 (for 23 dofs and window size 10)
         print(f'input size = {self.input_size}')
 
         # 4 output features
-        # For each output frame:
-        # Ground contact center of pressure in root frame - concatenated 3 vectors for each contact body. Each 3 vector represents center of pressure (CoP) for a contact measured on the force plate.
-        # Ground contact force in root frame - same as above, but ground-reaction force instead of CoP
-        # Ground contact torques in root frame - same, but torque instead of CoP
-        # Ground contact wrenches in root frame - a wrench is a vector of length 6, composed of first 3 = torque, last 3 = force. One wrench per contact body.
+        # For each output frame, need:
+        # groundContactCenterOfPressureInRootFrame - concatenated 3 vectors for each contact body. Each 3 vector represents center of pressure (CoP) for a contact measured on the force plate.
+        # groundContactForceInRootFrame - same as above, but ground-reaction force instead of CoP
+        # groundContactTorqueInRootFrame - same, but torque instead of CoP
+        # groundContactWrenchesInRootFrame - a wrench is a vector of length 6, composed of first 3 = torque, last 3 = force. One wrench per contact body.
         self.num_output_frames = (history_len // stride) if output_data_format == 'all_frames' else 1
         self.output_size = num_contact_bodies * (3 * 3 + 6) * self.num_output_frames
         print(f'output size = {self.output_size}')  # = 300 (for 2 contact bodies and 10 output frames)

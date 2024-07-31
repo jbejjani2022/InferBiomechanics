@@ -43,7 +43,7 @@ class AbstractCommand:
     
     def get_model(self,
                   num_dofs: int,
-                  num_joints: int,
+                  num_contact_bodies: int,
                   model_type: str = 'feedforward',
                   history_len: int = 5,
                   stride: int = 1,
@@ -58,7 +58,7 @@ class AbstractCommand:
         if model_type == 'feedforward':
             model = FeedForwardBaseline(
                 num_dofs,
-                num_joints,
+                num_contact_bodies,
                 history_len,
                 output_data_format,
                 activation,
@@ -73,7 +73,7 @@ class AbstractCommand:
         elif model_type == 'groundlink':
             model = Groundlink(
                 num_dofs,
-                num_joints,
+                num_contact_bodies,
                 root_history_len,
                 output_data_format
             )
