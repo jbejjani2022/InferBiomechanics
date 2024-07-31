@@ -68,7 +68,7 @@ class VisualizeMotionCommand(AbstractCommand):
         Iterate over all *.b3d files in a directory hierarchy,
         compute file hash, and move to train or dev directories.
         """
-        if 'command' in args and args.command != 'visualize':
+        if 'command' in args and args.command != 'visualize_motion':
             return False
         model_type: str = args.model_type
         checkpoint_dir: str = os.path.join(os.path.abspath(args.checkpoint_dir), model_type)
@@ -97,9 +97,9 @@ class VisualizeMotionCommand(AbstractCommand):
         #     stride=stride)
         print('## Loading DEV set:')
         dev_dataset = AddBiomechanicsDataset(
-            os.path.abspath('../data/dev'),
+            args.dataset_home,
             history_len,
-            device=torch.device(device),
+            device=device,
             geometry_folder=geometry,
             testing_with_short_dataset=short,
             output_data_format=output_data_format,
@@ -136,124 +136,15 @@ class VisualizeMotionCommand(AbstractCommand):
             0.04)
 
         frame: int = 0
-        playing: bool = True
-        num_frames = len(dev_dataset)
-        if num_frames == 0:
-            print('No frames in dataset!')
-            exit(1)
+        batch: int = 0
+        playing: bool = False
+        num_frames = model.num_output_frames
 
-        def onKeyPress(key):
-            nonlocal playing
-            nonlocal frame
-            if key == ' ':
-                playing = not playing
-            elif key == 'e':
-                frame += 1
-                if frame >= num_frames - 5:
-                    frame = 0
-            elif key == 'a':
-                frame -= 1
-                if frame < 0:
-                    frame = num_frames - 5
-            # elif key == 'r':
-                # loss_evaluator.print_report()
+        skel = dev_dataset.skeletons[0]
+        gui.nativeAPI().renderSkeleton(skel)
 
-        gui.nativeAPI().registerKeydownListener(onKeyPress)
-
-        def onTick(now):
-            with torch.no_grad():
-                nonlocal frame
-                nonlocal model
-                nonlocal dev_dataset
-
-                # inputs: Dict[str, torch.Tensor]
-                # labels: Dict[str, torch.Tensor]
-                # inputs, labels, batch_subject_index, trial_index = dev_dataset[frame]
-                # batch_subject_indices: List[int] = [batch_subject_index]
-                # batch_trial_indices: List[int] = [trial_index]
-
-                # # Add a batch dimension
-                # for key in inputs:
-                #     inputs[key] = inputs[key].unsqueeze(0)
-                # for key in labels:
-                #     labels[key] = labels[key].unsqueeze(0)
-
-                # # Forward pass
-                # skel_and_contact_bodies = [(dev_dataset.skeletons[i], dev_dataset.skeletons_contact_bodies[i]) for i in batch_subject_indices]
-                # outputs = model(inputs)
-                # skel = skel_and_contact_bodies[0][0]
-                # contact_bodies = skel_and_contact_bodies[0][1]
-
-                # loss_evaluator(inputs, outputs, labels, batch_subject_indices, batch_trial_indices, args, compute_report=True)
-                # if frame % 100 == 0:
-                #     print('Results on Frame ' + str(frame) + '/' + str(num_frames))
-                #     loss_evaluator.print_report(args)
-
-                # subject_path = train_dataset.subject_paths[batch_subject_indices[0]]
-                # trial_index = batch_trial_indices[0]
-                # print('Subject: ' + subject_path + ', trial: ' + str(trial_index))
-
-                # if output_data_format == 'all_frames':
-                #     for key in outputs:
-                #         outputs[key] = outputs[key][:, -1, :]
-                #     for key in labels:
-                #         labels[key] = labels[key][:, -1, :]
-
-                # ground_forces: np.ndarray = outputs[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME].numpy()
-                # left_foot_force = ground_forces[0, 0:3]
-                # right_foot_force = ground_forces[0, 3:6]
-
-                # cops: np.ndarray = outputs[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME].numpy()
-                # left_foot_cop = cops[0, 0:3]
-                # right_foot_cop = cops[0, 3:6]
-
-                # predicted_forces = (left_foot_force, right_foot_force)
-                # predicted_cops = (left_foot_cop, right_foot_cop)
-
-                # pos_in_root_frame = np.copy(inputs[InputDataKeys.POS][0, -1, :].cpu().numpy())
-                # pos_in_root_frame[0:6] = 0
-                # skel.setPositions(pos_in_root_frame)
-
-                # gui.nativeAPI().renderSkeleton(skel)
-
-                # joint_centers = inputs[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME][0, -1, :].cpu().numpy()
-                # num_joints = int(len(joint_centers) / 3)
-                # for j in range(num_joints):
-                #     gui.nativeAPI().createSphere('joint_' + str(j), [0.05, 0.05, 0.05], joint_centers[j * 3:(j + 1) * 3],
-                #                                  [1, 0, 0, 1])
-
-                # root_lin_vel = inputs[InputDataKeys.ROOT_LINEAR_VEL_IN_ROOT_FRAME][0, 0, 0:3].cpu().numpy()
-                # gui.nativeAPI().createLine('root_lin_vel', [[0, 0, 0], root_lin_vel], [1, 0, 0, 1])
-
-                # root_pos_history = inputs[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME][0, 0, :].cpu().numpy()
-                # num_history = int(len(root_pos_history) / 3)
-                # for h in range(num_history):
-                #     gui.nativeAPI().createSphere('root_pos_history_' + str(h), [0.05, 0.05, 0.05],
-                #                                  root_pos_history[h * 3:(h + 1) * 3], [0, 1, 0, 1])
-
-                # force_cops = labels[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME][0, :].cpu().numpy()
-                # force_fs = labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME][0, :].cpu().numpy()
-                # num_forces = int(len(force_cops) / 3)
-                # force_index = 0
-                # for f in range(num_forces):
-                #     if contact_bodies[f] == 'pelvis':
-                #         continue
-                #     cop = force_cops[f * 3:(f + 1) * 3]
-                #     force = force_fs[f * 3:(f + 1) * 3]
-                #     gui.nativeAPI().createLine('force_' + str(f),
-                #                                [cop,
-                #                                 cop + force],
-                #                                [1, 0, 0, 1])
-
-                #     predicted_cop = predicted_cops[force_index] # contact_bodies[f].getWorldTransform().translation() #
-                #     predicted_force = predicted_forces[force_index]
-                #     gui.nativeAPI().createLine('predicted_force_' + str(f),
-                #                                [predicted_cop,
-                #                                 predicted_cop + predicted_force],
-                #                                [0, 0, 1, 1])
-                #     force_index += 1
-
-                sample = sample_fn(
+        print(' - Generating sample...')
+        sample = sample_fn(
                     model,
                     # (args.batch_size, model.njoints, model.nfeats, n_frames),  # BUG FIX - this one caused a mismatch between training and inference
                     (args.batch_size, model.num_output_frames, model.output_vector_dim),  # BUG FIX
@@ -265,13 +156,50 @@ class VisualizeMotionCommand(AbstractCommand):
                     dump_steps=None,
                     noise=None,
                     const_noise=False,
+                    device=device
                 )
-                skel = nimble.RajagopalHumanBodyModel().skeleton
+        
+        if num_frames == 0:
+            print('No frames in dataset!')
+            exit(1)
 
-                positions =  sample[OutputDataKeys.POS]
-                velocities = sample[OutputDataKeys.VEL]
+        def onKeyPress(key):
+            nonlocal playing
+            nonlocal frame
+            nonlocal batch
+            if key == ' ':
+                playing = not playing
+            elif key == 'e':
+                frame += 1
+                if frame >= num_frames - 5:
+                    frame = 0
+            elif key == 'a':
+                frame -= 1
+                if frame < 0:
+                    frame = num_frames - 5
+            elif key == 'g':
+                batch += 1
+                if batch > args.batch_size - 1:
+                    batch = 0
+            # elif key == 'r':
+                # loss_evaluator.print_report()
+
+        gui.nativeAPI().registerKeydownListener(onKeyPress)
+
+        def onTick(now):
+            with torch.no_grad():
+                nonlocal frame
+                nonlocal batch
+                nonlocal model
+                nonlocal dev_dataset
+                nonlocal sample
+
+
+                positions =  sample[batch][frame][:23]
+                velocities = sample[batch][frame][23:46]
                 skel.setPositions(positions)
                 skel.setVelocities(velocities)
+
 
                 if playing:
                     frame += 1
@@ -287,13 +215,13 @@ class VisualizeMotionCommand(AbstractCommand):
     def get_gaussian_diffusion(self, args):
     # default params
         predict_xstart = True  # we always predict x_start (a.k.a. x0), that's our deal!
-        steps = self.diffusion_steps
+        steps = 50 #args.diffusion_steps
         scale_beta = 1.  # no scaling
         timestep_respacing = ''  # can be used for ddim sampling, we don't use it.
         learn_sigma = False
         rescale_timesteps = False
 
-        betas = gd.get_named_beta_schedule(self.noise_schedule, steps, scale_beta)
+        betas = gd.get_named_beta_schedule(args.noise_schedule, steps, scale_beta)
         loss_type = gd.LossType.MSE
 
         if not timestep_respacing:
