@@ -1,22 +1,15 @@
 import os
-import time
 import wandb
 import logging 
 import argparse
 
 import torch
-import torch.multiprocessing as mp
 from torch.utils.data import DataLoader
-from data.AddBiomechanicsDataset import AddBiomechanicsDataset
+from data.AddBiomechanicsDataset import AddBiomechanicsDataset, OutputDataKeys
 from loss.RegressionLossEvaluator import RegressionLossEvaluator
 from cli.utilities import get_git_hash, has_uncommitted_changes
 from typing import Dict, List
 from cli.abstract_command import AbstractCommand
-
-import torch.distributed as dist
-from torch.utils.data.distributed import DistributedSampler as DS
-from torch.nn.parallel import DistributedDataParallel as DDP
-from datetime import timedelta
 
 
 class TrainCommand(AbstractCommand):
@@ -39,7 +32,7 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--history-len', type=int, default=50,
                                help='The number of timesteps of context to show when constructing the inputs.')
         subparser.add_argument('--stride', type=int, default=5,
-                               help='The number of timesteps of context to show when constructing the inputs.')
+                               help='The timestep gap between frames in the context window to be used when constructing the inputs.')
         subparser.add_argument('--learning-rate', type=float, default=1e-4,
                                help='The learning rate for weight updates.')
         subparser.add_argument('--dropout', action='store_true', help='Apply dropout?')
@@ -96,14 +89,8 @@ class TrainCommand(AbstractCommand):
 
         geometry = self.ensure_geometry(args.geometry_folder)
         
-        # Initialize multiprocessing on GPU
-        dist.init_process_group(backend="nccl", timeout=timedelta(hours=1))
-        world_size = dist.get_world_size()
-        rank = dist.get_rank()  # rank is GPU index
-        device = rank % torch.cuda.device_count()
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         torch.cuda.set_device(device)
-        
-        print(f'Running on {torch.cuda.device_count()} GPUs on current machine. World size = {world_size}.')
 
         has_uncommitted = has_uncommitted_changes()
         if has_uncommitted:
@@ -118,7 +105,7 @@ class TrainCommand(AbstractCommand):
             config = args.__dict__
             config["git_hash"] = get_git_hash
 
-            logging.info('[{rank=}] Initializing wandb...')
+            logging.info(f'Initializing wandb...')
             # Check if WANDB_RUN_GROUP environment variable exists
             wandb_group = os.getenv('WANDB_RUN_GROUP', f'ddp_{wandb.util.generate_id()}')  # Default to 'DDP' if not set
             wandb.init(
@@ -136,27 +123,25 @@ class TrainCommand(AbstractCommand):
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, DEV))
 
         # Get dataloaders for train and test sets
-        print(f"[{rank=}] Initializing training set...")
+        print(f"Initializing training set...")
         data_device = device     # device where data will be loaded
         train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(data_device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
-        train_sampler = DS(train_dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=True)
-        train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=train_sampler)
+        train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True)
 
-        print(f"[{rank=}] Initializing dev set...")
+        print(f"Initializing dev set...")
         dev_dataset = AddBiomechanicsDataset(dev_dataset_path, history_len, device=torch.device(data_device), stride=stride, output_data_format=output_data_format,
                                              geometry_folder=geometry, testing_with_short_dataset=short)
-        dev_sampler = DS(dev_dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=True)
-        dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True, sampler=dev_sampler)
+        dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, num_workers=data_loading_workers, persistent_workers=True)
         
         # Get loss evaluators
         train_loss_evaluator = RegressionLossEvaluator(dataset=train_dataset, split='train', device=device)
         dev_loss_evaluator = RegressionLossEvaluator(dataset=dev_dataset, split=DEV, device=device)
         
         # Create an instance of the model
-        print(f"[{rank=}] Initializing model...")
+        print(f"Initializing model...")
         model = self.get_model(train_dataset.num_dofs,
-                               train_dataset.num_joints,
+                               train_dataset.num_contact_bodies,
                                model_type,
                                history_len=history_len,
                                stride=stride,
@@ -168,9 +153,6 @@ class TrainCommand(AbstractCommand):
                                root_history_len=root_history_len,
                                output_data_format=output_data_format,
                                device=device).to(device)
-        
-        # Wrap model in DDP class
-        model = DDP(model, device_ids=[device], output_device=device)
 
         params_to_optimize = filter(lambda p: p.requires_grad, model.parameters())
         if not list(params_to_optimize):
@@ -197,9 +179,7 @@ class TrainCommand(AbstractCommand):
         epoch_checkpoint, batch_checkpoint = self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir, optimizer=optimizer)
 
         for epoch in range(epoch_checkpoint + 1, epochs):
-            dev_dataloader.sampler.set_epoch(epoch)
-            train_dataloader.sampler.set_epoch(epoch)
-            print(f'[{rank=}] Evaluating Dev Set Before Epoch {epoch}')
+            print(f'Evaluating Dev Set Before Epoch {epoch}')
             with torch.no_grad():
                 model.eval()  # Turn dropout off
                 for i, batch in enumerate(dev_dataloader):
@@ -209,7 +189,7 @@ class TrainCommand(AbstractCommand):
                     batch_trial_indices: List[int]
 
                     inputs, labels, batch_subject_indices, batch_trial_indices = batch
-                    outputs = model(inputs)
+                    outputs = model(inputs, i)
                     
                     dev_loss_evaluator(inputs,
                                         outputs,
@@ -220,14 +200,13 @@ class TrainCommand(AbstractCommand):
                                         compute_report=compute_report)
 
                     if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
-                        print(f'  - [{rank=}] Dev Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
+                        print(f'  - Dev Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
             
                 # Report dev loss on this epoch
-                print(f'[{rank=}] Dev Set Evaluation: ')
+                print(f'Dev Set Evaluation: ')
                 dev_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
             
-            dist.barrier()
-            print(f'[{rank=}] Running Training Epoch {epoch}')
+            print(f'Running Training Epoch {epoch}')
             model.train()  # Turn dropout back on
            
             # Iterate over training set
@@ -238,12 +217,25 @@ class TrainCommand(AbstractCommand):
                 batch_trial_indices: List[int]
                 inputs, labels, batch_subject_indices, batch_trial_indices = batch
 
+                if i == 0:
+                    # print(f'INPUTS dict before reshaping for forward pass: {inputs}')
+                    # print(f'LABELS dict: {labels}')
+                    # print(f'true GROUND_CONTACT_COPS_IN_ROOT_FRAME: {labels[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME][0]}')
+                    # print(f'true GROUND_CONTACT_FORCES_IN_ROOT_FRAME: {labels[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME][0]}')
+                    # print(f'true GROUND_CONTACT_TORQUES_IN_ROOT_FRAME: {labels[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME][0]}')
+                    # print(f'true GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME: {labels[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][0]}')
+                    pass
+
                 # Clear the gradients
                 optimizer.zero_grad()
 
                 # Forward pass
-                outputs = model(inputs)
-
+                outputs = model(inputs, i)
+                
+                if i == 0:
+                    # print(f'OUTPUTS dict: {outputs}')
+                    pass
+                
                 # Compute the loss
                 loss = train_loss_evaluator(inputs,
                                             outputs,
@@ -255,21 +247,19 @@ class TrainCommand(AbstractCommand):
                                             log_reports_to_wandb=log_to_wandb)
 
                 if (i + 1) % 100 == 0 or i == len(train_dataloader) - 1:
-                    logging.info(f'  - [{rank=}] Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
+                    logging.info(f'  - Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
                 
                 if (i + 1) % 1000 == 0 or i == len(train_dataloader) - 1:
-                    logging.info(f'[{rank=}] Batch {i} Training Set Evaluation: ')
+                    logging.info(f'Batch {i} Training Set Evaluation: ')
                     train_loss_evaluator.print_report(args, reset=False)
-                    
-                    if rank == 0: # Avoid redundant saving across processes
-                        model_path = f"{checkpoint_dir}/epoch_{epoch}_batch_{i}.pt"
-                        if not os.path.exists(os.path.dirname(model_path)):
-                            os.makedirs(os.path.dirname(model_path))
-                        torch.save({
-                            'epoch': epoch,
-                            'model_state_dict': model.state_dict(),
-                            'optimizer_state_dict': optimizer.state_dict(),
-                        }, model_path)
+                    model_path = f"{checkpoint_dir}/epoch_{epoch}_batch_{i}.pt"
+                    if not os.path.exists(os.path.dirname(model_path)):
+                        os.makedirs(os.path.dirname(model_path))
+                    torch.save({
+                        'epoch': epoch,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                    }, model_path)
 
                 # Backward pass
                 loss.backward()
@@ -279,14 +269,11 @@ class TrainCommand(AbstractCommand):
             
             # Report training loss on this epoch
             logging.info('-' * 80)
-            logging.info(f'[{rank=}] Epoch {epoch}/{epochs} Training Set Evaluation: ')
+            logging.info(f'Epoch {epoch}/{epochs} Training Set Evaluation: ')
             logging.info('-' * 80)
             train_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
             logging.info('-' * 80)
             
-        # Destroy processes
-        wandb.finish()
-        dist.destroy_process_group()
         return True
 
 
@@ -294,7 +281,7 @@ class TrainCommand(AbstractCommand):
 
 # python3 main.py train --model feedforward --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --hidden-dims 32 32 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --epochs 500 --short
 
-# python3 main.py train --model feedforward --checkpoint-dir "../checkpoints3/checkpoint-gait-ly-only" --hidden-dims 32 32 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --epochs 300 --short
+# python3 main.py train --model feedforward --checkpoint-dir "../checkpoints/test" --hidden-dims 256 256 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.001 --opt-type adam --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --epochs 5 --short --no-wandb --batch-size 128 --data-loading-workers 1
 
 # Increased batch size to speed up training. Added multiprocessing. Switched from adagrad to adam. Increased hidden layer dim from 32 to 512.
 # export MASTER_ADDR=$(scontrol show hostname ${SLURM_NODELIST} | head -n 1)

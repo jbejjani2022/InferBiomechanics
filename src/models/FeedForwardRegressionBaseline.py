@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
-from typing import Dict, List, Tuple
+from typing import Dict, List
 from data.AddBiomechanicsDataset import InputDataKeys, OutputDataKeys
-import nimblephysics as nimble
 import logging
 
 
@@ -15,13 +14,13 @@ ACTIVATION_FUNCS = {
 
 class FeedForwardBaseline(nn.Module):
     num_dofs: int
-    num_joints: int
+    num_contact_bodies: int
     history_len: int
     root_history_len: int
 
     def __init__(self,
                  num_dofs: int,
-                 num_joints: int,
+                 num_contact_bodies: int,
                  history_len: int,
                  output_data_format: str,
                  activation: str,
@@ -33,25 +32,37 @@ class FeedForwardBaseline(nn.Module):
                  dropout_prob: float = 0.0,
                  device: str = 'cpu'):
         super(FeedForwardBaseline, self).__init__()
+        self.stride = stride
         self.activation = activation
         self.output_data_format = output_data_format
         self.num_dofs = num_dofs
-        self.num_joints = num_joints
+        self.num_contact_bodies = num_contact_bodies
         self.history_len = history_len
         self.root_history_len = root_history_len
         self.device = device
         
-        # print('num dofs: ' + str(num_dofs) + ', num joints: ' + str(num_joints)+', history len: ' + str(history_len), ', root history len: ' + str(root_history_len), f"{stride=}")
+        # print('num dofs: ' + str(num_dofs) + ', num contact bodies: ' + str(num_contact_bodies)+', history len: ' + str(history_len), ', root history len: ' + str(root_history_len), f"{stride=}")
 
         # Compute input and output sizes
-        # For input, we need each dof, for position and velocity and acceleration, for each frame in the window, and
-        # then also the COM acceleration for each frame in the window
-        # TEST
-        num_joints = 2
-        self.input_size = (num_dofs * 3 + 12 + num_joints * 3 + root_history_len * 6) * (history_len // stride)
-        # For output, we have four foot-ground contact classes (foot 1, foot 2, both, neither)
+        
+        # 10 input features
+        # For each frame in the window:
+        # We need each dof for each of position, velocity, and acceleration
+        # x, y, z for each of root linear vel in root frame, root linear acc in root frame, root angular vel in root frame, and root angular acc in root frame
+        # Root pos history in root frame and root euler history in root frame: each is the concatention of `stride` number of 3 vectors — representing the 'recent' history
+        # Joint centers in root frame has shape 36
+        self.input_size = (3 * num_dofs + 4*3 + 2*5*3 + 36) * (history_len // stride)  # = 1470 (for 23 dofs and window size 10)
+        print(f'input size = {self.input_size}')
+
+        # 4 output features
+        # For each output frame:
+        # Ground contact center of pressure in root frame - concatenated 3 vectors for each contact body. Each 3 vector represents center of pressure (CoP) for a contact measured on the force plate.
+        # Ground contact force in root frame - same as above, but ground-reaction force instead of CoP
+        # Ground contact torques in root frame - same, but torque instead of CoP
+        # Ground contact wrenches in root frame - a wrench is a vector of length 6, composed of first 3 = torque, last 3 = force. One wrench per contact body.
         self.num_output_frames = (history_len // stride) if output_data_format == 'all_frames' else 1
-        self.output_size = 30 * self.num_output_frames
+        self.output_size = num_contact_bodies * (3 * 3 + 6) * self.num_output_frames
+        print(f'output size = {self.output_size}')  # = 300 (for 2 contact bodies and 10 output frames)
 
         self.net = []
         dims = [self.input_size] + hidden_dims + [self.output_size]
@@ -68,8 +79,9 @@ class FeedForwardBaseline(nn.Module):
         self.net = nn.Sequential(*self.net)
         logging.info(f"{self.net=}")
         
-    def forward(self, input: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def forward(self, input: Dict[str, torch.Tensor], i: int) -> Dict[str, torch.Tensor]:
         # 1. Check input shape matches our assumptions.
+        # shape is (B, T, C) (batches, timesteps, channels)
         assert len(input[InputDataKeys.POS].shape) == 3
         assert input[InputDataKeys.POS].shape[-1] == self.num_dofs
         assert len(input[InputDataKeys.VEL].shape) == 3
@@ -77,17 +89,11 @@ class FeedForwardBaseline(nn.Module):
         assert len(input[InputDataKeys.ACC].shape) == 3
         assert input[InputDataKeys.ACC].shape[-1] == self.num_dofs
         assert len(input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape) == 3
-        # print("input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1] = ", input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1])
-        # print("self.num_joints * 3 = ", self.num_joints * 3)
-        # assert input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1] == self.num_joints * 3
-        # assert len(input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape) == 3
-        # print("input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1] = ", input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1])
-        # print("self.root_history_len * 3 = ", self.root_history_len * 3)
-        # assert input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3
-        # assert len(input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape) == 3
-        # print("input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1] = ", input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1])
-        # print("self.root_history_len * 3 = ", self.root_history_len * 3)
-        # assert input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1] == self.root_history_len * 3
+        assert input[InputDataKeys.JOINT_CENTERS_IN_ROOT_FRAME].shape[-1] == 12 * 3
+        assert len(input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape) == 3
+        assert input[InputDataKeys.ROOT_POS_HISTORY_IN_ROOT_FRAME].shape[-1] == self.stride * 3
+        assert len(input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape) == 3
+        assert input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME].shape[-1] == self.stride * 3
 
         # 2. Concatenate the inputs together and flatten them into a single vector for all timesteps
         inputs = torch.concat([
@@ -103,6 +109,11 @@ class FeedForwardBaseline(nn.Module):
             input[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME]
         ], dim=-1).reshape((input[InputDataKeys.POS].shape[0], -1)).to(self.device)
 
+        if i == 0:
+            # print(f'INPUTS size after reshaping for forward pass: {inputs.shape}')
+            # print(f'actual INPUTS to model: {inputs}')
+            pass
+        
         batch_size = inputs.shape[0]
         # 3. Actually run the forward pass
         x = self.net(inputs)

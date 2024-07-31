@@ -53,7 +53,7 @@ class AddBiomechanicsDataset(Dataset):
     subjects: List[nimble.biomechanics.SubjectOnDisk]
     windows: List[Tuple[int, int, int]]  # Subject, trial, start_frame
     num_dofs: int
-    num_joints: int
+    num_contact_bodies: int
     contact_bodies: List[str]
     # For each subject, we store the skeleton and the contact bodies in memory, so they're ready to use with Nimble
     skeletons: List[nimble.dynamics.Skeleton]
@@ -103,8 +103,6 @@ class AddBiomechanicsDataset(Dataset):
                 self.subject_paths[0])
             # Get the number of degrees of freedom for this subject
             self.num_dofs = subject.getNumDofs()
-            # Get the number of joints for this subject
-            self.num_joints = subject.getNumJoints()
             # Get the contact bodies for this subject, and put them into a consistent order for the dataset
             contact_bodies = subject.getGroundForceBodies()
             for body in contact_bodies:
@@ -112,9 +110,9 @@ class AddBiomechanicsDataset(Dataset):
                     continue
                 if body not in self.contact_bodies:
                     self.contact_bodies.append(body)
-                    
-        # TEST
-        self.num_joints = 2
+        
+        print(f"CONTACT BODIES: {self.contact_bodies}")
+        self.num_contact_bodies = len(self.contact_bodies)
                     
         def see_subject_data():
             for i in range(len(self.subject_paths)):
@@ -122,11 +120,9 @@ class AddBiomechanicsDataset(Dataset):
                     self.subject_paths[i])
                 # Get the number of degrees of freedom for this subject
                 num_dofs = subject.getNumDofs()
-                # Get the number of joints for this subject
-                num_joints = subject.getNumJoints()
                 # Get the contact bodies for this subject, and put them into a consistent order for the dataset
                 contact_bodies = subject.getGroundForceBodies()
-                print(f"Subject {i + 1}:\n num_dofs={num_dofs}\n num_joints={num_joints}\n contact_bodies={contact_bodies}")
+                print(f"Subject {i + 1}:\n num_dofs={num_dofs}\n contact_bodies={contact_bodies}")
                 
         # see_subject_data()
 
@@ -190,6 +186,21 @@ class AddBiomechanicsDataset(Dataset):
 
         input_dict: Dict[str, torch.Tensor] = {}
         label_dict: Dict[str, torch.Tensor] = {}
+        
+        if index == 0:
+            # print(f"num_frames: {len(frames)}, window_size: {self.window_size}, stride: {self.stride}")
+            # first_pass = first_passes[0]
+            # print(f'POS shape {first_pass.pos.shape}')
+            # print(f'VEL shape {first_pass.vel.shape}')
+            # print(f'ACC shape {first_pass.acc.shape}')
+            # print(f'JOINT_CENTERS_IN_ROOT_FRAME shape {first_pass.jointCentersInRootFrame.shape}')
+            # print(f'ROOT_LINEAR_VEL_IN_ROOT_FRAME shape {first_pass.rootLinearVelInRootFrame.shape}')
+            # print(f'ROOT_LINEAR_ACC_IN_ROOT_FRAME shape {first_pass.rootLinearAccInRootFrame.shape}')
+            # print(f'ROOT_ANGULAR_VEL_IN_ROOT_FRAME shape {first_pass.rootAngularVelInRootFrame.shape}')
+            # print(f'ROOT_ANGULAR_ACC_IN_ROOT_FRAME shape {first_pass.rootAngularAccInRootFrame.shape}')
+            # print(f'ROOT_POS_HISTORY_IN_ROOT_FRAME shape {first_pass.rootPosHistoryInRootFrame.shape}')
+            # print(f'ROOT_EULER_HISTORY_IN_ROOT_FRAME shape {first_pass.rootEulerHistoryInRootFrame.shape}')
+            pass
 
         with torch.no_grad():
             input_dict[InputDataKeys.POS] = torch.row_stack([
