@@ -46,22 +46,22 @@ class MDM(nn.Module):
         return [p for name, p in self.named_parameters()]
 
     def forward(self, x, timesteps):
-        x = self.input_process(x)
+        x = self.input_process(x) #[frames, bs, feats]
         emb = self.embed_timestep(timesteps)
-        xseq = torch.cat((emb, x), axis=1)
+        xseq = torch.cat((emb, x), axis=0) #[frames+1, bs, feats]
         xseq = self.positional_encoding(xseq).to(self.dtype)
-        output = self.seqTransEncoder(xseq).to(self.device)
+        output = self.seqTransEncoder(xseq).to(self.device)[1:] #[frames, bs, feats]
         output_decoder = nn.Linear(self.latent_dim, self.output_vector_dim, dtype=self.dtype, device=self.device)
-        output = output_decoder(output)[:, 1:, :] #[bs, wlen+1, feats] -> [bs, wlen, feats]
+        output = output_decoder(output).permute(0, 2, 1) #[bs, feats, frames]
 
 
         # Split output into different components
         output_dict: Dict[str, torch.Tensor] = {}
         
-        output_dict[OutputDataKeys.CONTACT] = output[:, :, :2]
-        output_dict[OutputDataKeys.ACC] = output[:, :, 2:25]
-        output_dict[OutputDataKeys.VEL] = output[:, :, 25:48]
-        output_dict[OutputDataKeys.POS] = output[:, :, 48:71]
+        output_dict[OutputDataKeys.CONTACT] = output[:, :2, :]
+        output_dict[OutputDataKeys.ACC] = output[:, 2:25, :]
+        output_dict[OutputDataKeys.VEL] = output[:, 25:48, :]
+        output_dict[OutputDataKeys.POS] = output[:, 48:71, :]
 
         return output_dict
 
@@ -78,7 +78,8 @@ class PositionalEncoding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
-        self.register_parameter('pe', nn.Parameter(pe, requires_grad=False))
+
+        self.register_buffer('pe', pe)
 
     def forward(self, x):
         x = x + self.pe[:x.size(0), :]
@@ -96,7 +97,7 @@ class TimestepEmbedder(nn.Module):
                                         nn.Linear(time_embed_dim, time_embed_dim))
         
     def forward(self, timesteps):
-        return self.time_embed(self.pos_encoder.pe[timesteps])
+        return self.time_embed(self.pos_encoder.pe[timesteps]).permute(1, 0, 2)
     
 class TemporalEmbedding(nn.Module):
     def __init__(self, window_size, embedding_dim, dtype=torch.float32):
@@ -114,16 +115,8 @@ class InputProcess(nn.Module):
         self.linear = nn.Linear(features, latent_dim, dtype=dtype)
 
     def forward(self, x):
+        batch_size, features, seq_len = x.size()
 
-        batch_size, seq_len, features = x.size()
-
-        # Reshape x to [-1, features] to apply the linear layer to each timestep
-        x_reshaped = x.view(-1, features)
-        
-        # Apply the linear transformation
-        transformed = self.linear(x_reshaped)
-        
-        # Reshape back to [batch_size, seq_len, latent_dim]
-        output = transformed.view(batch_size, seq_len, -1)
-        
-        return output
+        x = x.reshape(seq_len, batch_size, features)
+        x = self.linear(x)
+        return x

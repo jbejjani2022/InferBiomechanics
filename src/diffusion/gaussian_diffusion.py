@@ -1247,7 +1247,8 @@ class GaussianDiffusion:
         IN_KEYS = [InputDataKeys.POS, InputDataKeys.VEL, InputDataKeys.ACC, InputDataKeys.CONTACT]
         OUT_KEYS = [OutputDataKeys.POS, OutputDataKeys.VEL, OutputDataKeys.ACC, OutputDataKeys.CONTACT]
 
-        x_start_vec = torch.cat([x_start[key] for key in IN_KEYS], dim=-1).to(device)
+        x_start_vec = torch.cat([x_start[key] for key in IN_KEYS], dim=-1).to(device).permute(0, 2, 1) #[bs, feats, frames]
+        print(f'X_start shape: {x_start_vec.shape}')
         if noise is None:
             noise = th.randn_like(x_start_vec)
         x_t = self.q_sample(x_start_vec, t, noise=noise)
@@ -1267,6 +1268,7 @@ class GaussianDiffusion:
                 terms["loss"] *= self.num_timesteps
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
             model_output = model(x_t.clone(), self._scale_timesteps(t).clone())
+            model_output = torch.cat([model_output[key] for key in IN_KEYS], dim=1)
 
             if self.model_var_type in [
                 ModelVarType.LEARNED,
@@ -1297,37 +1299,29 @@ class GaussianDiffusion:
                 ModelMeanType.START_X: x_start_vec,
                 ModelMeanType.EPSILON: noise,
             }[self.model_mean_type]
-            assert target.shape == x_start_vec.shape  # [bs, wlen, features]
+            assert target.shape == x_start_vec.shape == model_output.shape # [bs, feats, frames]
 
-            terms["aggregate_mse"] = self.masked_l2(torch.cat([x_start[key] for key in OUT_KEYS], dim=-1), 
-                                                torch.cat([model_output[key] for key in OUT_KEYS], dim=-1), 
-                                                mask).to(device) # mean_flat(rot_mse)
+            terms["aggregate_mse"] = self.masked_l2(target, model_output, mask).to(device) # mean_flat(rot_mse)
 
             target_xyz, model_output_xyz = None, None
 
             if self.lambda_pos > 0.:
-                terms["pos_mse"] = self.masked_l2(x_start[InputDataKeys.POS], 
-                                                    model_output[OutputDataKeys.POS],
-                                                    mask[:, :, :x_start[InputDataKeys.POS].size(2)]).to(device)  # mean_flat((target_xyz - model_output_xyz) ** 2)
+                terms["pos_mse"] = self.masked_l2(target[:, :23, :], model_output[:, :23, :], mask[:, :23, :]).to(device)  # mean_flat((target_xyz - model_output_xyz) ** 2)
 
             if self.lambda_vel > 0.:
-                terms["vel_mse"] = self.masked_l2(x_start[OutputDataKeys.VEL],
-                                                      model_output[OutputDataKeys.VEL],
-                                                      mask[:, :, :x_start[InputDataKeys.VEL].size(2)]).to(device)
+                terms["vel_mse"] = self.masked_l2(target[:, 23:46, :], model_output[:, 23:46, :], mask[:, 23:46, :]).to(device)
 
             if self.lambda_acc > 0.:
-                terms["acc_mse"] = self.masked_l2(x_start[OutputDataKeys.ACC], # Remove last joint, is the root location!
-                                                  model_output[OutputDataKeys.ACC],
-                                                  mask[:, :, :x_start[OutputDataKeys.ACC].size(2)]).to(device)  # mean_flat((target_vel - model_output_vel) ** 2)
+                terms["acc_mse"] = self.masked_l2(target[:, 46:69, :], model_output[:, 46:69, :], mask[:, 46:69, :]).to(device)  # mean_flat((target_vel - model_output_vel) ** 2)
 
             if self.lambda_fc > 0.:
                 subtalar_l, subtalar_r, mtp_l, mtp_r = 18, 11, 19, 12 # Indices of relevant foot joints
-                output_positions = model_output[OutputDataKeys.POS][:, :, [subtalar_l, subtalar_r, mtp_l, mtp_r]] #[BatchSize, WindowLen, 4]
-                contact = torch.cat([x_start[OutputDataKeys.CONTACT], x_start[OutputDataKeys.CONTACT]], axis=2)[:, :-1, :]
-                output_velocities = (output_positions[:, 1:, :] - output_positions[:, :-1, :]) * contact
+                output_positions = model_output[:, :23, :][:, [subtalar_l, subtalar_r, mtp_l, mtp_r], :] #[BatchSize, 4, frames]
+                contact = torch.cat([target[:, 69:, :], target[:, 69:, :]], axis=1)[:, :, :-1]
+                output_velocities = (output_positions[:, :, 1:] - output_positions[:, :, :-1]) * contact
                 terms["fc"] = self.masked_l2(output_velocities,
                                              torch.zeros(output_velocities.shape),
-                                             mask[:, 1:, :output_velocities.size(2)]).to(device)
+                                             mask[:, :output_velocities.size(1), 1:]).to(device)
 
                 
             terms["loss"] = terms["aggregate_mse"] + terms.get('vb', 0.) +\
