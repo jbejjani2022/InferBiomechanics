@@ -81,7 +81,8 @@ class AbstractCommand:
             )
         elif model_type == 'mdm':
             model = MDM(
-                num_dofs
+                num_dofs,
+                window_size=history_len
             )
         else:
             assert(model_type == 'analytical')
