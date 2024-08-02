@@ -1,1 +1,0 @@
-Distributed data parallel tutorial from https://pytorch.org/tutorials/intermediate/ddp_tutorial.html.

@@ -46,7 +46,7 @@ class MDM(nn.Module):
         return [p for name, p in self.named_parameters()]
 
     def forward(self, x, timesteps):
-        x = self.input_process(x) #[frames, bs, feats]
+        x = self.input_process(x.clone()) #[frames, bs, feats]
         emb = self.embed_timestep(timesteps)
         xseq = torch.cat((emb, x), axis=0) #[frames+1, bs, feats]
         xseq = self.positional_encoding(xseq).to(self.dtype)

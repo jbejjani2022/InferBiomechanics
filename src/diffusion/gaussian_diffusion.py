@@ -1247,11 +1247,11 @@ class GaussianDiffusion:
         IN_KEYS = [InputDataKeys.POS, InputDataKeys.VEL, InputDataKeys.ACC, InputDataKeys.CONTACT]
         OUT_KEYS = [OutputDataKeys.POS, OutputDataKeys.VEL, OutputDataKeys.ACC, OutputDataKeys.CONTACT]
 
-        x_start_vec = torch.cat([x_start[key] for key in IN_KEYS], dim=-1).to(device).permute(0, 2, 1) #[bs, feats, frames]
+        x_start_vec = torch.cat([x_start[key] for key in IN_KEYS], dim=-1).to(device).permute(0, 2, 1).clone() #[bs, feats, frames]
         print(f'X_start shape: {x_start_vec.shape}')
         if noise is None:
             noise = th.randn_like(x_start_vec)
-        x_t = self.q_sample(x_start_vec, t, noise=noise)
+        x_t = self.q_sample(x_start_vec, t, noise=noise).clone()
         mask = torch.ones(x_start_vec.size())
         terms = {}
 
@@ -1267,7 +1267,8 @@ class GaussianDiffusion:
             if self.loss_type == LossType.RESCALED_KL:
                 terms["loss"] *= self.num_timesteps
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
-            model_output = model(x_t.clone(), self._scale_timesteps(t).clone())
+            scaled_t = self._scale_timesteps(t.clone())
+            model_output = model(x_t.clone(), scaled_t)
             model_output = torch.cat([model_output[key] for key in IN_KEYS], dim=1)
 
             if self.model_var_type in [

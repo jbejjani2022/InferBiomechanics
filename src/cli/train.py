@@ -46,7 +46,7 @@ class TrainCommand(AbstractCommand):
                                help='Path to the Geometry folder with bone mesh data.')
         subparser.add_argument('--history-len', type=int, default=50,
                                help='The number of timesteps of context to show when constructing the inputs.')
-        subparser.add_argument('--stride', type=int, default=5,
+        subparser.add_argument('--stride', type=int, default=1,
                                help='The number of timesteps of context to show when constructing the inputs.')
         subparser.add_argument('--learning-rate', type=float, default=1e-4,
                                help='The learning rate for weight updates.')
@@ -385,7 +385,7 @@ class TrainCommand(AbstractCommand):
                 self.diffusion.training_losses,
                 self.ddp_model,
                 batch,  # [bs, ch, image_size, image_size]
-                t,
+                t.clone(),
                 self.device  # [bs](int) sampled timesteps
             )
             # with self.ddp_model.no_sync():
