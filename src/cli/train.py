@@ -379,32 +379,32 @@ class TrainCommand(AbstractCommand):
     
     def diffusion_process(self, batch, split, iteration):
         data_len = self.train_data_len if split == 'train' else self.dev_data_len
-        # for i in range(0, self.batch_size):
-        t, weights = self.schedule_sampler.sample(self.batch_size, self.device)
-        compute_losses = functools.partial(
-            self.diffusion.training_losses,
-            self.ddp_model,
-            batch,  # [bs, ch, image_size, image_size]
-            t,
-            self.device  # [bs](int) sampled timesteps
-        )
-        # with self.ddp_model.no_sync():
-        losses = compute_losses()
-        if isinstance(self.schedule_sampler, LossAwareSampler):
-            self.schedule_sampler.update_with_local_losses(
-                t, losses["loss"].detach()
+        for i in range(0, self.batch_size):
+            t, weights = self.schedule_sampler.sample(self.batch_size, self.device)
+            compute_losses = functools.partial(
+                self.diffusion.training_losses,
+                self.ddp_model,
+                batch,  # [bs, ch, image_size, image_size]
+                t,
+                self.device  # [bs](int) sampled timesteps
             )
+            # with self.ddp_model.no_sync():
+            losses = compute_losses()
+            if isinstance(self.schedule_sampler, LossAwareSampler):
+                self.schedule_sampler.update_with_local_losses(
+                    t, losses["loss"].detach()
+                )
 
-        self.log_loss_dict(
-            self.diffusion, t, {k: v * weights for k, v in losses.items()}, split, self.log_to_wandb
-        )
-        if (iteration + 1) % 1000 == 0 or iteration == data_len - 1: #and i == self.batch_size:
-                logging.info(f'[{self.rank=}] Batch {iteration} {split} Set Evaluation:')
-                for key, values in losses.items():
-                    logging.info(f' - {key} mean error: {values.mean().item()}')
-        if split == 'train':
-            loss = (losses["loss"] * weights.to(self.device)).mean()
-            loss.backward()
+            self.log_loss_dict(
+                self.diffusion, t, {k: v * weights for k, v in losses.items()}, split, self.log_to_wandb
+            )
+            if (iteration + 1) % 1000 == 0 or iteration == data_len - 1: #and i == self.batch_size:
+                    logging.info(f'[{self.rank=}] Batch {iteration} {split} Set Evaluation:')
+                    for key, values in losses.items():
+                        logging.info(f' - {key} mean error: {values.mean().item()}')
+            if split == 'train':
+                loss = (losses["loss"] * weights.to(self.device)).mean()
+                loss.backward()
 
     def log_loss_dict(self, diffusion, ts, losses, split, log_to_wandb=False):
         if not log_to_wandb: pass

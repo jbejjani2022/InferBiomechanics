@@ -11,3 +11,4 @@ __pycache__
 figures
 old_checkpoints/
 slurm-feedforward/
+slurm/torchrun.sh
