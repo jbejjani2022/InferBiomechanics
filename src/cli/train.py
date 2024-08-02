@@ -118,7 +118,7 @@ class TrainCommand(AbstractCommand):
             config = args.__dict__
             config["git_hash"] = get_git_hash
 
-            logging.info('[{rank=}] Initializing wandb...')
+            logging.info(f'[{rank=}] Initializing wandb...')
             # Check if WANDB_RUN_GROUP environment variable exists
             wandb_group = os.getenv('WANDB_RUN_GROUP', f'ddp_{wandb.util.generate_id()}')  # Default to 'DDP' if not set
             wandb.init(
