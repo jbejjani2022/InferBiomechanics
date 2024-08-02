@@ -15,7 +15,8 @@ import numpy as np
 from diffusion.resample import LossAwareSampler, create_named_schedule_sampler
 from diffusion import gaussian_diffusion as gd
 from diffusion.respace import SpacedDiffusion, space_timesteps
-
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
 
 class VisualizeMotionCommand(AbstractCommand):
     def __init__(self):
@@ -38,7 +39,7 @@ class VisualizeMotionCommand(AbstractCommand):
                                help='Path to the Geometry folder with bone mesh data.')
         subparser.add_argument('--history-len', type=int, default=50,
                                help='The number of timesteps of context to show when constructing the inputs.')
-        subparser.add_argument('--stride', type=int, default=5,
+        subparser.add_argument('--stride', type=int, default=1,
                                help='The number of timesteps of context to show when constructing the inputs.')
         subparser.add_argument('--dropout', action='store_true', help='Apply dropout?')
         subparser.add_argument('--dropout-prob', type=float, default=0.5, help='Dropout prob')
@@ -62,7 +63,6 @@ class VisualizeMotionCommand(AbstractCommand):
         subparser.add_argument("--lambda_acc", default=1.0, type=float, help="Joint acceleration loss")
         subparser.add_argument("--lambda_fc", default=1.0, type=float, help="Foot contact loss.")
 
-
     def run(self, args: argparse.Namespace):
         """
         Iterate over all *.b3d files in a directory hierarchy,
@@ -71,7 +71,7 @@ class VisualizeMotionCommand(AbstractCommand):
         if 'command' in args and args.command != 'visualize_motion':
             return False
         model_type: str = args.model_type
-        checkpoint_dir: str = os.path.join(os.path.abspath(args.checkpoint_dir), model_type)
+        checkpoint_dir: str = args.checkpoint_dir
         history_len: int = args.history_len
         root_history_len: int = 10
         hidden_dims: List[int] = args.hidden_dims
@@ -104,10 +104,12 @@ class VisualizeMotionCommand(AbstractCommand):
             testing_with_short_dataset=short,
             output_data_format=output_data_format,
             stride=stride)
-
+        os.environ["MASTER_ADDR"] = 'localhost'
+        os.environ["MASTER_PORT"] = "12355"
+        dist.init_process_group(rank=0, world_size=1)
         # Create an instance of the model
-        model = self.get_model(dev_dataset.num_dofs,
-                               dev_dataset.num_joints,
+        model = DDP(self.get_model(23,
+                               2,
                                model_type,
                                history_len=history_len,
                                stride=stride,
@@ -118,8 +120,8 @@ class VisualizeMotionCommand(AbstractCommand):
                                dropout_prob=0.0,
                                root_history_len=root_history_len,
                                output_data_format=output_data_format,
-                               device=device)
-        self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir)
+                               device=device))
+        self.load_latest_checkpoint(model, checkpoint_dir=checkpoint_dir, map_location='cpu')
         model.eval()
 
         diffusion = self.get_gaussian_diffusion(args)
@@ -130,24 +132,22 @@ class VisualizeMotionCommand(AbstractCommand):
         world.setGravity([0, -9.81, 0])
 
         gui = NimbleGUI(world)
-        gui.serve(8080)
+        gui.serve(8888)
 
-        ticker: nimble.realtime.Ticker = nimble.realtime.Ticker(
-            0.04)
+        ticker: nimble.realtime.Ticker = nimble.realtime.Ticker(0.05)
 
         frame: int = 0
         batch: int = 0
-        playing: bool = False
-        num_frames = model.num_output_frames
+        playing: bool = True
+        num_frames = model.module.num_output_frames
 
         skel = dev_dataset.skeletons[0]
-        gui.nativeAPI().renderSkeleton(skel)
 
         print(' - Generating sample...')
         sample = sample_fn(
                     model,
                     # (args.batch_size, model.njoints, model.nfeats, n_frames),  # BUG FIX - this one caused a mismatch between training and inference
-                    (args.batch_size, model.num_output_frames, model.output_vector_dim),  # BUG FIX
+                    (args.batch_size, model.module.num_output_frames, model.module.output_vector_dim),  # BUG FIX
                     clip_denoised=False,
                     model_kwargs=None,
                     skip_timesteps=0,  # 0 is the default value - i.e. don't skip any step
@@ -158,11 +158,9 @@ class VisualizeMotionCommand(AbstractCommand):
                     const_noise=False,
                     device=device
                 )
-        
         if num_frames == 0:
             print('No frames in dataset!')
             exit(1)
-
         def onKeyPress(key):
             nonlocal playing
             nonlocal frame
@@ -170,19 +168,15 @@ class VisualizeMotionCommand(AbstractCommand):
             if key == ' ':
                 playing = not playing
             elif key == 'e':
-                frame += 1
-                if frame >= num_frames - 5:
-                    frame = 0
+                print(f'Current frame: {frame}')
+                frame = (frame + 1) % num_frames
+
             elif key == 'a':
-                frame -= 1
-                if frame < 0:
-                    frame = num_frames - 5
+                frame = (frame - 1) % num_frames
+
             elif key == 'g':
-                batch += 1
-                if batch > args.batch_size - 1:
-                    batch = 0
-            # elif key == 'r':
-                # loss_evaluator.print_report()
+                batch = (batch + 1) % args.batch_size
+                print(f'batch: {batch}')
 
         gui.nativeAPI().registerKeydownListener(onKeyPress)
 
@@ -194,17 +188,14 @@ class VisualizeMotionCommand(AbstractCommand):
                 nonlocal dev_dataset
                 nonlocal sample
 
-
                 positions =  sample[batch][frame][:23]
                 velocities = sample[batch][frame][23:46]
                 skel.setPositions(positions)
                 skel.setVelocities(velocities)
-
+                gui.nativeAPI().renderSkeleton(skel)
 
                 if playing:
-                    frame += 1
-                    if frame >= num_frames - 5:
-                        frame = 0
+                    frame = (frame + 1) % num_frames
 
         ticker.registerTickListener(onTick)
         ticker.start()
@@ -215,7 +206,7 @@ class VisualizeMotionCommand(AbstractCommand):
     def get_gaussian_diffusion(self, args):
     # default params
         predict_xstart = True  # we always predict x_start (a.k.a. x0), that's our deal!
-        steps = 50 #args.diffusion_steps
+        steps = args.diffusion_steps
         scale_beta = 1.  # no scaling
         timestep_respacing = ''  # can be used for ddim sampling, we don't use it.
         learn_sigma = False
