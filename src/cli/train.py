@@ -240,7 +240,6 @@ class TrainCommand(AbstractCommand):
                 with torch.no_grad():
                     ddp_model.eval()
                     for i, batch in enumerate(dev_dataloader):
-                        if epoch == 1: continue
                         inputs: Dict[str, torch.Tensor]
                         labels: Dict[str, torch.Tensor]
                         batch_subject_indices: List[int]
