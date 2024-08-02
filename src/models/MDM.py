@@ -26,7 +26,7 @@ class MDM(nn.Module):
         self.output_vector_dim = 2 + (dofs * 3)
         self.window_size = window_size
         self.latent_dim = latent_dim
-        self.num_output_frames = (history_len // stride)
+        self.num_output_frames = (window_size // stride)
 
 
         self.input_process = InputProcess(self.timestep_vector_dim, self.latent_dim)

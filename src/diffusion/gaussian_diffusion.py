@@ -300,19 +300,21 @@ class GaussianDiffusion:
         """
         if model_kwargs is None:
             model_kwargs = {}
-
         B, C = x.shape[:2]
         assert t.shape == (B,)
-        model_output = model(x, self._scale_timesteps(t), **model_kwargs)
+        model_output = model(x, self._scale_timesteps(t))
+        keys = [OutputDataKeys.POS, OutputDataKeys.VEL, OutputDataKeys.ACC, OutputDataKeys.CONTACT]
+        model_output = torch.cat([model_output[key] for key in keys], dim=-1)
 
-        if 'inpainting_mask' in model_kwargs['y'].keys() and 'inpainted_motion' in model_kwargs['y'].keys():
-            inpainting_mask, inpainted_motion = model_kwargs['y']['inpainting_mask'], model_kwargs['y']['inpainted_motion']
-            assert self.model_mean_type == ModelMeanType.START_X, 'This feature supports only X_start pred for mow!'
-            assert model_output.shape == inpainting_mask.shape == inpainted_motion.shape
-            model_output = (model_output * ~inpainting_mask) + (inpainted_motion * inpainting_mask)
-            # print('model_output', model_output.shape, model_output)
-            # print('inpainting_mask', inpainting_mask.shape, inpainting_mask[0,0,0,:])
-            # print('inpainted_motion', inpainted_motion.shape, inpainted_motion)
+        if 'y' in model_kwargs:
+            if 'inpainting_mask' in model_kwargs['y'].keys() and 'inpainted_motion' in model_kwargs['y'].keys():
+                inpainting_mask, inpainted_motion = model_kwargs['y']['inpainting_mask'], model_kwargs['y']['inpainted_motion']
+                assert self.model_mean_type == ModelMeanType.START_X, 'This feature supports only X_start pred for mow!'
+                assert model_output.shape == inpainting_mask.shape == inpainted_motion.shape
+                model_output = (model_output * ~inpainting_mask) + (inpainted_motion * inpainting_mask)
+                # print('model_output', model_output.shape, model_output)
+                # print('inpainting_mask', inpainting_mask.shape, inpainting_mask[0,0,0,:])
+                # print('inpainted_motion', inpainted_motion.shape, inpainted_motion)
 
         if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
             assert model_output.shape == (B, C * 2, *x.shape[2:])
@@ -637,10 +639,10 @@ class GaussianDiffusion:
         final = None
         if dump_steps is not None:
             dump = []
-
-        if 'text' in model_kwargs['y'].keys():
-            # encoding once instead of each iteration saves lots of time
-            model_kwargs['y']['text_embed'] = model.encode_text(model_kwargs['y']['text'])
+        if model_kwargs is not None:
+            if 'text' in model_kwargs['y'].keys():
+                # encoding once instead of each iteration saves lots of time
+                model_kwargs['y']['text_embed'] = model.encode_text(model_kwargs['y']['text'])
         
         for i, sample in enumerate(self.p_sample_loop_progressive(
             model,
