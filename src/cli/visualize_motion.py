@@ -108,8 +108,8 @@ class VisualizeMotionCommand(AbstractCommand):
         os.environ["MASTER_PORT"] = "12355"
         dist.init_process_group(rank=0, world_size=1)
         # Create an instance of the model
-        model = DDP(self.get_model(23,
-                               2,
+        model = DDP(self.get_model(dev_dataset.num_dofs,
+                               dev_dataset.num_joints,
                                model_type,
                                history_len=history_len,
                                stride=stride,
@@ -147,7 +147,7 @@ class VisualizeMotionCommand(AbstractCommand):
         sample = sample_fn(
                     model,
                     # (args.batch_size, model.njoints, model.nfeats, n_frames),  # BUG FIX - this one caused a mismatch between training and inference
-                    (args.batch_size, model.module.num_output_frames, model.module.output_vector_dim),  # BUG FIX
+                    (args.batch_size, model.module.output_vector_dim, model.module.num_output_frames),  # BUG FIX
                     clip_denoised=False,
                     model_kwargs=None,
                     skip_timesteps=0,  # 0 is the default value - i.e. don't skip any step
@@ -188,8 +188,8 @@ class VisualizeMotionCommand(AbstractCommand):
                 nonlocal dev_dataset
                 nonlocal sample
 
-                positions =  sample[batch][frame][:23]
-                velocities = sample[batch][frame][23:46]
+                positions =  sample[batch, :23, frame]
+                velocities = sample[batch, 23:46,frame]
                 skel.setPositions(positions)
                 skel.setVelocities(velocities)
                 gui.nativeAPI().renderSkeleton(skel)
