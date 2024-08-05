@@ -3,6 +3,3 @@ wandb
 Geometry
 **/__pycache__
 *.pyc
-feedforward_runscript.sh
-*.err
-*.out
