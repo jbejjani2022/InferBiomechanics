@@ -87,6 +87,8 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument("--lambda_vel", default=1.0, type=float, help="Joint velocity loss.")
         subparser.add_argument("--lambda_acc", default=1.0, type=float, help="Joint acceleration loss")
         subparser.add_argument("--lambda_fc", default=1.0, type=float, help="Foot contact loss.")
+        subparser.add_argument("--lambda_wrench", default=1.0, type=float, help="Ground contact wrenches in root frame loss.")
+        subparser.add_argument("--lambda_res_wrench", default=1.0, type=float, help="Residual wrenches in root frame loss.")
 
 
     def run(self, args: argparse.Namespace):
@@ -122,6 +124,8 @@ class TrainCommand(AbstractCommand):
         self.lambda_vel = args.lambda_vel
         self.lambda_fc = args.lambda_fc
         self.lambda_acc = args.lambda_acc
+        self.lambda_wrench = args.lambda_wrench
+        self.lambda_res_wrench = args.lambda_res_wrench
         self.batch_size = batch_size
 
 
@@ -143,7 +147,7 @@ class TrainCommand(AbstractCommand):
             wandb_group = os.getenv('WANDB_RUN_GROUP', f'ddp_{wandb.util.generate_id()}')  # Default to 'DDP' if not set
             wandb.init(
                 # set the wandb project where this run will be logged
-                project="motion-diffusion",
+                project="dynamics-diffusion",
 
                 # track hyperparameters and run metadata
                 config=config,
@@ -177,7 +181,7 @@ class TrainCommand(AbstractCommand):
         # Create an instance of the model
         print('Initializing model...')
         model = self.get_model(train_dataset.num_dofs,
-                               train_dataset.num_joints,
+                               train_dataset.num_contact_bodies,
                                model_type,
                                history_len=history_len,
                                stride=stride,
@@ -371,7 +375,6 @@ class TrainCommand(AbstractCommand):
                 logging.info('-' * 80)
                 
 
-
         # Destroy processes
         wandb.finish()
         dist.destroy_process_group()
@@ -455,6 +458,8 @@ class TrainCommand(AbstractCommand):
             lambda_pos=self.lambda_pos,
             lambda_acc=self.lambda_acc,
             lambda_fc=self.lambda_fc,
+            lambda_wrench=self.lambda_wrench,
+            lambda_res_wrench=self.lambda_res_wrench
         )
 
 

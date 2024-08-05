@@ -16,6 +16,7 @@ from copy import deepcopy
 from diffusion.nn import mean_flat, sum_flat
 from diffusion.losses import normal_kl, discretized_gaussian_log_likelihood
 from data.AddBiomechanicsDataset import InputDataKeys, OutputDataKeys
+from loss.dynamics.RegressionLossEvaluator import RegressionLossEvaluator
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps, scale_betas=1.):
     """
@@ -135,6 +136,8 @@ class GaussianDiffusion:
         lambda_root_vel=0.,
         lambda_vel_rcxyz=0.,
         lambda_fc=0.,
+        lambda_wrench=0.,
+        lambda_res_wrench=0.
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
@@ -153,6 +156,8 @@ class GaussianDiffusion:
         self.lambda_root_vel = lambda_root_vel
         self.lambda_vel_rcxyz = lambda_vel_rcxyz
         self.lambda_fc = lambda_fc
+        self.lambda_wrench = lambda_wrench
+        self.lambda_res_wrench = lambda_res_wrench
 
         if self.lambda_pos > 0. or self.lambda_vel > 0. or self.lambda_root_vel > 0. or \
                 self.lambda_vel_rcxyz > 0. or self.lambda_fc > 0. or self.lambda_acc > 0.:
@@ -1244,8 +1249,8 @@ class GaussianDiffusion:
         :return: a dict with the key "loss" containing a tensor of shape [N].
                  Some mean or variance settings may also have other keys.
         """
-        IN_KEYS = [InputDataKeys.POS, InputDataKeys.VEL, InputDataKeys.ACC, InputDataKeys.CONTACT]
-        OUT_KEYS = [OutputDataKeys.POS, OutputDataKeys.VEL, OutputDataKeys.ACC, OutputDataKeys.CONTACT]
+        # Our input features consist of pose, motion, and dynamics features
+        IN_KEYS = [InputDataKeys.POS, InputDataKeys.VEL, InputDataKeys.ACC, InputDataKeys.CONTACT, OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME, OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME]
         model.model.to(device)
         x_start_vec = torch.cat([x_start[key] for key in IN_KEYS], dim=-1).to(device).permute(0, 2, 1).to(device) #[bs, feats, frames]
         if noise is None:
@@ -1317,18 +1322,25 @@ class GaussianDiffusion:
             if self.lambda_fc > 0.:
                 subtalar_l, subtalar_r, mtp_l, mtp_r = 18, 11, 19, 12 # Indices of relevant foot joints
                 output_positions = model_output[:, :23, :][:, [subtalar_l, subtalar_r, mtp_l, mtp_r], :] #[BatchSize, 4, frames]
-                contact = torch.cat([target[:, 69:, :], target[:, 69:, :]], axis=1)[:, :, :-1]
+                contact = torch.cat([target[:, 69:71, :], target[:, 69:71, :]], axis=1)[:, :, :-1]
                 output_velocities = (output_positions[:, :, 1:] - output_positions[:, :, :-1]) * contact
                 terms["fc"] = self.masked_l2(output_velocities,
                                              torch.zeros(output_velocities.shape).to(device),
                                              mask[:, :output_velocities.size(1), 1:]).to(device)
 
+            if self.lambda_wrench > 0.:
+                terms["wrench_mse"] = RegressionLossEvaluator.get_squared_diff_mean_vector(target[:, 71:83, :], model_output[:, 71:83, :]).to(device)
+            
+            if self.lambda_res_wrench > 0.:
+                terms["res_wrench_mse"] = RegressionLossEvaluator.get_squared_diff_mean_vector(target[:, 83:95, :], model_output[:, 83:95, :]).to(device)
                 
             terms["loss"] = terms["aggregate_mse"] + terms.get('vb', 0.) +\
                             (self.lambda_vel * terms.get('vel_mse', 0.)) +\
                             (self.lambda_pos * terms.get('pos_mse', 0.)) +\
                             (self.lambda_acc * terms.get('acc_mse', 0.)) +\
-                            (self.lambda_fc * terms.get('fc', 0.))
+                            (self.lambda_fc * terms.get('fc', 0.)) +\
+                            (self.lambda_wrench * terms.get('wrench_mse', 0.)) +\
+                            (self.lambda_res_wrench * terms.get('res_wrench_mse', 0.))
 
         else:
             raise NotImplementedError(self.loss_type)

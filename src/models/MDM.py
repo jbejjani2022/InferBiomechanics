@@ -6,7 +6,7 @@ from data.AddBiomechanicsDataset import InputDataKeys, OutputDataKeys
 from typing import Dict
 
 class MDM(nn.Module):
-    def __init__(self, dofs: int, window_size=50, history_len=5, stride=1, latent_dim=256, ff_size=1024,
+    def __init__(self, dofs: int, window_size=50, num_contact_bodies=2, history_len=5, stride=1, latent_dim=256, ff_size=1024,
                  num_layers=8, num_heads=4, dropout=0.1, activation='gelu', dtype=torch.float32, device='cpu'):
         super().__init__()
 
@@ -18,16 +18,15 @@ class MDM(nn.Module):
         self.dtype = dtype
         self.device = device
 
-        # Compute the size of the input vector to the model, which is the concatenation
-        # of input keys
-        self.timestep_vector_dim = 2 + (dofs * 3) 
+        # Compute the size of the input and output vector to the diffusion model, which is the concatenation of input keys
+        # For foot contact, need 2 binary labels
+        # For pos, vel, acc: need x, y, z for each dof
+        # For ground_contact_wrenches_in_root_frame and residual_wrench_in_root_frame, need a vector of length 6 per contact body
+        self.timestep_vector_dim = self.output_vector_dim = 2 + (dofs * 3) + (self.num_contact_bodies * 6) * 2
 
-        # Output vector is 2 contact labels and three metrics per dof
-        self.output_vector_dim = 2 + (dofs * 3)
         self.window_size = window_size
         self.latent_dim = latent_dim
         self.num_output_frames = (window_size // stride)
-
 
         self.input_process = InputProcess(self.timestep_vector_dim, self.latent_dim).to(device)
         self.positional_encoding  = PositionalEncoding(self.latent_dim)
@@ -61,6 +60,8 @@ class MDM(nn.Module):
         output_dict[OutputDataKeys.ACC] = output[:, 2:25, :]
         output_dict[OutputDataKeys.VEL] = output[:, 25:48, :]
         output_dict[OutputDataKeys.POS] = output[:, 48:71, :]
+        output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = output[:, 71:83, :]
+        output_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = output[:, 83:95, :]
 
         return output_dict
 

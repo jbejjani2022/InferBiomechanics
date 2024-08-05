@@ -126,20 +126,9 @@ class AddBiomechanicsDataset(Dataset):
                     continue
                 if body not in self.contact_bodies:
                     self.contact_bodies.append(body)
-                    
-        def see_subject_data():
-            for i in range(len(self.subject_paths)):
-                subject = nimble.biomechanics.SubjectOnDisk(
-                    self.subject_paths[i])
-                # Get the number of degrees of freedom for this subject
-                num_dofs = subject.getNumDofs()
-                # Get the number of joints for this subject
-                num_joints = subject.getNumJoints()
-                # Get the contact bodies for this subject, and put them into a consistent order for the dataset
-                contact_bodies = subject.getGroundForceBodies()
-                print(f"Subject {i + 1}:\n num_dofs={num_dofs}\n num_joints={num_joints}\n contact_bodies={contact_bodies}")
-                
-        # see_subject_data()
+
+        print(f"CONTACT BODIES: {self.contact_bodies}")
+        self.num_contact_bodies = len(self.contact_bodies)
 
         # Create a subject object for each file. This will load just the header from this file, and keep that
          # around in memory
