@@ -1,7 +1,7 @@
 # Welcome to InferBiomechanics
 
 This is a small repository with example scripts, code and baselines to train and evaluate models that can infer 
-physics information from pure motion, trained and evaluated on AddBiomechanics data.
+physics information from pure motion, trained and evaluated on AddBiomechanics data. 
 
 ## Getting The Data
 
