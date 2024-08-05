@@ -17,6 +17,7 @@ class MDM(nn.Module):
         self.dropout = dropout
         self.dtype = dtype
         self.device = device
+        self.num_contact_bodies = num_contact_bodies
 
         # Compute the size of the input and output vector to the diffusion model, which is the concatenation of input keys
         # For foot contact, need 2 binary labels

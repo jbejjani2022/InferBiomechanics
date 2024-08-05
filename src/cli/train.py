@@ -76,19 +76,19 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--trial-filter', type=str, nargs='+', default=[""],
                                help='What kind of trials to train/test on.')
         subparser.add_argument('--use-diffusion', action='store_true', help='Use diffusion?')
-        subparser.add_argument("--noise_schedule", default='cosine', choices=['linear', 'cosine'], type=str,
+        subparser.add_argument("--noise-schedule", default='cosine', choices=['linear', 'cosine'], type=str,
                        help="Noise schedule type")
-        subparser.add_argument("--diffusion_steps", default=1000, type=int,
+        subparser.add_argument("--diffusion-steps", default=1000, type=int,
                        help="Number of diffusion steps (denoted T in the paper)")
-        subparser.add_argument("--sigma_small", default=True, type=bool, help="Use smaller sigma values.")
+        subparser.add_argument("--sigma-small", default=True, type=bool, help="Use smaller sigma values.")
         subparser.add_argument('--schedule-sampler', default='uniform',
                                choices=['uniform','loss-second-moment'], help='Diffusion timestep sampler')
-        subparser.add_argument("--lambda_pos", default=1.0, type=float, help="Joint positions loss.")
-        subparser.add_argument("--lambda_vel", default=1.0, type=float, help="Joint velocity loss.")
-        subparser.add_argument("--lambda_acc", default=1.0, type=float, help="Joint acceleration loss")
-        subparser.add_argument("--lambda_fc", default=1.0, type=float, help="Foot contact loss.")
-        subparser.add_argument("--lambda_wrench", default=1.0, type=float, help="Ground contact wrenches in root frame loss.")
-        subparser.add_argument("--lambda_res_wrench", default=1.0, type=float, help="Residual wrenches in root frame loss.")
+        subparser.add_argument("--lambda-pos", default=1.0, type=float, help="Joint positions loss.")
+        subparser.add_argument("--lambda-vel", default=1.0, type=float, help="Joint velocity loss.")
+        subparser.add_argument("--lambda-acc", default=1.0, type=float, help="Joint acceleration loss")
+        subparser.add_argument("--lambda-fc", default=1.0, type=float, help="Foot contact loss.")
+        subparser.add_argument("--lambda-wrench", default=1.0, type=float, help="Ground contact wrenches in root frame loss.")
+        subparser.add_argument("--lambda-res-wrench", default=1.0, type=float, help="Residual wrenches in root frame loss.")
 
 
     def run(self, args: argparse.Namespace):
