@@ -200,11 +200,11 @@ class GaussianDiffusion:
         self.l2_loss = lambda a, b: (a - b) ** 2  # th.nn.MSELoss(reduction='none')  # must be None for handling mask later on.
 
     def masked_l2(self, a, b, mask):
-        # assuming a.shape == b.shape == bs, wlen, features
-        # assuming mask.shape == bs, wlen, 1
+        # assuming a.shape == b.shape == bs, feats, frames
+        # assuming mask.shape == bs, 1, frames
         loss = self.l2_loss(a, b)
         loss = sum_flat(loss * mask.float())  # gives \sigma_euclidean over unmasked elements
-        n_entries = a.shape[2]
+        n_entries = a.shape[1]
         non_zero_elements = sum_flat(mask) * n_entries
         # print('mask', mask.shape)
         # print('non_zero_elements', non_zero_elements)
@@ -1246,18 +1246,17 @@ class GaussianDiffusion:
         """
         IN_KEYS = [InputDataKeys.POS, InputDataKeys.VEL, InputDataKeys.ACC, InputDataKeys.CONTACT]
         OUT_KEYS = [OutputDataKeys.POS, OutputDataKeys.VEL, OutputDataKeys.ACC, OutputDataKeys.CONTACT]
-
-        x_start_vec = torch.cat([x_start[key] for key in IN_KEYS], dim=-1).to(device).permute(0, 2, 1).clone() #[bs, feats, frames]
-        print(f'X_start shape: {x_start_vec.shape}')
+        model.model.to(device)
+        x_start_vec = torch.cat([x_start[key] for key in IN_KEYS], dim=-1).to(device).permute(0, 2, 1).to(device) #[bs, feats, frames]
         if noise is None:
             noise = th.randn_like(x_start_vec)
-        x_t = self.q_sample(x_start_vec, t, noise=noise).clone()
-        mask = torch.ones(x_start_vec.size())
+        x_t = self.q_sample(x_start_vec, t, noise=noise)
+        mask = torch.ones(x_start_vec.size()).to(device)
         terms = {}
 
         if self.loss_type == LossType.KL or self.loss_type == LossType.RESCALED_KL:
             terms["loss"] = self._vb_terms_bpd(
-                model=model,
+                model=model.to(device),
                 x_start=x_start_vec,
                 x_t=x_t,
                 t=t,
@@ -1267,9 +1266,9 @@ class GaussianDiffusion:
             if self.loss_type == LossType.RESCALED_KL:
                 terms["loss"] *= self.num_timesteps
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
-            scaled_t = self._scale_timesteps(t.clone())
-            model_output = model(x_t.clone(), scaled_t)
-            model_output = torch.cat([model_output[key] for key in IN_KEYS], dim=1)
+            scaled_t = self._scale_timesteps(t)
+            model_output = model(x_t, scaled_t)
+            model_output = torch.cat([model_output[key] for key in IN_KEYS], dim=1).to(device)
 
             if self.model_var_type in [
                 ModelVarType.LEARNED,
@@ -1297,10 +1296,10 @@ class GaussianDiffusion:
                 ModelMeanType.PREVIOUS_X: self.q_posterior_mean_variance(
                     x_start=x_start_vec, x_t=x_t, t=t
                 )[0],
-                ModelMeanType.START_X: x_start_vec,
+                ModelMeanType.START_X: x_start_vec.to(device),
                 ModelMeanType.EPSILON: noise,
             }[self.model_mean_type]
-            assert target.shape == x_start_vec.shape == model_output.shape # [bs, feats, frames]
+            assert target.shape == x_start_vec.shape == model_output.shape, print(f'{target.shape=}, {x_start_vec.shape=}, {model_output.shape=}') # [bs, feats, frames]
 
             terms["aggregate_mse"] = self.masked_l2(target, model_output, mask).to(device) # mean_flat(rot_mse)
 
@@ -1321,7 +1320,7 @@ class GaussianDiffusion:
                 contact = torch.cat([target[:, 69:, :], target[:, 69:, :]], axis=1)[:, :, :-1]
                 output_velocities = (output_positions[:, :, 1:] - output_positions[:, :, :-1]) * contact
                 terms["fc"] = self.masked_l2(output_velocities,
-                                             torch.zeros(output_velocities.shape),
+                                             torch.zeros(output_velocities.shape).to(device),
                                              mask[:, :output_velocities.size(1), 1:]).to(device)
 
                 

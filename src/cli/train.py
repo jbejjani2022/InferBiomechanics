@@ -385,7 +385,7 @@ class TrainCommand(AbstractCommand):
                 self.diffusion.training_losses,
                 self.ddp_model,
                 batch,  # [bs, ch, image_size, image_size]
-                t.clone(),
+                t,
                 self.device  # [bs](int) sampled timesteps
             )
             # with self.ddp_model.no_sync():

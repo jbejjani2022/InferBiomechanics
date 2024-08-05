@@ -29,7 +29,7 @@ class MDM(nn.Module):
         self.num_output_frames = (window_size // stride)
 
 
-        self.input_process = InputProcess(self.timestep_vector_dim, self.latent_dim)
+        self.input_process = InputProcess(self.timestep_vector_dim, self.latent_dim).to(device)
         self.positional_encoding  = PositionalEncoding(self.latent_dim)
         seqTransEncoderLayer = nn.TransformerEncoderLayer(d_model=self.latent_dim,
                                                           nhead=self.num_heads,
@@ -46,14 +46,13 @@ class MDM(nn.Module):
         return [p for name, p in self.named_parameters()]
 
     def forward(self, x, timesteps):
-        x = self.input_process(x.clone()) #[frames, bs, feats]
+        x = self.input_process(x) #[frames, bs, feats]
         emb = self.embed_timestep(timesteps)
         xseq = torch.cat((emb, x), axis=0) #[frames+1, bs, feats]
         xseq = self.positional_encoding(xseq).to(self.dtype)
         output = self.seqTransEncoder(xseq).to(self.device)[1:] #[frames, bs, feats]
         output_decoder = nn.Linear(self.latent_dim, self.output_vector_dim, dtype=self.dtype, device=self.device)
-        output = output_decoder(output).permute(0, 2, 1) #[bs, feats, frames]
-
+        output = output_decoder(output).permute(1, 2, 0) #[bs, feats, frames]
 
         # Split output into different components
         output_dict: Dict[str, torch.Tensor] = {}
@@ -79,7 +78,7 @@ class PositionalEncoding(nn.Module):
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
 
-        self.register_buffer('pe', pe)
+        self.register_parameter('pe', nn.Parameter(pe, requires_grad=False))
 
     def forward(self, x):
         x = x + self.pe[:x.size(0), :]
@@ -105,7 +104,7 @@ class TemporalEmbedding(nn.Module):
         self.embedding = nn.Embedding(window_size, embedding_dim, dtype=dtype)
 
     def forward(self, x):
-        embedded = self.embedding(x)
+        embedded = self.embedding()
         return embedded
     
 class InputProcess(nn.Module):
