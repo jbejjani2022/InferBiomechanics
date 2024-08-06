@@ -217,6 +217,12 @@ class AddBiomechanicsDataset(Dataset):
             input_dict[InputDataKeys.ROOT_EULER_HISTORY_IN_ROOT_FRAME] = torch.row_stack([
                 torch.tensor(p.rootEulerHistoryInRootFrame, dtype=self.dtype).detach() for p in first_passes
             ])
+            # dynamics features added to input dict
+            input_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = torch.zeros(
+                (len(output_passes), 6 * self.num_contact_bodies), dtype=self.dtype)
+            input_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = torch.row_stack([
+                torch.tensor(p.residualWrenchInRootFrame, dtype=self.dtype).detach() for p in output_passes
+            ])
 
             # The output dictionary contains a single frame, the last frame in the window if output_data_format is 2d
             # else it contains outputs for all the frames in first_passes
@@ -253,13 +259,13 @@ class AddBiomechanicsDataset(Dataset):
                 torch.tensor(p.comAccInRootFrame, dtype=self.dtype).detach() for p in output_passes[start_index:]
             ])
             label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = torch.zeros(
-                (len(output_passes) if start_index != -1 else 1, 6 * len(self.contact_bodies)), dtype=self.dtype)
+                (len(output_passes) if start_index != -1 else 1, 6 * self.num_contact_bodies), dtype=self.dtype)
             label_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = torch.zeros(
-                (len(output_passes) if start_index != -1 else 1, 3 * len(self.contact_bodies)), dtype=self.dtype)
+                (len(output_passes) if start_index != -1 else 1, 3 * self.num_contact_bodies), dtype=self.dtype)
             label_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = torch.zeros(
-                (len(output_passes) if start_index != -1 else 1, 3 * len(self.contact_bodies)), dtype=self.dtype)
+                (len(output_passes) if start_index != -1 else 1, 3 * self.num_contact_bodies), dtype=self.dtype)
             label_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] = torch.zeros(
-                (len(output_passes) if start_index != -1 else 1, 3 * len(self.contact_bodies)), dtype=self.dtype)
+                (len(output_passes) if start_index != -1 else 1, 3 * self.num_contact_bodies), dtype=self.dtype)
             contact_indices: List[int] = [
                 subject.getGroundForceBodies().index(body) if body in subject.getGroundForceBodies() else -1 for
                 body in self.contact_bodies]
@@ -275,9 +281,13 @@ class AddBiomechanicsDataset(Dataset):
             ground_contact_torque_in_root_frame: torch.Tensor = torch.row_stack([
                 torch.tensor(p.groundContactTorqueInRootFrame, dtype=self.dtype) for p in first_passes[start_index:]
             ])
-            for i in range(len(self.contact_bodies)):
+            for i in range(self.num_contact_bodies):
                 if contact_indices[i] >= 0:
                     label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][
+                    :, 6 * i:6 * i + 6] = ground_contact_wrenches_in_root_frame[
+                                       :, 6 * contact_indices[i]:6 * contact_indices[i] + 6] / mass
+                    # populate input dict with dynamics features
+                    input_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][
                     :, 6 * i:6 * i + 6] = ground_contact_wrenches_in_root_frame[
                                        :, 6 * contact_indices[i]:6 * contact_indices[i] + 6] / mass
                     label_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME][
