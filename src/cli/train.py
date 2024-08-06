@@ -49,11 +49,11 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--epochs', type=int, default=10, help='The number of epochs to run training for.')
         subparser.add_argument('--opt-type', type=str, default='rmsprop',
                                help='The optimizer to use when adapting the weights of the model during training.')
-        subparser.add_argument('--batch-size', type=int, default=32,
+        subparser.add_argument('--batch-size', type=int, default=64,
                                help='The batch size to use when training the model.')
         subparser.add_argument('--short', action='store_true',
                                help='Use very short datasets to test without loading a bunch of data.')
-        subparser.add_argument('--data-loading-workers', type=int, default=2,  # set num_workers to 0 for distributed training
+        subparser.add_argument('--data-loading-workers', type=int, default=1,
                                help='Number of separate processes to spawn to load data in parallel.')
         subparser.add_argument('--predict-grf-components', type=int, nargs='+', default=[i for i in range(6)],
                                help='Which grf components to train.')
