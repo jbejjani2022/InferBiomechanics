@@ -1247,6 +1247,7 @@ class GaussianDiffusion:
         IN_KEYS = [InputDataKeys.POS, InputDataKeys.VEL, InputDataKeys.ACC, InputDataKeys.CONTACT]
         OUT_KEYS = [OutputDataKeys.POS, OutputDataKeys.VEL, OutputDataKeys.ACC, OutputDataKeys.CONTACT]
         model.model.to(device)
+        dofs = model.model.module.dofs
         x_start_vec = torch.cat([x_start[key] for key in IN_KEYS], dim=-1).to(device).permute(0, 2, 1).to(device) #[bs, feats, frames]
         if noise is None:
             noise = th.randn_like(x_start_vec)
@@ -1306,15 +1307,15 @@ class GaussianDiffusion:
             target_xyz, model_output_xyz = None, None
 
             if self.lambda_pos > 0.:
-                terms["pos_mse"] = self.masked_l2(target[:, :23, :], model_output[:, :23, :], mask[:, :23, :]).to(device)  # mean_flat((target_xyz - model_output_xyz) ** 2)
+                terms["pos_mse"] = self.masked_l2(target[:, :dofs, :], model_output[:, :dofs, :], mask[:, :dofs, :]).to(device)  # mean_flat((target_xyz - model_output_xyz) ** 2)
 
             if self.lambda_vel > 0.:
-                terms["vel_mse"] = self.masked_l2(target[:, 23:46, :], model_output[:, 23:46, :], mask[:, 23:46, :]).to(device)
+                terms["vel_mse"] = self.masked_l2(target[:, dofs:(2 * dofs), :], model_output[:, dofs:(2 * dofs), :], mask[:, dofs:(2 * dofs), :]).to(device)
 
             if self.lambda_acc > 0.:
-                terms["acc_mse"] = self.masked_l2(target[:, 46:69, :], model_output[:, 46:69, :], mask[:, 46:69, :]).to(device)  # mean_flat((target_vel - model_output_vel) ** 2)
+                terms["acc_mse"] = self.masked_l2(target[:, (2 * dofs):(3 * dofs), :], model_output[:, (2 * dofs):(3 * dofs), :], mask[:, (2 * dofs):(3 * dofs), :]).to(device)  # mean_flat((target_vel - model_output_vel) ** 2)
 
-            if self.lambda_fc > 0.:
+            if self.lambda_fc > 0. and dofs == 23:
                 subtalar_l, subtalar_r, mtp_l, mtp_r = 18, 11, 19, 12 # Indices of relevant foot joints
                 output_positions = model_output[:, :23, :][:, [subtalar_l, subtalar_r, mtp_l, mtp_r], :] #[BatchSize, 4, frames]
                 contact = torch.cat([target[:, 69:, :], target[:, 69:, :]], axis=1)[:, :, :-1]

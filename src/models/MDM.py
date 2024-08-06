@@ -17,6 +17,7 @@ class MDM(nn.Module):
         self.dropout = dropout
         self.dtype = dtype
         self.device = device
+        self.dofs = dofs
 
         # Compute the size of the input vector to the model, which is the concatenation
         # of input keys
@@ -57,10 +58,10 @@ class MDM(nn.Module):
         # Split output into different components
         output_dict: Dict[str, torch.Tensor] = {}
         
-        output_dict[OutputDataKeys.CONTACT] = output[:, :2, :]
-        output_dict[OutputDataKeys.ACC] = output[:, 2:25, :]
-        output_dict[OutputDataKeys.VEL] = output[:, 25:48, :]
-        output_dict[OutputDataKeys.POS] = output[:, 48:71, :]
+        output_dict[OutputDataKeys.POS] = output[:, :self.dofs, :]
+        output_dict[OutputDataKeys.VEL] = output[:, self.dofs:(2 * self.dofs), :]
+        output_dict[OutputDataKeys.ACC] = output[:, (2 * self.dofs):(3 * self.dofs), :]
+        output_dict[OutputDataKeys.CONTACT] = output[:, (3 * self.dofs):, :]
 
         return output_dict
 
