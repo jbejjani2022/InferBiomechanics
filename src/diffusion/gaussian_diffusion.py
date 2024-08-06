@@ -308,8 +308,8 @@ class GaussianDiffusion:
         B, C = x.shape[:2]
         assert t.shape == (B,)
         model_output = model(x, self._scale_timesteps(t))
-        keys = [OutputDataKeys.POS, OutputDataKeys.VEL, OutputDataKeys.ACC, OutputDataKeys.CONTACT]
-        model_output = torch.cat([model_output[key] for key in keys], dim=-1)
+        keys = [OutputDataKeys.POS, OutputDataKeys.VEL, OutputDataKeys.ACC, OutputDataKeys.CONTACT, OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME, OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME]
+        model_output = torch.cat([model_output[key] for key in keys], dim=1)
 
         if 'y' in model_kwargs:
             if 'inpainting_mask' in model_kwargs['y'].keys() and 'inpainted_motion' in model_kwargs['y'].keys():
