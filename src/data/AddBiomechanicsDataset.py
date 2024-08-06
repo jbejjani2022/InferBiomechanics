@@ -53,7 +53,7 @@ class AddBiomechanicsDataset(Dataset):
     subjects: List[nimble.biomechanics.SubjectOnDisk]
     windows: List[Tuple[int, int, int]]  # Subject, trial, start_frame
     num_dofs: int
-    num_joints: int
+    num_contact_bodies: int
     contact_bodies: List[str]
     # For each subject, we store the skeleton and the contact bodies in memory, so they're ready to use with Nimble
     skeletons: List[nimble.dynamics.Skeleton]
@@ -103,8 +103,6 @@ class AddBiomechanicsDataset(Dataset):
                 self.subject_paths[0])
             # Get the number of degrees of freedom for this subject
             self.num_dofs = subject.getNumDofs()
-            # Get the number of joints for this subject
-            self.num_joints = subject.getNumJoints()
             # Get the contact bodies for this subject, and put them into a consistent order for the dataset
             contact_bodies = subject.getGroundForceBodies()
             for body in contact_bodies:
@@ -113,25 +111,11 @@ class AddBiomechanicsDataset(Dataset):
                 if body not in self.contact_bodies:
                     self.contact_bodies.append(body)
                     
-        # TEST
-        self.num_joints = 2
-                    
-        def see_subject_data():
-            for i in range(len(self.subject_paths)):
-                subject = nimble.biomechanics.SubjectOnDisk(
-                    self.subject_paths[i])
-                # Get the number of degrees of freedom for this subject
-                num_dofs = subject.getNumDofs()
-                # Get the number of joints for this subject
-                num_joints = subject.getNumJoints()
-                # Get the contact bodies for this subject, and put them into a consistent order for the dataset
-                contact_bodies = subject.getGroundForceBodies()
-                print(f"Subject {i + 1}:\n num_dofs={num_dofs}\n num_joints={num_joints}\n contact_bodies={contact_bodies}")
-                
-        # see_subject_data()
+        print(f"CONTACT BODIES: {self.contact_bodies}")
+        self.num_contact_bodies = len(self.contact_bodies)
 
         # Create a subject object for each file. This will load just the header from this file, and keep that
-         # around in memory
+        # around in memory
         for i, subject_path in enumerate(self.subject_paths):
             subject = nimble.biomechanics.SubjectOnDisk(subject_path)
             if not skip_loading_skeletons:
@@ -237,13 +221,13 @@ class AddBiomechanicsDataset(Dataset):
                 torch.tensor(p.comAccInRootFrame, dtype=self.dtype).detach() for p in output_passes[start_index:]
             ])
             label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = torch.zeros(
-                (len(output_passes) if start_index != -1 else 1, 6 * len(self.contact_bodies)), dtype=self.dtype)
+                (len(output_passes) if start_index != -1 else 1, 6 * self.num_contact_bodies), dtype=self.dtype)
             label_dict[OutputDataKeys.GROUND_CONTACT_COPS_IN_ROOT_FRAME] = torch.zeros(
-                (len(output_passes) if start_index != -1 else 1, 3 * len(self.contact_bodies)), dtype=self.dtype)
+                (len(output_passes) if start_index != -1 else 1, 3 * self.num_contact_bodies), dtype=self.dtype)
             label_dict[OutputDataKeys.GROUND_CONTACT_TORQUES_IN_ROOT_FRAME] = torch.zeros(
-                (len(output_passes) if start_index != -1 else 1, 3 * len(self.contact_bodies)), dtype=self.dtype)
+                (len(output_passes) if start_index != -1 else 1, 3 * self.num_contact_bodies), dtype=self.dtype)
             label_dict[OutputDataKeys.GROUND_CONTACT_FORCES_IN_ROOT_FRAME] = torch.zeros(
-                (len(output_passes) if start_index != -1 else 1, 3 * len(self.contact_bodies)), dtype=self.dtype)
+                (len(output_passes) if start_index != -1 else 1, 3 * self.num_contact_bodies), dtype=self.dtype)
             contact_indices: List[int] = [
                 subject.getGroundForceBodies().index(body) if body in subject.getGroundForceBodies() else -1 for
                 body in self.contact_bodies]
@@ -259,7 +243,7 @@ class AddBiomechanicsDataset(Dataset):
             ground_contact_torque_in_root_frame: torch.Tensor = torch.row_stack([
                 torch.tensor(p.groundContactTorqueInRootFrame, dtype=self.dtype) for p in first_passes[start_index:]
             ])
-            for i in range(len(self.contact_bodies)):
+            for i in range(self.num_contact_bodies):
                 if contact_indices[i] >= 0:
                     label_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME][
                     :, 6 * i:6 * i + 6] = ground_contact_wrenches_in_root_frame[
