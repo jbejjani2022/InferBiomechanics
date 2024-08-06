@@ -16,7 +16,7 @@ from copy import deepcopy
 from diffusion.nn import mean_flat, sum_flat
 from diffusion.losses import normal_kl, discretized_gaussian_log_likelihood
 from data.AddBiomechanicsDataset import InputDataKeys, OutputDataKeys
-from loss.dynamics.RegressionLossEvaluator import RegressionLossEvaluator
+
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps, scale_betas=1.):
     """
@@ -1329,11 +1329,11 @@ class GaussianDiffusion:
                                              mask[:, :output_velocities.size(1), 1:]).to(device)
 
             if self.lambda_wrench > 0.:
-                terms["wrench_mse"] = RegressionLossEvaluator.get_squared_diff_mean_vector(target[:, 71:83, :], model_output[:, 71:83, :]).to(device)
+                terms["wrench_mse"] = self.masked_l2(target[:, 71:83, :], model_output[:, 71:83, :], mask[:, 71:83, :]).to(device)
             
             if self.lambda_res_wrench > 0.:
-                terms["res_wrench_mse"] = RegressionLossEvaluator.get_squared_diff_mean_vector(target[:, 83:95, :], model_output[:, 83:95, :]).to(device)
-                
+                terms["res_wrench_mse"] = self.masked_l2(target[:, 83:89, :], model_output[:, 83:89, :], mask[:, 83:89, :]).to(device)
+            
             terms["loss"] = terms["aggregate_mse"] + terms.get('vb', 0.) +\
                             (self.lambda_vel * terms.get('vel_mse', 0.)) +\
                             (self.lambda_pos * terms.get('pos_mse', 0.)) +\

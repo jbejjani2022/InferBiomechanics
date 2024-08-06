@@ -22,8 +22,9 @@ class MDM(nn.Module):
         # Compute the size of the input and output vector to the diffusion model, which is the concatenation of input keys
         # For foot contact, need 2 binary labels
         # For pos, vel, acc: need x, y, z for each dof
-        # For ground_contact_wrenches_in_root_frame and residual_wrench_in_root_frame, need a vector of length 6 per contact body
-        self.timestep_vector_dim = self.output_vector_dim = 2 + (dofs * 3) + (self.num_contact_bodies * 6) * 2
+        # For ground_contact_wrenches_in_root_frame, we need a vector of length 6 per contact body
+        # For residual_wrench_in_root_frame, we need one vector of length 6 (composed of first 3 torque, last 3 force)
+        self.timestep_vector_dim = self.output_vector_dim = 2 + (dofs * 3) + 6 * self.num_contact_bodies + 6
 
         self.window_size = window_size
         self.latent_dim = latent_dim
@@ -62,7 +63,7 @@ class MDM(nn.Module):
         output_dict[OutputDataKeys.VEL] = output[:, 25:48, :]
         output_dict[OutputDataKeys.POS] = output[:, 48:71, :]
         output_dict[OutputDataKeys.GROUND_CONTACT_WRENCHES_IN_ROOT_FRAME] = output[:, 71:83, :]
-        output_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = output[:, 83:95, :]
+        output_dict[OutputDataKeys.RESIDUAL_WRENCH_IN_ROOT_FRAME] = output[:, 83:89, :]
 
         return output_dict
 
