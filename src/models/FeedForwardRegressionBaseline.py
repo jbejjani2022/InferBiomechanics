@@ -26,7 +26,7 @@ class FeedForwardBaseline(nn.Module):
                  activation: str,
                  stride: int,
                  root_history_len: int,
-                 hidden_dims: List[int] = [512],
+                 hidden_dims: List[int] = [512, 512],
                  batchnorm: bool = False,
                  dropout: bool = False,
                  dropout_prob: float = 0.0,
