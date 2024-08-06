@@ -89,7 +89,7 @@ class AnalyzeCommand(AbstractCommand):
 
         # Create an instance of the model
         model = self.get_model(dev_dataset.num_dofs,
-                               dev_dataset.num_joints,
+                               dev_dataset.num_contact_bodies,
                                model_type,
                                history_len=history_len,
                                hidden_dims=hidden_dims,

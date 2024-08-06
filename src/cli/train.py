@@ -1,11 +1,9 @@
 import os
-import time
 import wandb
 import logging 
 import argparse
 
 import torch
-import torch.multiprocessing as mp
 from torch.utils.data import DataLoader
 from data.AddBiomechanicsDataset import AddBiomechanicsDataset
 from loss.RegressionLossEvaluator import RegressionLossEvaluator
@@ -39,7 +37,7 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--history-len', type=int, default=50,
                                help='The number of timesteps of context to show when constructing the inputs.')
         subparser.add_argument('--stride', type=int, default=5,
-                               help='The number of timesteps of context to show when constructing the inputs.')
+                               help='The timestep gap between frames in the context window to be used when constructing the inputs.')
         subparser.add_argument('--learning-rate', type=float, default=1e-4,
                                help='The learning rate for weight updates.')
         subparser.add_argument('--dropout', action='store_true', help='Apply dropout?')
@@ -160,7 +158,7 @@ class TrainCommand(AbstractCommand):
         # Create an instance of the model
         print("Initializing model...")
         model = self.get_model(train_dataset.num_dofs,
-                               train_dataset.num_joints,
+                               train_dataset.num_contact_bodies,
                                model_type,
                                history_len=history_len,
                                stride=stride,
@@ -296,14 +294,3 @@ class TrainCommand(AbstractCommand):
         wandb.finish()
         dist.destroy_process_group()
         return True
-
-# python3 main.py train --model feedforward --checkpoint-dir "../checkpoints/checkpoint-gait-ly-only" --hidden-dims 32 32 --batchnorm True --dropout True --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "../data" --epochs 500
-
-# python3 main.py train --model feedforward --checkpoint-dir "../checkpoints3/checkpoint-gait-ly-only" --hidden-dims 32 32 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adagrad --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --epochs 300 --short
-
-
-# Increased batch size to speed up training. Added multiprocessing. Switched from adagrad to adam. Increased hidden layer dim from 32 to 512.
-
-# export MASTER_ADDR=$(scontrol show hostname ${SLURM_NODELIST} | head -n 1)
-# export NCCL_DEBUG=INFO
-# torchrun --nnodes=1 --nproc_per_node=4 --rdzv_id=100 --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR:29400 main.py train --model feedforward --checkpoint-dir "../short-feedforward-batchsize-128/checkpoint-gait-ly-only" --hidden-dims 512 512 --batchnorm --dropout --dropout-prob 0.5 --activation tanh --learning-rate 0.01 --opt-type adam --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --epochs 300 --short --batch-size 128
