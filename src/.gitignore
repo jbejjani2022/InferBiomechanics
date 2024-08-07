@@ -7,3 +7,5 @@ error/
 output/
 *.err
 *.out
+diffusion_ddp_torchrun.sh
+ff_ddp_torchrun.sh
