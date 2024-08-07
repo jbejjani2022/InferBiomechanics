@@ -6,7 +6,7 @@ from data.AddBiomechanicsDataset import InputDataKeys, OutputDataKeys
 from typing import Dict
 
 class MDM(nn.Module):
-    def __init__(self, dofs: int, window_size=50, history_len=5, stride=1, latent_dim=256, ff_size=1024,
+    def __init__(self, dofs: int, window_size=50, stride=1, latent_dim=256, ff_size=1024,
                  num_layers=8, num_heads=4, dropout=0.1, activation='gelu', dtype=torch.float32, device='cpu'):
         super().__init__()
 
