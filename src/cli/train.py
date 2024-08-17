@@ -76,17 +76,17 @@ class TrainCommand(AbstractCommand):
         subparser.add_argument('--trial-filter', type=str, nargs='+', default=[""],
                                help='What kind of trials to train/test on.')
         subparser.add_argument('--use-diffusion', action='store_true', help='Use diffusion?')
-        subparser.add_argument("--noise_schedule", default='cosine', choices=['linear', 'cosine'], type=str,
+        subparser.add_argument("--noise-schedule", default='cosine', choices=['linear', 'cosine'], type=str,
                        help="Noise schedule type")
-        subparser.add_argument("--diffusion_steps", default=1000, type=int,
+        subparser.add_argument("--diffusion-steps", default=1000, type=int,
                        help="Number of diffusion steps (denoted T in the paper)")
-        subparser.add_argument("--sigma_small", default=True, type=bool, help="Use smaller sigma values.")
+        subparser.add_argument("--sigma-small", default=True, type=bool, help="Use smaller sigma values.")
         subparser.add_argument('--schedule-sampler', default='uniform',
                                choices=['uniform','loss-second-moment'], help='Diffusion timestep sampler')
-        subparser.add_argument("--lambda_pos", default=1.0, type=float, help="Joint positions loss.")
-        subparser.add_argument("--lambda_vel", default=1.0, type=float, help="Joint velocity loss.")
-        subparser.add_argument("--lambda_acc", default=1.0, type=float, help="Joint acceleration loss")
-        subparser.add_argument("--lambda_fc", default=1.0, type=float, help="Foot contact loss.")
+        subparser.add_argument("--lambda-pos", default=1.0, type=float, help="Joint positions loss.")
+        subparser.add_argument("--lambda-vel", default=1.0, type=float, help="Joint velocity loss.")
+        subparser.add_argument("--lambda-acc", default=1.0, type=float, help="Joint acceleration loss")
+        subparser.add_argument("--lambda-fc", default=1.0, type=float, help="Foot contact loss.")
 
 
     def run(self, args: argparse.Namespace):
@@ -124,21 +124,23 @@ class TrainCommand(AbstractCommand):
         self.lambda_acc = args.lambda_acc
         self.batch_size = batch_size
 
-
         # Initialize multiprocessing
         dist.init_process_group(backend="nccl", timeout=timedelta(hours=5))
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         device = rank % torch.cuda.device_count()
         torch.cuda.set_device(device)
-
+        
+        if rank == 0:
+            logging.info(f'World size: {world_size}')
+            logging.info(f'Device count: {torch.cuda.device_count()}')
 
         if log_to_wandb:
             # Grab all cmd args and add current git hash
             config = args.__dict__
             config["git_hash"] = get_git_hash
 
-            logging.info('Initializing wandb...')
+            logging.info(f'[{rank=}] Initializing wandb...')
             # Check if WANDB_RUN_GROUP environment variable exists
             wandb_group = os.getenv('WANDB_RUN_GROUP', f'ddp_{wandb.util.generate_id()}')  # Default to 'DDP' if not set
             wandb.init(
@@ -150,14 +152,12 @@ class TrainCommand(AbstractCommand):
                 group=wandb_group
             )
 
-
         # Create an instance of the dataset
         DEV = 'test'
         train_dataset_path = os.path.abspath(os.path.join(dataset_home, 'train'))
         dev_dataset_path = os.path.abspath(os.path.join(dataset_home, DEV))
-
-        print(f'Running on {torch.cuda.device_count()} gpus')
-        print('Initializing datasets...')
+        
+        logging.info(f'[{rank=}] Initializing dataset...')
         train_dataset = AddBiomechanicsDataset(train_dataset_path, history_len, device=torch.device(device), stride=stride, output_data_format=output_data_format,
                                                geometry_folder=geometry, testing_with_short_dataset=short)
         train_sampler = DS(train_dataset, drop_last=True, num_replicas=world_size, rank=rank)
@@ -175,7 +175,7 @@ class TrainCommand(AbstractCommand):
 
 
         # Create an instance of the model
-        print('Initializing model...')
+        logging.info(f'[{rank=}] Initializing model...')
         model = self.get_model(train_dataset.num_dofs,
                                train_dataset.num_joints,
                                model_type,
@@ -188,13 +188,13 @@ class TrainCommand(AbstractCommand):
                                dropout_prob=dropout_prob,
                                root_history_len=root_history_len,
                                output_data_format=output_data_format,
-                               device=rank).to(device)
+                               device=device).to(device)
         
         # Wrap model in DDP class
-        ddp_model = DDP(model, device_ids=[device], find_unused_parameters=True)
+        ddp_model = DDP(model, device_ids=[device]) # find_unused_parameters=True
 
         if use_diffusion:
-            print('Initializing diffusion...')
+            logging.info(f'[{rank=}] Initializing diffusion...')
             self.diffusion = self.get_gaussian_diffusion(args)
             self.schedule_sampler  = create_named_schedule_sampler(args.schedule_sampler, self.diffusion)
             self.device = device
@@ -205,7 +205,7 @@ class TrainCommand(AbstractCommand):
 
         params_to_optimize = filter(lambda p: p.requires_grad, model.parameters())
         if not list(params_to_optimize):
-            print("No parameters to optimize. Skipping training loop.")
+            logging.info("No parameters to optimize. Skipping training loop.")
             return False
         
         # Define the optimizer
@@ -227,18 +227,18 @@ class TrainCommand(AbstractCommand):
 
         self.load_latest_checkpoint(ddp_model, checkpoint_dir=checkpoint_dir, optimizer=optimizer)
 
-
+        # TRAINING LOOP
         for epoch in range(epochs):
-            print('-' * 80)
-            print(f'\nEvaluating Dev Set before epoch {epoch}')
-            print('-' * 80)
             train_sampler.set_epoch(epoch)
-            """
-            Diffusion Loop
-            """
+            if rank == 0:
+                logging.info('-' * 80)
+                logging.info(f'Evaluating Dev Set Before Epoch {epoch}')
+                logging.info('-' * 80)
+
             if use_diffusion:
+                # DIFFUSION LOOP
                 with torch.no_grad():
-                    ddp_model.eval()
+                    ddp_model.eval() # Turn dropout off
                     for i, batch in enumerate(dev_dataloader):
                         inputs: Dict[str, torch.Tensor]
                         labels: Dict[str, torch.Tensor]
@@ -246,31 +246,32 @@ class TrainCommand(AbstractCommand):
                         batch_trial_indices: List[int]
                         inputs, labels, batch_subject_indices, batch_trial_indices = batch
 
-                        # Run the forward and backward process
-                        self.diffusion_process(inputs, 'dev', i)
                         if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
                             logging.info(f'  - [{rank=}] Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
+                            
+                        # Run the forward process
+                        self.diffusion_process(inputs, 'dev', i)
             
                 dist.barrier()
-                ddp_model.train()
+                ddp_model.train() # Turn dropout back on
                 if rank == 0: 
-                    print('-' * 80)
-                    print(f'Running Train Epoch {epoch}')    
-                    print('-' * 80)   
+                    logging.info('-' * 80)
+                    logging.info(f'Running Train Epoch {epoch}')    
+                    logging.info('-' * 80)
+                    
                 for i, batch in enumerate(train_dataloader):
-                    optimizer.zero_grad()
-
                     inputs: Dict[str, torch.Tensor]
                     labels: Dict[str, torch.Tensor]
                     batch_subject_indices: List[int]
                     batch_trial_indices: List[int]
                     inputs, labels, batch_subject_indices, batch_trial_indices = batch
 
-                    # Run the forward and backward process
-                    self.diffusion_process(inputs, 'train', i)
                     if (i + 1) % 100 == 0 or i == len(train_dataloader) - 1:
                         logging.info(f'  - [{rank=}] Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
-
+                        
+                    optimizer.zero_grad()
+                    # Run the forward and backward process
+                    self.diffusion_process(inputs, 'train', i)
                     optimizer.step()
 
                     if (i + 1) % 1000 == 0 or i == len(train_dataloader) - 1 and rank == 0:
@@ -281,96 +282,95 @@ class TrainCommand(AbstractCommand):
                                     'model_state_dict': ddp_model.state_dict(),
                                     'optimizer_state_dict': optimizer.state_dict()
                                     }, model_path)
-                continue
                 
+            else:
+                # NORMAL LOOP
+                with torch.no_grad():
+                    ddp_model.eval()  # Turn dropout off
+                    for i, batch in enumerate(dev_dataloader):
+                        inputs: Dict[str, torch.Tensor]
+                        labels: Dict[str, torch.Tensor]
+                        batch_subject_indices: List[int]
+                        batch_trial_indices: List[int]
+                        inputs, labels, batch_subject_indices, batch_trial_indices = batch
 
-            """
-            Normal Loop
-            """
-            with torch.no_grad():
-                ddp_model.eval()  # Turn dropout off
-                for i, batch in enumerate(dev_dataloader):
+                        outputs = ddp_model(inputs)
+
+                        dev_loss_evaluator(inputs,
+                                            outputs,
+                                            labels,
+                                            batch_subject_indices,
+                                            batch_trial_indices,
+                                            args,
+                                            compute_report=True)
+                        if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
+                            logging.info('  - Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
+                    
+                    # Report dev loss on this epoch
+                    if rank == 0: 
+                        logging.info('Dev Set Evaluation:')
+                        dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb)
+                
+                dist.barrier()
+                ddp_model.train()  # Turn dropout back on
+                if rank == 0:
+                    logging.info('-' * 80)
+                    logging.info(f'Running Train Epoch {epoch}')    
+                    logging.info('-' * 80)       
+                
+                for i, batch in enumerate(train_dataloader):
                     inputs: Dict[str, torch.Tensor]
                     labels: Dict[str, torch.Tensor]
                     batch_subject_indices: List[int]
                     batch_trial_indices: List[int]
                     inputs, labels, batch_subject_indices, batch_trial_indices = batch
 
+                    # Clear the gradients
+                    optimizer.zero_grad()
+
+                    # Forward pass
                     outputs = ddp_model(inputs)
 
-                    # Ensure logging is only done on rank 0 process and calculation
-                    # is synchronized
-                    dev_loss_evaluator(inputs,
-                                        outputs,
-                                        labels,
-                                        batch_subject_indices,
-                                        batch_trial_indices,
-                                        args,
-                                        compute_report=True)
-                    if (i + 1) % 100 == 0 or i == len(dev_dataloader) - 1:
-                        print('  - Batch ' + str(i + 1) + '/' + str(len(dev_dataloader)))
-                # Report dev loss on this epoch
-                if rank == 0: 
-                    print('Dev Set Evaluation:')
-                    dev_loss_evaluator.print_report(args, reset=True, log_to_wandb=log_to_wandb)
-            dist.barrier()
-            if rank == 0: print(f'Running Train Epoch {epoch}')        
-            ddp_model.train()  # Turn dropout back on
-            for i, batch in enumerate(train_dataloader):
-                inputs: Dict[str, torch.Tensor]
-                labels: Dict[str, torch.Tensor]
-                batch_subject_indices: List[int]
-                batch_trial_indices: List[int]
-                inputs, labels, batch_subject_indices, batch_trial_indices = batch
+                    # Compute the loss 
+                    compute_report = i % 100 == 0
+                    loss = train_loss_evaluator(inputs,
+                                                outputs,
+                                                labels,
+                                                batch_subject_indices,
+                                                batch_trial_indices,
+                                                args,
+                                                compute_report,
+                                                log_reports_to_wandb=log_to_wandb)
+                    if (i + 1) % 100 == 0 or i == len(train_dataloader) - 1:
+                        logging.info(f'  - [{rank=}] Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
 
-                # Clear the gradients
-                optimizer.zero_grad()
+                    if (i + 1) % 1000 == 0 or i == len(train_dataloader) - 1:
+                        logging.info(f'[{rank=}] Batch {i} Training Set Evaluation:')
+                        train_loss_evaluator.print_report(args, reset=False)
 
-                # Forward pass
-                outputs = ddp_model(inputs)
+                        if rank == 0:
+                            model_path = f"{checkpoint_dir}/epoch_{epoch}_batch_{i}.pt"
+                            if not os.path.exists(os.path.dirname(model_path)):
+                                os.makedirs(os.path.dirname(model_path)) 
+                            torch.save({
+                                        'epoch': epoch,
+                                        'model_state_dict': ddp_model.state_dict(),
+                                        'optimizer_state_dict': optimizer.state_dict()
+                                        }, model_path)
 
-                # Compute the loss 
-                compute_report = i % 100 == 0
-                loss = train_loss_evaluator(inputs,
-                                            outputs,
-                                            labels,
-                                            batch_subject_indices,
-                                            batch_trial_indices,
-                                            args,
-                                            compute_report,
-                                            log_reports_to_wandb=log_to_wandb)
-                if (i + 1) % 100 == 0 or i == len(train_dataloader) - 1:
-                    logging.info(f'  - [{rank=}] Batch ' + str(i + 1) + '/' + str(len(train_dataloader)))
+                    # Backward pass
+                    loss.backward()
 
-                if (i + 1) % 1000 == 0 or i == len(train_dataloader) - 1:
-                    logging.info(f'[{rank=}] Batch {i} Training Set Evaluation:')
-                    train_loss_evaluator.print_report(args, reset=False)
+                    # Update the model's parameters
+                    optimizer.step()
 
-                    if rank == 0:
-                        model_path = f"{checkpoint_dir}/epoch_{epoch}_batch_{i}.pt"
-                        if not os.path.exists(os.path.dirname(model_path)):
-                            os.makedirs(os.path.dirname(model_path)) 
-                        torch.save({
-                                    'epoch': epoch,
-                                    'model_state_dict': ddp_model.state_dict(),
-                                    'optimizer_state_dict': optimizer.state_dict()
-                                    }, model_path)
-
-                # Backward pass
-                loss.backward()
-
-                # Update the model's parameters
-                optimizer.step()
-
-            # Report training loss on this epoch
-            if rank == 0:
-                logging.info(f"{epoch=} / {epochs}")
-                logging.info('-' * 80)
-                logging.info(f'Epoch {epoch} Training Set Evaluation: ')
-                train_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
-                logging.info('-' * 80)
+                # Report training loss on this epoch
+                if rank == 0:
+                    logging.info('-' * 80)
+                    logging.info(f'Epoch {epoch} / {epochs} Training Set Evaluation: ')
+                    train_loss_evaluator.print_report(args, log_to_wandb=log_to_wandb)
+                    logging.info('-' * 80)
                 
-
 
         # Destroy processes
         wandb.finish()
@@ -398,8 +398,8 @@ class TrainCommand(AbstractCommand):
             self.log_loss_dict(
                 self.diffusion, t, {k: v * weights for k, v in losses.items()}, split, self.log_to_wandb
             )
-            if (iteration + 1) % 1000 == 0 or iteration == data_len - 1: #and i == self.batch_size:
-                    logging.info(f'[{self.rank=}] Batch {iteration} {split} Set Evaluation:')
+            if i == 0 and ((iteration + 1) % 1000 == 0 or iteration == data_len - 1):
+                    logging.info(f'[rank={self.rank}] Batch {iteration + 1} {split} set evaluation:')
                     for key, values in losses.items():
                         logging.info(f' - {key} mean error: {values.mean().item()}')
             if split == 'train':
