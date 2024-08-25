@@ -8,7 +8,7 @@ Docstrings have been added, as well as DDIM sampling and a new collection of bet
 
 import enum
 import math
-
+import logging
 import numpy as np
 import torch
 import torch as th
@@ -699,6 +699,11 @@ class GaussianDiffusion:
             img = noise
         else:
             img = th.randn(*shape, device=device)
+            
+        logging.info(f'STARTING NOISE SHAPE: {img.shape}')
+        logging.info(f'STARTING NOISE, FIRST SAMPLE SHAPE: {img[0].shape}')
+        logging.info(f'STARTING NOISE, FIRST SAMPLE: {img[0]}')
+        logging.info(f'STARTING NOISE, LAST SAMPLE: {img[-1]}')
 
         if skip_timesteps and init_image is None:
             init_image = th.zeros_like(img)

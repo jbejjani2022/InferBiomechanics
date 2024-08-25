@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from data.AddBiomechanicsDataset import OutputDataKeys
 from typing import Dict
+import logging
 
 class MDM(nn.Module):
     def __init__(self, dofs: int, window_size=50, stride=1, latent_dim=256, ff_size=1024,
@@ -23,20 +24,27 @@ class MDM(nn.Module):
 
         # Output vector is 2 contact labels and three metrics per dof
         self.output_vector_dim = 2 + (dofs * 3)
+        
         self.window_size = window_size
         self.latent_dim = latent_dim
         self.num_output_frames = (window_size // stride)
+        
+        logging.info(f'input size: {self.timestep_vector_dim}')
+        logging.info(f'latent dim: {self.latent_dim}')
+        logging.info(f'output size: {self.output_vector_dim}')
+        logging.info(f'window size: {self.window_size}')
+        logging.info(f'num output frames: {self.num_output_frames}')
 
         self.input_process = InputProcess(self.timestep_vector_dim, self.latent_dim)
         self.positional_encoding  = PositionalEncoding(self.latent_dim)
+        self.embed_timestep = TimestepEmbedder(self.latent_dim, self.positional_encoding)
         seqTransEncoderLayer = nn.TransformerEncoderLayer(d_model=self.latent_dim,
                                                           nhead=self.num_heads,
                                                           dim_feedforward=self.ff_size,
                                                           dropout=self.dropout,
                                                           activation=self.activation)
         self.seqTransEncoder = nn.TransformerEncoder(seqTransEncoderLayer,
-                                                 num_layers=self.num_layers)
-        self.embed_timestep = TimestepEmbedder(self.latent_dim, self.positional_encoding)
+                                                     num_layers=self.num_layers)
         self.output_decoder = nn.Linear(self.latent_dim, self.output_vector_dim, dtype=self.dtype)
         
     def parameters(self):
@@ -46,7 +54,7 @@ class MDM(nn.Module):
         x = self.input_process(x) #[frames, bs, feats]
         emb = self.embed_timestep(timesteps)
         xseq = torch.cat((emb, x), axis=0) #[frames+1, bs, feats]
-        xseq = self.positional_encoding(xseq).to(self.dtype)
+        xseq = self.positional_encoding(xseq).to(self.dtype) #[frames+1, bs, feats]
         output = self.seqTransEncoder(xseq)[1:] #[frames, bs, feats]
         output = self.output_decoder(output).permute(1, 2, 0) #[bs, feats, frames]
 

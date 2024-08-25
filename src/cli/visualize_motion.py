@@ -18,6 +18,7 @@ from diffusion.respace import SpacedDiffusion, space_timesteps
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 
+
 class VisualizeMotionCommand(AbstractCommand):
     def __init__(self):
         super().__init__()
@@ -51,17 +52,17 @@ class VisualizeMotionCommand(AbstractCommand):
                                help='The batch size to use when training the model.')
         subparser.add_argument('--short', action='store_true',
                                help='Use very short datasets to test without loading a bunch of data.')
-        subparser.add_argument("--noise_schedule", default='cosine', choices=['linear', 'cosine'], type=str,
+        subparser.add_argument("--noise-schedule", default='cosine', choices=['linear', 'cosine'], type=str,
                        help="Noise schedule type")
-        subparser.add_argument("--diffusion_steps", default=1000, type=int,
+        subparser.add_argument("--diffusion-steps", default=1000, type=int,
                        help="Number of diffusion steps (denoted T in the paper)")
-        subparser.add_argument("--sigma_small", default=True, type=bool, help="Use smaller sigma values.")
+        subparser.add_argument("--sigma-small", default=True, type=bool, help="Use smaller sigma values.")
         subparser.add_argument('--schedule-sampler', default='uniform',
                                choices=['uniform','loss-second-moment'], help='Diffusion timestep sampler')
-        subparser.add_argument("--lambda_pos", default=1.0, type=float, help="Joint positions loss.")
-        subparser.add_argument("--lambda_vel", default=1.0, type=float, help="Joint velocity loss.")
-        subparser.add_argument("--lambda_acc", default=1.0, type=float, help="Joint acceleration loss")
-        subparser.add_argument("--lambda_fc", default=1.0, type=float, help="Foot contact loss.")
+        subparser.add_argument("--lambda-pos", default=1.0, type=float, help="Joint positions loss.")
+        subparser.add_argument("--lambda-vel", default=1.0, type=float, help="Joint velocity loss.")
+        subparser.add_argument("--lambda-acc", default=1.0, type=float, help="Joint acceleration loss")
+        subparser.add_argument("--lambda-fc", default=1.0, type=float, help="Foot contact loss.")
 
     def run(self, args: argparse.Namespace):
         """
@@ -132,7 +133,7 @@ class VisualizeMotionCommand(AbstractCommand):
         world.setGravity([0, -9.81, 0])
 
         gui = NimbleGUI(world)
-        gui.serve(8888)
+        # gui.serve(8888)
 
         ticker: nimble.realtime.Ticker = nimble.realtime.Ticker(0.05)
 
@@ -158,6 +159,11 @@ class VisualizeMotionCommand(AbstractCommand):
                     const_noise=False,
                     device=device
                 )
+        print(f'BATCH SHAPE: {sample.shape}')
+        print(f'FIRST SAMPLE SHAPE: {sample[0].shape}')
+        print(f'FIRST SAMPLE: {sample[0]}')
+        print(f'LAST SAMPLE: {sample[-1]}')
+        
         if num_frames == 0:
             print('No frames in dataset!')
             exit(1)
@@ -241,3 +247,5 @@ class VisualizeMotionCommand(AbstractCommand):
             lambda_fc=args.lambda_fc,
         )
 
+
+# python main.py visualize_motion --model-type mdm --checkpoint-dir "../checkpoints/diffusion/motion_full_v2" --dataset-home "/n/holyscratch01/pslade_lab/AddBiomechanicsDataset/addb_dataset" --dropout --dropout-prob 0.5 --batch-size 16 --history-len 50 --use-diffusion --diffusion-steps 50 --short
