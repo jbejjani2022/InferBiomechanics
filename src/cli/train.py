@@ -190,9 +190,13 @@ class TrainCommand(AbstractCommand):
                                output_data_format=output_data_format,
                                device=device).to(device)
         
+        # Get total number of parameters in the model
+        num_params = sum(p.numel() for p in model.parameters())
+        logging.info(f'Num model params: {num_params / 1e6}M')
+        
         # Wrap model in DDP class
         ddp_model = DDP(model, device_ids=[device]) # find_unused_parameters=True
-
+    
         if use_diffusion:
             logging.info(f'[{rank=}] Initializing diffusion...')
             self.diffusion = self.get_gaussian_diffusion(args)
